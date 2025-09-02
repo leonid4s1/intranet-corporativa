@@ -1,0 +1,392 @@
+/* ==================== */
+/* VARIABLES ACTUALIZADAS */
+/* ==================== */
+:root {
+  --primary-color: #2c3e50;
+  --secondary-color: #3498db;
+  --accent-color: #2980b9;
+  --vacation-color: #27ae60;
+  --text-color: #333333;
+  --text-light: #7f8c8d;
+  --bg-light: #f8f9fa;
+  --white: #ffffff;
+  --border-radius: 6px;
+  --box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --sidebar-width: 220px;
+}
+
+/* ==================== */
+/* SIDEBAR - ESTILO EXACTO */
+/* ==================== */
+.sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--primary-color);
+  color: var(--white);
+  padding: 1.5rem 1rem;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar__logo {
+  font-size: 1.4rem;
+  margin-bottom: 2rem;
+  font-weight: 600;
+  text-align: center;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar__menu {
+  list-style: none;
+}
+
+.sidebar__menu li {
+  margin-bottom: 0.3rem;
+}
+
+.sidebar__menu button {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  width: 100%;
+  text-align: left;
+  padding: 0.6rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.sidebar__menu button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--white);
+}
+
+.sidebar__menu li.active button {
+  background-color: var(--accent-color);
+  color: var(--white);
+  font-weight: 500;
+}
+
+.badge {
+  background-color: #e74c3c;
+  color: white;
+  border-radius: 10px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  margin-left: auto;
+  font-weight: bold;
+}
+
+/* ==================== */
+/* CONTENIDO PRINCIPAL */
+/* ==================== */
+.main-content {
+  flex: 1;
+  padding: 2rem 2.5rem;
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+  background-color: var(--bg-light);
+}
+
+/* ==================== */
+/* HEADER DE USUARIO - ESTILO IMAGEN */
+/* ==================== */
+.user-header {
+  margin-bottom: 2.5rem;
+}
+
+.user-header__greeting {
+  font-size: 1.6rem;
+  font-weight: 500;
+  color: var(--primary-color);
+  margin-bottom: 0.3rem;
+}
+
+.user-header__company {
+  display: inline-block;
+  background-color: var(--primary-color);
+  color: var(--white);
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-right: 0.8rem;
+}
+
+.user-header__position {
+  font-size: 0.9rem;
+  color: var(--text-light);
+}
+
+/* ==================== */
+/* ACCESO RÁPIDO - ESTILO IMAGEN */
+/* ==================== */
+.quick-access {
+  margin-bottom: 2.5rem;
+}
+
+.quick-access h3 {
+  font-size: 1.2rem;
+  margin-bottom: 1.2rem;
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.access-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.2rem;
+}
+
+.access-card {
+  background: var(--white);
+  border-radius: var(--border-radius);
+  padding: 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid #e0e0e0;
+  box-shadow: var(--box-shadow);
+}
+
+.access-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.access-card.active {
+  border-left: 3px solid var(--secondary-color);
+  background-color: #f5f9ff;
+}
+
+.access-card h4 {
+  font-size: 1rem;
+  margin-bottom: 0.6rem;
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.access-card p {
+  color: var(--text-light);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+/* ==================== */
+/* NOTICIAS - ESTILO IMAGEN */
+/* ==================== */
+.news-section {
+  background: var(--white);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  border: 1px solid #e0e0e0;
+  box-shadow: var(--box-shadow);
+}
+
+.news-section h3 {
+  font-size: 1.2rem;
+  margin-bottom: 1.2rem;
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.news-item {
+  padding: 1rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.news-item:last-child {
+  border-bottom: none;
+}
+
+.news-title {
+  font-size: 1rem;
+  color: var(--primary-color);
+  margin-bottom: 0.4rem;
+  font-weight: 500;
+}
+
+.news-excerpt {
+  color: var(--text-light);
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.news-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--text-light);
+}
+
+.department {
+  font-style: italic;
+}
+
+/* ==================== */
+/* RESUMEN DE TAREAS - ESTILO IMAGEN */
+/* ==================== */
+.tasks-summary {
+  background: var(--white);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  border: 1px solid #e0e0e0;
+  box-shadow: var(--box-shadow);
+}
+
+.tasks-summary h3 {
+  font-size: 1.2rem;
+  margin-bottom: 1.2rem;
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.progress-container {
+  margin-top: 1rem;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.progress-info span:last-child {
+  color: var(--secondary-color);
+}
+
+.progress-bar {
+  height: 8px;
+  background-color: #eee;
+  border-radius: 4px;
+  margin: 1rem 0;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--secondary-color);
+  width: 42%; /* Valor fijo como en tu imagen */
+}
+
+.tasks-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  text-align: center;
+  margin-top: 1.5rem;
+}
+
+.stat {
+  padding: 0.8rem;
+}
+
+.stat .value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  display: block;
+  color: var(--primary-color);
+  margin-bottom: 0.3rem;
+}
+
+.stat .label {
+  font-size: 0.75rem;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ==================== */
+/* ESTILOS PARA VACACIONES */
+/* ==================== */
+
+/* Enlace en el sidebar */
+.sidebar__menu .vacation-link {
+  color: var(--vacation-color) !important;
+  font-weight: 500;
+}
+
+.sidebar__menu .vacation-link:hover {
+  background-color: rgba(39, 174, 96, 0.1) !important;
+}
+
+.sidebar__menu .vacation-link i {
+  margin-right: 8px;
+  font-size: 0.9rem;
+}
+
+/* Tarjeta de acceso rápido */
+.access-card.vacation-card {
+  border-top: 3px solid var(--vacation-color);
+}
+
+.access-card.vacation-card:hover {
+  border-color: var(--vacation-color);
+}
+
+.access-card.vacation-card i {
+  color: var(--vacation-color);
+}
+
+.access-card.vacation-card h4 {
+  color: var(--vacation-color);
+}
+
+/* ==================== */
+/* ICONOS EN TARJETAS */
+/* ==================== */
+.access-card i {
+  font-size: 1.5rem;
+  margin-bottom: 0.8rem;
+  display: block;
+  color: var(--secondary-color);
+}
+
+/* ==================== */
+/* ESTADO ACTIVO MEJORADO */
+/* ==================== */
+.sidebar__menu li.active button,
+.access-card.active {
+  background-color: rgba(52, 152, 219, 0.1);
+  color: var(--secondary-color);
+  border-left: 3px solid var(--secondary-color);
+}
+
+.access-card.active i {
+  color: var(--secondary-color);
+}
+
+/* ==================== */
+/* BOTÓN LOGOUT */
+/* ==================== */
+.logout-btn {
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-left: 1rem;
+  transition: all 0.2s ease;
+}
+
+.logout-btn:hover {
+  background-color: #c0392b;
+}
+
+.error-message {
+  color: #e74c3c;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}

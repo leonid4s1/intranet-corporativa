@@ -1,0 +1,350 @@
+<template>
+  <!-- src/views/auth/EmailVerificationView.vue -->
+  <div class="email-verification-container">
+    <div class="verification-card">
+      <template v-if="hasToken">
+        <template v-if="!isVerified">
+          <h1>Verificación de Email</h1>
+
+          <div class="verification-info">
+            <p v-if="userEmail">
+              Hemos enviado un enlace de verificación a <strong>{{ userEmail }}</strong>
+            </p>
+            <p>Por favor revisa tu bandeja de entrada y haz click en el enlace</p>
+          </div>
+
+          <div v-if="verificationStatus" class="status-message" :class="statusType">
+            <span>{{ verificationStatus }}</span>
+          </div>
+
+          <div class="action-buttons">
+            <button
+              @click="resendVerification"
+              :disabled="isResending || resendCooldown > 0"
+              class="resend-button"
+            >
+              <template v-if="isResending">
+                <LoadingSpinner size="small" />
+                Enviado...
+              </template>
+              <template v-else-if="resendCooldown > 0">
+                Reenviar en {{ resendCooldown }}s
+              </template>
+              <template v-else>
+                Reenviar correo
+              </template>
+            </button>
+
+            <router-link :to="{ name: 'login' }" class="login-link">
+              Volver al login
+            </router-link>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="verification-success">
+            <CheckCircleIcon class="success-icon" />
+            <h2>¡Email verificado con exito!</h2>
+            <p>Tu dirección de email ha sido confirmada correctamente</p>
+            <router-link
+              :to="{ name: 'dashboard'}"
+              class="dashboard-button"
+            >
+              Continuar al dashboard
+            </router-link>
+          </div>
+        </template>
+      </template>
+
+      <!-- Si NO hay token, mostrar mensaje fijo de correo enviado -->
+      <template v-else>
+        <h1>Correo de verificación enviado</h1>
+        <p>
+          Hemos enviado un enlace de verificación a <strong>{{ userEmail }}</strong>.
+        </p>
+        <p>Por favor revisa tu bandeja de entrada y haz click en el enlace para activar tu cuenta.</p>
+
+        <div class="action-buttons">
+          <button
+            @click="resendVerification"
+            :disabled="isResending || resendCooldown > 0"
+            class="resend-button"
+          >
+            <template v-if="isResending">
+              <LoadingSpinner size="small" />
+              Enviado...
+            </template>
+            <template v-else-if="resendCooldown > 0">
+              Reenviar en {{ resendCooldown }}s
+            </template>
+            <template v-else>
+              Reenviar correo
+            </template>
+          </button>
+
+          <router-link :to="{ name: 'login' }" class="login-link">
+            Volver al login
+          </router-link>
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
+
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useAuthStore } from '@/stores/auth.store';
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
+import CheckCircleIcon from '@/components/icons/CheckCircleIcon.vue';
+
+const route = useRoute();
+const router = useRouter();
+const authStore = useAuthStore();
+
+const isVerified = ref(false);
+const isResending = ref(false);
+const resendCooldown = ref(0);
+const verificationStatus = ref('');
+const statusType = ref<'success' | 'error'>('success');
+const userEmail = ref(authStore.user?.email || route.query.email?.toString() || '');
+const hasToken = ref(false);
+let verificationInterval: number | null = null;
+
+const verifyToken = async (token: string) => {
+  try {
+    verificationStatus.value = 'Verificando tu email...';
+    statusType.value = 'success';
+
+    const { success, verified, message } = await authStore.verifyEmail(token);
+
+    if (success && verified) {
+      isVerified.value = true;
+      verificationStatus.value = message || '¡Email verificado con éxito!';
+      await authStore.fetchUser();
+
+      setTimeout(() => {
+        const redirectRoute = authStore.isAdmin ? 'admin' : 'home';
+        router.push({ name: redirectRoute });
+      }, 3000);
+    } else {
+      throw new Error(message || 'Error al verificar el email');
+    }
+  } catch (error) {
+    statusType.value = 'error';
+    verificationStatus.value = error instanceof Error ? error.message : 'Error desconocido al verificar';
+  }
+};
+
+const resendVerification = async () => {
+  if (!userEmail.value) return;
+
+  isResending.value = true;
+  verificationStatus.value = 'Enviando correo de verificación...';
+  statusType.value = 'success';
+
+  try {
+    const { success, sent, message } = await authStore.resendVerificationEmail(userEmail.value);
+
+    if (success && sent) {
+      verificationStatus.value = message || 'Correo reenviado correctamente.';
+      startResendCooldown();
+    } else {
+      throw new Error(message || 'Error al reenviar el correo');
+    }
+  } catch (error) {
+    statusType.value = 'error';
+    verificationStatus.value = error instanceof Error ? error.message : 'Error desconocido al reenviar';
+  } finally {
+    isResending.value = false;
+  }
+};
+
+const startResendCooldown = () => {
+  resendCooldown.value = 60;
+  const interval = setInterval(() => {
+    if (resendCooldown.value > 0) {
+      resendCooldown.value--;
+    } else {
+      clearInterval(interval);
+    }
+  }, 1000);
+};
+
+const startVerificationCheck = () => {
+  verificationInterval = setInterval(async () => {
+    await authStore.fetchUser();
+    if (authStore.isEmailVerified) {
+      isVerified.value = true;
+      clearInterval(verificationInterval!);
+      const redirectRoute = authStore.isAdmin ? 'admin' : 'home';
+      router.push({ name: redirectRoute });
+    }
+  }, 5000);
+};
+
+onMounted(() => {
+  hasToken.value = !!route.params.token;
+
+  if (hasToken.value) {
+    verifyToken(route.params.token!.toString());
+  } else if (authStore.isAuthenticated && !authStore.isEmailVerified) {
+    verificationStatus.value = 'Correo de verificación enviado. Revisa tu email.';
+    statusType.value = 'success';
+    startVerificationCheck();
+  } else if (userEmail.value){
+    verificationStatus.value = 'Correo de verificación enviado. Revisa tu email.';
+    statusType.value = 'success';
+  }
+});
+
+watch(
+  () => route.params.token,
+  (newToken) => {
+    if (newToken) {
+      hasToken.value = true;
+      verifyToken(newToken.toString());
+    }
+  }
+);
+</script>
+
+
+<style scoped>
+.email-verification-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 2rem;
+  background-color: #f5f7fa;
+}
+
+.verification-card {
+  width: 100%;
+  max-width: 500px;
+  padding: 2.5rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  text-align: center;
+}
+
+h1 {
+  color: #2c3e50;
+  margin-bottom: 1.5rem;
+  font-size: 1.8rem;
+}
+
+.verification-info {
+  margin-bottom: 1.5rem;
+  color: #4a5568;
+}
+
+.verification-info p {
+  margin-bottom: 0.5rem;
+}
+
+.status-message {
+  padding: 0.75rem;
+  border-radius: 8px;
+  margin: 1.5rem 0;
+  font-weight: 500;
+}
+
+.status-message.success {
+  background-color: #f0fff4;
+  color: #2f855a;
+  border: 1px solid #c6f6d5;
+}
+
+.status-message.error {
+  background-color: #fff5f5;
+  color: #c53030;
+  border: 1px solid #fed7d7;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.resend-button {
+  padding: 0.75rem 1.5rem;
+  background-color: #4299e1;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.resend-button:hover:not(:disabled) {
+  background-color: #3182ce;
+}
+
+.resend-button:disabled {
+  background-color: #a0aec0;
+  cursor: not-allowed;
+}
+
+.login-link {
+  color: #4299e1;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.login-link:hover {
+  color: #3182ce;
+  text-decoration: underline;
+}
+
+.verification-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.success-icon {
+  width: 72px;
+  height: 72px;
+  color: #48bb78;
+  margin-bottom: 1rem;
+}
+
+.verification-success h2 {
+  color: #2f855a;
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.verification-success p {
+  color: #4a5568;
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-button {
+  padding: 0.75rem 1.5rem;
+  background-color: #48bb78;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color 0.2s;
+}
+
+.dashboard-button:hover {
+  background-color: #38a169;
+}
+</style>

@@ -1,0 +1,370 @@
+// server/src/models/User.js
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import dotenv from 'dotenv';
+import { type } from 'os';
+
+dotenv.config();
+
+const UserSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'El nombre es requerido'],
+    trim: true,
+    minlength: [2, 'El nombre debe tener al menos 2 caracteres'],
+    maxlength: [50, 'El nombre no puede exceder los 50 caracteres']
+  },
+
+  email: {
+    type: String,
+    required: [true, 'El email es requerido'],
+    unique: true,
+    trim: true,
+    lowercase: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Por favor ingresa un email válido'],
+    maxlength: [100, 'El email no puede exceder los 100 caracteres']
+  },
+
+  password: {
+    type: String,
+    required: [true, 'La contraseña es requerida'],
+    minlength: [8, 'La contraseña debe tener al menos 8 caracteres'],
+    select: false
+  },
+
+  role: {
+    type: String,
+    enum: {
+      values: ['admin', 'user', 'moderator'],
+      message: 'Rol no válido'
+    },
+    default: 'user',
+    required: true
+  },
+
+  refreshToken: {
+    type: String,
+    select: false
+  },
+
+  passwordResetToken: String,
+  passwordResetExpires: Date,
+
+  isActive: {
+    type: Boolean,
+    default: false
+  },
+
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+
+  email_verified_at: {
+    type: Date
+  },
+
+  lastLogin: {
+    type: Date
+  },
+
+  loginAttempts: {
+    type: Number,
+    default: 0
+  },
+
+  lockUntil: {
+    type: Date
+  },
+
+  emailVerificationToken: String,
+  emailVerificationExpires: Date,
+
+  vacationDays: {
+    total: {
+      type: Number,
+      default: 0,
+      min: [0, 'Los dias de vacaciones no pueden ser negativos'],
+      set: function(value) {
+        return Math.max(0, Math.floor(value));
+      }
+    },
+    used: {
+      type: Number,
+      default: 0,
+      min: [0, 'Los dias usados no pueden ser negativos'],
+      validate: {
+        validator: function(value) {
+          return value <= this.vacationDays.total;
+        },
+        message: 'Los dias usados no pueden exceder los dias totales'
+      }
+    },
+    lastUpdate: {
+      type: Date,
+      default: Date.now
+    }
+  },
+
+  vacationRequests: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'VacationRequest'
+  }]
+
+}, {
+  timestamps: true,
+  toJSON: { 
+    virtuals: true,
+    transform: function(doc, ret) {
+      delete ret._id;
+      delete ret.__v;
+      delete ret.password;
+      delete ret.refreshToken;
+      return ret;
+    }
+  },
+  toObject: { virtuals: true }
+});
+
+// Índices para mejor performance
+UserSchema.index({ role: 1 });
+UserSchema.index({ isActive: 1 });
+UserSchema.index({ isVerified: 1 });
+
+// Middleware para encriptar contraseña
+UserSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  
+  try {
+    const salt = await bcrypt.genSalt(12);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(new Error('Error al encriptar la contraseña'));
+  }
+});
+
+// Método para comparar contraseñas
+UserSchema.methods.comparePassword = async function(candidatePassword) {
+  try {
+    if (!candidatePassword) throw new Error('No se proporciono contraseña para comparar');
+    if (!this.password) throw new Error('No se encontro contraseña almacenada');
+    return await bcrypt.compare(candidatePassword, this.password);
+  } catch (error) {
+    console.error(`Error comparando contraseñas para usuario ${this.email}:`, error);
+    throw error; // Propaga el error para manejo superior
+  }
+};
+
+// Generar tokens
+UserSchema.methods.generateAuthToken = function() {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET no configurado');
+  return jwt.sign(
+    { userId: this._id, role: this.role },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE || '15m' }
+  );
+};
+
+UserSchema.methods.generateRefreshToken = function() {
+  if (!process.env.REFRESH_TOKEN_SECRET) throw new Error('REFRESH_TOKEN_SECRET no configurado');
+  const refreshToken = jwt.sign(
+    { userId: this._id },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: process.env.REFRESH_TOKEN_EXPIRE || '7d' }
+  );
+  this.refreshToken = refreshToken;
+  return refreshToken;
+};
+
+// Métodos para reset de contraseña
+UserSchema.methods.createPasswordResetToken = function() {
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  this.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutos
+  return resetToken;
+};
+
+// Bloqueo de cuenta por intentos fallidos
+UserSchema.methods.incrementLoginAttempts = async function() {
+  const MAX_LOGIN_ATTEMPTS = 5;
+  const LOCK_TIME = 15 * 60 * 1000; // 15 minutos
+  if (this.lockUntil && this.lockUntil > Date.now()) throw new Error('Cuenta temporalmente bloqueada');
+  this.loginAttempts += 1;
+  if (this.loginAttempts >= MAX_LOGIN_ATTEMPTS) this.lockUntil = Date.now() + LOCK_TIME;
+  await this.save();
+};
+
+UserSchema.methods.resetLoginAttempts = async function() {
+  this.loginAttempts = 0;
+  this.lockUntil = undefined;
+  await this.save();
+};
+
+UserSchema.methods = {
+  ...UserSchema.methods,
+
+  // Metodo para añadir dias de vacaciones
+  async addVacationDays(days) {
+    if (days <= 0) throw new Error('Debe añadir al menos 1 dia');
+
+    this.vacationDays.total += Math.floor(days);
+    this.vacationDays.lastUpdate = new Date();
+    await this.save();
+
+    return this;
+  },
+
+  // Metodo para usar dias de vacaciones
+  async useVacationDays(days) {
+    if (days <= 0) throw new Error('Debe usar al menos 1 dia');
+    if (this.vacationDays.remaining < days) {
+      throw new Error('No tiene suficientes dias disponibles');
+    }
+
+    this.vacationDays.used += Math.floor(days);
+    this.vacationDays.lastUpdate = new Date();
+    await this.save();
+
+    return this;
+  },
+
+  // Metodo para resetear dias de vacaciones
+  async resetVacationDays() {
+    this.vacationDays.total = 0;
+    this.vacationDays.used = 0;
+    this.vacationDays.lastUpdate = new Date();
+    await this.save();
+
+    return this;
+  },
+
+  // Metodo para establecer dias totales
+  async setVacationDays(totalDays) {
+    if (totalDays < 0) throw new Error('Los dias no pueden ser negativos');
+    if (totalDays < this.vacationDays.used) {
+      throw new Error('Los dias totales no pueden ser menores a los dias usados');
+    }
+
+    this.vacationDays.total = Math.floor(totalDays);
+    this.vacationDays.lastUpdate = new Date();
+    await this.save();
+
+    return this;
+  }
+};
+
+// Métodos estáticos
+UserSchema.statics.findByRefreshToken = async function(refreshToken) {
+  return this.findOne({ refreshToken }).select('+refreshToken');
+};
+
+UserSchema.statics.findByResetToken = async function(resetToken) {
+  const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+  return this.findOne({
+    passwordResetToken: hashedToken,
+    passwordResetExpires: { $gt: Date.now() }
+  });
+};
+
+// Virtuals
+UserSchema.virtual('isLocked').get(function() {
+  return !!(this.lockUntil && this.lockUntil > Date.now());
+});
+
+UserSchema.virtual('profile').get(function() {
+  return {
+    id: this._id,
+    email: this.email,
+    role: this.role,
+    isActive: this.isActive,
+    isVerified: this.isVerified,
+    createdAt: this.createdAt
+  };
+});
+
+// Dias de vacaciones restantes
+UserSchema.virtual('vacationDays.remaining').get(function () {
+  if (!this.vacationDays) return 0;
+  return Math.max(0, this.vacationDays.total - this.vacationDays.used);
+});
+
+// Middleware para logging
+UserSchema.post('save', async function(doc, next) {
+  try {
+    // 1. Log básico de la operación
+    console.log(`Usuario ${doc.email} guardado/actualizado`);
+
+    // 2. Sincronización con VacationData (solo si tiene vacationDays)
+    if (doc.vacationDays) {
+      const VacationModel = mongoose.model('VacationData');
+      const { total, used } = doc.vacationDays;
+      const remaining = total - used;
+
+      await VacationModel.findOneAndUpdate(
+        { user: doc._id },
+        {
+          total,
+          used,
+          remaining,
+          lastUpdate: new Date()
+        },
+        {
+          upsert: true, // Crea si no existe
+          new: true
+        }
+      );
+    }
+    console.log(`Datos de vacaciones sincronizados para ${doc.email}`);
+    next();
+  }catch (error){
+    console.error('Error en post-save hook:', error);
+    // No pasar el error a next() para no interrumpir el flujo principal
+    next();
+  }
+});
+
+export const getUsers = async (req, res) => {
+    try {
+        // Usamos select explícito para mayor seguridad
+        const users = await User.find()
+            .select('name email role isActive isVerified email_verified_at createdAt lastLogin')
+            .lean()
+            .exec();
+
+        // Transformación segura con verificación de tipos
+        const normalizedUsers = users.map(user => {
+            const userObj = user.toObject ? user.toObject() : user;
+            
+            return {
+                id: userObj._id ? userObj._id.toString() : null,
+                name: userObj.name || '',
+                email: userObj.email || '',
+                role: userObj.role || 'user',
+                isActive: userObj.isActive !== undefined ? userObj.isActive : true,
+                isVerified: userObj.isVerified || false,
+                emailVerified: !!userObj.email_verified_at,
+                lastLogin: userObj.lastLogin || null,
+                createdAt: userObj.createdAt || new Date()
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            count: normalizedUsers.length,
+            data: normalizedUsers
+        });
+    } catch (error) {
+        console.error('Error en getUsers:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Error al obtener usuarios',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+const User = mongoose.model('User', UserSchema);
+export default User;
