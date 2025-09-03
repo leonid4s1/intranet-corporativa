@@ -22,6 +22,14 @@ export type VacationRequestApi = {
   updatedAt?: string;
 };
 
+export type UIVacationRequest = {
+  id: string;
+  user: { id: string; name: string; email?: string };
+  startDate: string; // 'YYYY-MM-DD'
+  endDate: string;   // 'YYYY-MM-DD'
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+};
+
 export type VacationsUserResponse = {
   approved: VacationRequestApi[];
   pending: VacationRequestApi[];
@@ -200,24 +208,80 @@ export async function cancelVacationRequest(id: string) {
  * Endpoints de admin
  * ========================= */
 
-export async function getPendingRequests(): Promise<VacationRequestApi[]> {
-  // Servidor: GET /api/vacations/requests/pending
+export async function getPendingRequests(): Promise<UIVacationRequest[]> {
+  // Ideal: /vacations/requests/pending  (si no existe, usa /vacations/requests?status=pending)
   const { data } = await api.get('/vacations/requests/pending');
   const list = unwrapData<unknown>(data, []);
-  return (Array.isArray(list) ? list : []) as VacationRequestApi[];
+  const arr = Array.isArray(list) ? list : [];
+
+  return arr.map((v): UIVacationRequest => {
+    const rec = isRecord(v) ? (v as Record<string, unknown>) : {};
+
+    const id =
+      typeof rec._id === 'string'
+        ? rec._id
+        : typeof rec.id === 'string'
+        ? rec.id
+        : '';
+
+    const startDate = typeof rec.startDate === 'string' ? rec.startDate : '';
+    const endDate   = typeof rec.endDate   === 'string' ? rec.endDate   : '';
+    const status    = (typeof rec.status   === 'string' ? rec.status : 'pending') as UIVacationRequest['status'];
+
+    const u = isRecord(rec.user) ? (rec.user as Record<string, unknown>) : {};
+    const user = {
+      id:    typeof u._id  === 'string' ? u._id  : (typeof u.id === 'string' ? u.id : ''),
+      name:  typeof u.name === 'string' ? u.name : 'Usuario',
+      email: typeof u.email === 'string' ? u.email : undefined,
+    };
+
+    return { id, user, startDate, endDate, status };
+  });
 }
 
+type ApproveReject = 'approved' | 'rejected';
+type UpdateStatusPayload = {
+  id: string;
+  status: ApproveReject;
+  reason?: string;
+};
+
+function isUpdatePayload(v: unknown): v is UpdateStatusPayload {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'id' in v &&
+    'status' in v &&
+    (typeof (v as { id: unknown }).id === 'string') &&
+    (v as { status: unknown }).status === 'approved' ||
+    (v as { status: unknown }).status === 'rejected'
+  );
+}
+
+export function updateRequestStatus(payload: UpdateStatusPayload): Promise<unknown>;
+export function updateRequestStatus(id: string, status: ApproveReject, reason?: string): Promise<unknown>;
+
 export async function updateRequestStatus(
-  id: string,
-  status: 'approved' | 'rejected',
-  reason?: string
-) {
-  // Servidor: PATCH /api/vacations/requests/:id/status  (opcional reason para "rejected")
-  const { data } = await api.patch(`/vacations/requests/${id}/status`, {
-    status,
-    reason,
-  });
-  return data;
+  arg1: UpdateStatusPayload | string,
+  arg2?: ApproveReject,
+  arg3?: string
+): Promise<unknown> {
+  let id: string;
+  let status: ApproveReject;
+  let reason: string | undefined;
+
+  if (isUpdatePayload(arg1)) {
+    id = arg1.id;
+    status = arg1.status;
+    reason = arg1.reason;
+  } else {
+    id = arg1;
+    status = arg2 as ApproveReject;
+    reason = arg3;
+  }
+
+  const { data } = await api.patch(`/vacations/requests/${id}/status`, { status, reason });
+  return data as unknown;
 }
 
 /* =========================
