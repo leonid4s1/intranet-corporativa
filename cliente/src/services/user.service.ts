@@ -21,6 +21,10 @@ export interface UpdatePasswordPayload {
   newPassword: string
 }
 
+/* Auth payloads */
+export interface LoginPayload { email: string; password: string }
+export interface RegisterPayload { name: string; email: string; password: string }
+
 /* ========== Helpers seguros ========== */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null
@@ -40,7 +44,12 @@ function toBool(v: unknown): boolean | undefined {
 
 /** Normaliza un usuario venido del backend (con o sin envoltorio `data`) */
 function normalizeUser(raw: unknown): User | null {
-  const r = isRecord(raw) ? raw : isRecord((raw as { data?: unknown })?.data) ? ((raw as { data: unknown }).data as Record<string, unknown>) : null
+  const r =
+    isRecord(raw) ? raw
+    : isRecord((raw as { data?: unknown })?.data)
+      ? ((raw as { data: unknown }).data as Record<string, unknown>)
+      : null
+
   if (!r) return null
 
   const id = toStr(get(r, 'id')) ?? toStr(get(r, '_id'))
@@ -72,7 +81,32 @@ function unwrapList(data: unknown): unknown[] {
   return Array.isArray(data) ? data : []
 }
 
-/* ========== API ========== */
+/* ========== AUTH (usa siempre api con baseURL correcto) ========== */
+
+/** POST /auth/login */
+async function login(payload: LoginPayload): Promise<void> {
+  await api.post('/auth/login', payload)
+}
+
+/** POST /auth/register */
+async function register(payload: RegisterPayload): Promise<void> {
+  await api.post('/auth/register', payload)
+}
+
+/** GET /auth/profile -> User */
+async function getProfile(): Promise<User> {
+  const { data } = await api.get('/auth/profile')
+  const user = normalizeUser(isRecord(data) ? (get(data as Record<string, unknown>, 'user') ?? data) : data)
+  if (!user) throw new Error('Respuesta inválida al cargar perfil')
+  return user
+}
+
+/** POST /auth/logout */
+async function logout(): Promise<void> {
+  await api.post('/auth/logout')
+}
+
+/* ========== USERS (admin) ========== */
 
 /** GET /users -> User[] (acepta también {data:User[]}) */
 export async function getAllUsers(): Promise<User[]> {
@@ -90,33 +124,35 @@ export async function updateUserName(userId: string, payload: UpdateNamePayload)
   return user
 }
 
-/** (Opcional) PATCH /users/:id { role } -> User
- *  Úsalo si más adelante vuelves a habilitar el cambio de rol desde la vista.
- */
-// export async function updateUserRole(userId: string, role: Role): Promise<User> {
-//   const { data } = await api.patch(`/users/${encodeURIComponent(userId)}`, { role })
-//   const user = normalizeUser(data)
-//   if (!user) throw new Error('Respuesta inválida al actualizar rol')
-//   return user
-// }
-
 /** POST /users/:id/toggle-lock -> { id, isActive } (acepta también respuestas con {data}) */
 export async function toggleUserLock(
   userId: string
 ): Promise<{ id: string; isActive: boolean }> {
   const { data } = await api.post(`/users/${encodeURIComponent(userId)}/toggle-lock`)
-  const raw = isRecord(data) ? (data.data ?? data) : data
-  if (isRecord(raw)) {
-    const id = toStr(get(raw, 'id')) ?? toStr(get(raw, '_id')) ?? userId
+
+  // ✅ sin `any`
+  const container: unknown = isRecord(data) ? (get<unknown>(data, 'data') ?? data) : data
+
+  if (isRecord(container)) {
+    const id =
+      toStr(get(container, 'id')) ??
+      toStr(get(container, '_id')) ??
+      userId
+
     const isActive =
-      toBool(get(raw, 'isActive')) ??
-      toBool(get(raw, 'active')) ??
-      (toBool(get(raw, 'locked')) !== undefined ? !toBool(get(raw, 'locked'))! : undefined) ??
+      toBool(get(container, 'isActive')) ??
+      toBool(get(container, 'active')) ??
+      (toBool(get(container, 'locked')) !== undefined
+        ? !toBool(get(container, 'locked'))!
+        : undefined) ??
       true
+
     return { id, isActive: !!isActive }
   }
+
   return { id: userId, isActive: true }
 }
+
 
 /** PATCH /users/:id/password { newPassword } -> { success } */
 export async function updateUserPassword(
@@ -137,12 +173,17 @@ export async function deleteUser(userId: string): Promise<{ success: boolean }> 
   return { success }
 }
 
-/* ========== Export por defecto (compatible con imports actuales) ========== */
+/* ========== Export por defecto (compat con imports actuales) ========== */
 export default {
+  // auth
+  login,
+  register,
+  getProfile,
+  logout,
+  // admin users
   getAllUsers,
   updateUserName,
-  // updateUserRole, // <- descomenta si lo necesitas en la vista
   toggleUserLock,
   updateUserPassword,
-  deleteUser
+  deleteUser,
 }
