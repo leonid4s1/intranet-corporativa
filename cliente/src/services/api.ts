@@ -8,10 +8,15 @@ import axios, {
 } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
 
+// 🔧 Base URL: proxy en dev, Render en prod (vía env)
+const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL
+      (import.meta.env.PROD ? 'https://intranet-corporativa.onrender.com/api' : '/api');
+
 const api: AxiosInstance = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE_URL,
   timeout: 10000,
-  withCredentials: true,
+  withCredentials: true, // si usas cookies; si usas Bearer puedes quitarlo
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -25,24 +30,18 @@ api.interceptors.request.use(
     const authStore = useAuthStore();
     const token = authStore.token;
 
-    // Asegura un objeto AxiosHeaders (evita el error de tipos)
     const headers = (config.headers ??= new AxiosHeaders());
 
-    // Deshabilitar caché por defecto en GET (si quieres sólo en algunos, quita esto)
     if ((config.method ?? 'get').toLowerCase() === 'get') {
       headers.set('Cache-Control', 'no-store');
     }
-
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
-
-    // No cachear el perfil y añadir anti-caché en query
     if (config.url?.includes('/auth/profile')) {
       config.params = { ...(config.params ?? {}), _t: Date.now() };
       headers.set('Cache-Control', 'no-store');
     }
-
     return config;
   },
   (error) => Promise.reject(error instanceof Error ? error : new Error(String(error)))
