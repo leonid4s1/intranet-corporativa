@@ -1,33 +1,37 @@
+// cliente/vite.config.ts
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
-export default defineConfig({
-  plugins: [vue(), vueJsx(), vueDevTools()],
-  server: {
-    host: '0.0.0.0',
-    port: 5173,
-    strictPort: true, // evita que Vite cambie de puerto sin que te enteres
-    allowedHosts: ['shortcuts-trained-jun-bone.trycloudflare.com'], // ⬅️ tu host del túnel
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3000', // ⬅️ backend escuchando en 3000
-        changeOrigin: true,
-        // secure: false, // innecesario: el target es http
-        ws: true // por si usas websockets ahora o en el futuro
-      }
+export default defineConfig(({ mode }) => {
+  const isDev = mode === 'development'
+
+  return {
+    plugins: [
+      vue(),
+      vueJsx(),
+      ...(isDev ? [vueDevTools()] : []), // solo en dev
+    ],
+    server: {
+      host: '0.0.0.0',
+      port: 5173,
+      strictPort: true,
+      // el túnel de Cloudflare cambia; permite cualquier host en dev
+      allowedHosts: true,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3000', // tu backend
+          changeOrigin: true,
+          ws: true,
+        }
+      },
+      // Si el HMR no conecta por el túnel, descomenta:
+      // hmr: { protocol: 'wss', clientPort: 443 }
     },
-    // 🔧 Si el HMR no conecta a través del túnel, descomenta este bloque:
-    // hmr: {
-    //   protocol: 'wss',
-    //   clientPort: 443
-    // }
-  },
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+    resolve: {
+      alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) }
     }
   }
 })
