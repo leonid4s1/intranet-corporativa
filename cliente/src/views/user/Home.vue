@@ -1,15 +1,12 @@
-<script lang="ts">
-export default {
-  name: 'HomePage'
-}
-</script>
-
+<!-- src/views/user/Home.vue -->
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
-import { ref, computed, onMounted } from 'vue';
-import '@/assets/styles/components/home.css';
-import api from '@/services/api';
-import { useAuthStore } from '@/stores/auth.store';
+import { useRouter, useRoute } from 'vue-router'
+import { ref, computed, onMounted, defineOptions } from 'vue'
+import '@/assets/styles/components/home.css'
+import api from '@/services/api'
+import { useAuthStore } from '@/stores/auth.store'
+
+defineOptions({ name: 'HomePage' })
 
 interface Task {
   _id: string
@@ -24,42 +21,44 @@ interface User {
   avatar?: string
 }
 
-const router = useRouter();
-const user = ref<User>({ name: 'Usuario' }); // Valor por defecto
-const tasks = ref<Task[]>([]);
-const loading = ref(true);
-const error = ref('');
+const router = useRouter()
+const route = useRoute()
+
+const user = ref<User>({ name: 'Usuario' }) // Valor por defecto
+const tasks = ref<Task[]>([])
+const loading = ref(true)
+const error = ref('')
 
 const timeOfDay = computed(() => {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'dias';
-  if (hour < 19) return 'tardes';
-  return 'noches';
-});
+  const hour = new Date().getHours()
+  if (hour < 12) return 'dias'
+  if (hour < 19) return 'tardes'
+  return 'noches'
+})
 
-const pendingTasksCount = computed(() => tasks.value.filter(t => t.status === 'pending').length);
+const pendingTasksCount = computed(() => tasks.value.filter(t => t.status === 'pending').length)
 
 onMounted(async () => {
   try {
-    const response = await api.get('/auth/profile');
+    const response = await api.get('/auth/profile')
     if (response?.data?.user?.name) {
-      user.value = response.data.user;
+      user.value = response.data.user
     }
-  } catch (err) {
-    error.value = 'No se pudo cargar la información del usuario';
+  } catch {
+    error.value = 'No se pudo cargar la información del usuario'
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-});
+})
 
-const auth = useAuthStore();
+const auth = useAuthStore()
 const handleLogout = async () => {
-  await auth.logout();
-};
+  await auth.logout()
+}
 
-const navigateTo = (route: string) => {
-  router.push(`/${route}`);
-};
+const navigateTo = (path: string) => {
+  router.push(`/${path}`)
+}
 </script>
 
 <template>
@@ -75,7 +74,7 @@ const navigateTo = (route: string) => {
           <i class="fas fa-calendar-alt"></i> Vacaciones
         </button></li>
         <li><button @click="navigateTo('noticias')">Noticias</button></li>
-        <li :class="{ active: $route.path === '/tareas' }">
+        <li :class="{ active: route.path === '/tareas' }">
           <button @click="navigateTo('tareas')">
             Tareas <span v-if="pendingTasksCount > 0" class="badge">{{ pendingTasksCount }}</span>
           </button>
@@ -115,7 +114,7 @@ const navigateTo = (route: string) => {
             <h4>Vacaciones</h4>
             <p>Administra tus dias libres</p>
           </div>
-          <div class="access-card" :class="{ active: $route.path === '/tareas' }" @click="navigateTo('tareas')">
+          <div class="access-card" :class="{ active: route.path === '/tareas' }" @click="navigateTo('tareas')">
             <i class="fas fa-tasks"></i>
             <h4>Tareas</h4>
             <p>Visualiza tus pendientes <span v-if="pendingTasksCount > 0" class="badge">
