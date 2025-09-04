@@ -11,7 +11,8 @@ import { useAuthStore } from '@/stores/auth.store';
 // 🔧 Base URL: proxy en dev, Render en prod (vía env)
 const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL
-      (import.meta.env.PROD ? 'https://intranet-corporativa.onrender.com/api' : '/api');
+    ? (import.meta.env.VITE_API_BASE_URL ?? 'https://intranet-corporativa.onrender.com')
+    : '/api';
 
 const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
