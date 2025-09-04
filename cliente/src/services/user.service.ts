@@ -225,6 +225,46 @@ async function rejectRequest(id: string): Promise<void> {
   await api.patch(`/vacations/requests/${id}/status`, { status: 'rejected' });
 }
 
+function arrayFromData(data: unknown): unknown[] {
+  if (isRecord(data) && Array.isArray((data as Record<string, unknown>).data)) {
+    return (data as { data: unknown[] }).data;
+  }
+  return Array.isArray(data) ? (data as unknown[]) : [];
+}
+
+/** Lista solicitudes pendientes (intenta /pending y, si falla, usa ?status=pending) */
+async function getPendingRequests(): Promise<VacationRequestApi[]> {
+  try {
+    const { data } = await api.get('/vacations/requests/pending');
+    return normalizeVacationArray(arrayFromData(data));
+  } catch {
+    const { data } = await api.get('/vacations/requests', { params: { status: 'pending' } });
+    return normalizeVacationArray(arrayFromData(data));
+  }
+}
+
+
+/** Sobrecargas para aceptar objeto o parámetros sueltos */
+async function updateRequestStatus(
+  arg1: string | { id: string; status: 'approved' | 'rejected'; reason?: string },
+  arg2?: 'approved' | 'rejected',
+  arg3?: string
+): Promise<void> {
+  let id: string;
+  let status: 'approved' | 'rejected';
+  let reason: string | undefined;
+
+  if (typeof arg1 === 'object' && arg1 !== null) {
+    ({ id, status, reason } = arg1);
+  } else {
+    id = arg1;
+    status = arg2!;
+    reason = arg3;
+  }
+
+  await api.patch(`/vacations/requests/${id}/status`, { status, reason });
+}
+
 /* ===================== Export por defecto ===================== */
 export default {
   getVacationBalance,
@@ -236,4 +276,6 @@ export default {
   cancelVacationRequest,
   approveRequest,
   rejectRequest,
+  getPendingRequests,
+  updateRequestStatus
 };
