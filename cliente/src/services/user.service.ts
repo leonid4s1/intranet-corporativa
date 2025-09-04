@@ -1,4 +1,4 @@
-// src/services/vacation.service.ts
+// cliente/src/services/vacation.service.ts
 import api from '@/services/api'; // Axios con baseURL '/api'
 import dayjs from 'dayjs';
 
@@ -6,21 +6,21 @@ import dayjs from 'dayjs';
 export type Status = 'approved' | 'pending' | 'cancelled' | 'rejected';
 
 export type ApiHoliday = {
-  date: string;        // 'YYYY-MM-DD'
+  date: string; // 'YYYY-MM-DD'
   name?: string;
 };
 
 export type TeamVacationApi = {
-  startDate: string;   // 'YYYY-MM-DD'
-  endDate: string;     // 'YYYY-MM-DD'
+  startDate: string; // 'YYYY-MM-DD'
+  endDate: string;   // 'YYYY-MM-DD'
   user?: { id?: string; _id?: string; name?: string };
 };
 
 export type VacationRequestApi = {
   id?: string;
   _id?: string;
-  startDate: string;   // 'YYYY-MM-DD'
-  endDate: string;     // 'YYYY-MM-DD'
+  startDate: string; // 'YYYY-MM-DD'
+  endDate: string;   // 'YYYY-MM-DD'
   status: Status;
   reason?: string;
   daysRequested?: number;
@@ -60,12 +60,14 @@ function toYMD(v: unknown): string | undefined {
 
 /* ===================== Normalizadores ===================== */
 function normalizeBalance(raw: unknown): VacationBalance {
-  // Esperamos algo tipo: { success, data: { current: { total, used, remaining }, ... } }
+  // Soporta: { data:{ current:{ total, used, remaining } } } o { total, used, remaining }
   let current: Record<string, unknown> = {};
   if (isRecord(raw)) {
-    const dataObj = isRecord(raw.data) ? (raw.data as Record<string, unknown>) : undefined;
-    const currentObj = dataObj && isRecord(dataObj.current) ? (dataObj.current as Record<string, unknown>) : undefined;
-    current = currentObj ?? (raw as Record<string, unknown>);
+    const dataObj = get<Record<string, unknown>>(raw, 'data');
+    const currentObj = dataObj && isRecord(dataObj) && isRecord(dataObj.current)
+      ? (dataObj.current as Record<string, unknown>)
+      : undefined;
+    current = currentObj ?? raw;
   }
 
   const total = toNumberOpt(get(current, 'total')) ?? 0;
@@ -105,8 +107,8 @@ function normalizeVacationArray(arr: unknown): VacationRequestApi[] {
 }
 
 function normalizeHolidays(raw: unknown): ApiHoliday[] {
-  const list = Array.isArray((isRecord(raw) ? (raw as Record<string, unknown>).data : undefined))
-    ? ((raw as Record<string, unknown>).data as unknown[])
+  const list = Array.isArray(isRecord(raw) ? get<unknown[]>(raw, 'data') : undefined)
+    ? (get<unknown[]>(raw as Record<string, unknown>, 'data') as unknown[])
     : (Array.isArray(raw) ? (raw as unknown[]) : []);
 
   return list
@@ -120,8 +122,8 @@ function normalizeHolidays(raw: unknown): ApiHoliday[] {
 }
 
 function normalizeTeamVacations(raw: unknown): TeamVacationApi[] {
-  const list = Array.isArray((isRecord(raw) ? (raw as Record<string, unknown>).data : undefined))
-    ? ((raw as Record<string, unknown>).data as unknown[])
+  const list = Array.isArray(isRecord(raw) ? get<unknown[]>(raw, 'data') : undefined)
+    ? (get<unknown[]>(raw as Record<string, unknown>, 'data') as unknown[])
     : (Array.isArray(raw) ? (raw as unknown[]) : []);
 
   return list
@@ -131,7 +133,8 @@ function normalizeTeamVacations(raw: unknown): TeamVacationApi[] {
       const endDate = toYMD(get(v, 'endDate'));
 
       const userRaw = get<Record<string, unknown>>(v, 'user');
-      const userObj: Record<string, unknown> | undefined = userRaw && isRecord(userRaw) ? userRaw : undefined;
+      const userObj: Record<string, unknown> | undefined =
+        userRaw && isRecord(userRaw) ? userRaw : undefined;
       const user = userObj
         ? {
             id: toStringOpt(get(userObj, 'id')),
@@ -145,9 +148,15 @@ function normalizeTeamVacations(raw: unknown): TeamVacationApi[] {
     .filter((x): x is TeamVacationApi => !!x);
 }
 
-/* ===================== Service (rutas sin '/api') ===================== */
+function arrayFromData(data: unknown): unknown[] {
+  if (isRecord(data) && Array.isArray(get<unknown[]>(data, 'data'))) {
+    return (get<unknown[]>(data, 'data') as unknown[]) ?? [];
+  }
+  return Array.isArray(data) ? (data as unknown[]) : [];
+}
+
+/* ===================== Service (rutas sin '/api' porque baseURL ya es '/api') ===================== */
 async function getVacationBalance(): Promise<VacationBalance> {
-  // GET /vacations/balance
   const { data } = await api.get('/vacations/balance');
   return normalizeBalance(data);
 }
@@ -157,7 +166,6 @@ async function getHolidays(
   endDate: string,
   timezone?: string
 ): Promise<ApiHoliday[]> {
-  // GET /vacations/calendar/holidays
   const { data } = await api.get('/vacations/calendar/holidays', {
     params: { startDate, endDate, timezone },
   });
@@ -165,72 +173,44 @@ async function getHolidays(
 }
 
 async function getUserVacations(): Promise<{ approved: VacationRequestApi[]; pending: VacationRequestApi[] }> {
-  // GET /vacations/user  (ajusta a /vacations/requests si tu backend así lo expone)
   const { data } = await api.get('/vacations/user');
-
-  // Soportar { data: { approved, pending } } o { approved, pending }
-  const container = isRecord(data) && isRecord(data.data) ? (data.data as Record<string, unknown>) : (isRecord(data) ? (data as Record<string, unknown>) : {});
+  const container =
+    isRecord(data) && isRecord(get<Record<string, unknown>>(data, 'data'))
+      ? (get<Record<string, unknown>>(data, 'data') as Record<string, unknown>)
+      : (isRecord(data) ? (data as Record<string, unknown>) : {});
   const approved = normalizeVacationArray(get(container, 'approved'));
   const pending = normalizeVacationArray(get(container, 'pending'));
   return { approved, pending };
 }
 
 async function getTeamVacations(startDate: string, endDate: string): Promise<TeamVacationApi[]> {
-  // GET /vacations/calendar/team-vacations
   const { data } = await api.get('/vacations/calendar/team-vacations', { params: { startDate, endDate } });
   return normalizeTeamVacations(data);
 }
 
 async function getUnavailableDates(startDate: string, endDate: string): Promise<string[]> {
-  // GET /vacations/calendar/unavailable-dates
   const { data } = await api.get('/vacations/calendar/unavailable-dates', { params: { startDate, endDate } });
-
-  const list = Array.isArray((isRecord(data) ? (data as Record<string, unknown>).data : undefined))
-    ? ((data as Record<string, unknown>).data as unknown[])
+  const list = Array.isArray(isRecord(data) ? get<unknown[]>(data, 'data') : undefined)
+    ? (get<unknown[]>(data as Record<string, unknown>, 'data') as unknown[])
     : (Array.isArray(data) ? (data as unknown[]) : []);
-
   return list.map((d) => toYMD(d)).filter((d): d is string => !!d);
 }
 
 async function requestVacation(payload: { startDate: string; endDate: string; reason?: string }): Promise<VacationRequestApi> {
-  // POST /vacations/requests
   const { data } = await api.post('/vacations/requests', payload);
-
-  // La API puede devolver { success, data: obj } o directamente el objeto
-  const candidate = isRecord(data) && isRecord(data.data) ? [data.data] : [data];
+  const candidate = isRecord(data) && isRecord(get<Record<string, unknown>>(data, 'data'))
+    ? [get<Record<string, unknown>>(data as Record<string, unknown>, 'data')]
+    : [data];
   const normalized = normalizeVacationArray(candidate);
   if (normalized.length > 0) return normalized[0];
-
-  // Fallback mínimo con el payload
-  return {
-    startDate: payload.startDate,
-    endDate: payload.endDate,
-    status: 'pending',
-    reason: payload.reason,
-  };
+  return { startDate: payload.startDate, endDate: payload.endDate, status: 'pending', reason: payload.reason };
 }
 
 async function cancelVacationRequest(id: string): Promise<void> {
-  // PATCH /vacations/requests/:id/cancel
   await api.patch(`/vacations/requests/${id}/cancel`);
 }
 
-async function approveRequest(id: string): Promise<void> {
-  // PATCH /vacations/requests/:id/status { status: 'approved' }
-  await api.patch(`/vacations/requests/${id}/status`, { status: 'approved' });
-}
-
-async function rejectRequest(id: string): Promise<void> {
-  // PATCH /vacations/requests/:id/status { status: 'rejected' }
-  await api.patch(`/vacations/requests/${id}/status`, { status: 'rejected' });
-}
-
-function arrayFromData(data: unknown): unknown[] {
-  if (isRecord(data) && Array.isArray((data as Record<string, unknown>).data)) {
-    return (data as { data: unknown[] }).data;
-  }
-  return Array.isArray(data) ? (data as unknown[]) : [];
-}
+/* ====== Pendientes & cambio de estado (con tipado rígido y sobrecargas) ====== */
 
 /** Lista solicitudes pendientes (intenta /pending y, si falla, usa ?status=pending) */
 async function getPendingRequests(): Promise<VacationRequestApi[]> {
@@ -243,8 +223,9 @@ async function getPendingRequests(): Promise<VacationRequestApi[]> {
   }
 }
 
-
-/** Sobrecargas para aceptar objeto o parámetros sueltos */
+/* Sobrecargas: */
+function updateRequestStatus(id: string, status: 'approved' | 'rejected', reason?: string): Promise<void>;
+function updateRequestStatus(args: { id: string; status: 'approved' | 'rejected'; reason?: string }): Promise<void>;
 async function updateRequestStatus(
   arg1: string | { id: string; status: 'approved' | 'rejected'; reason?: string },
   arg2?: 'approved' | 'rejected',
@@ -258,11 +239,18 @@ async function updateRequestStatus(
     ({ id, status, reason } = arg1);
   } else {
     id = arg1;
-    status = arg2!;
+    status = arg2 as 'approved' | 'rejected';
     reason = arg3;
   }
-
   await api.patch(`/vacations/requests/${id}/status`, { status, reason });
+}
+
+/* Wrappers (compatibilidad con llamadas antiguas) */
+async function approveRequest(id: string): Promise<void> {
+  return updateRequestStatus(id, 'approved');
+}
+async function rejectRequest(id: string): Promise<void> {
+  return updateRequestStatus(id, 'rejected');
 }
 
 /* ===================== Export por defecto ===================== */
@@ -274,8 +262,9 @@ export default {
   getUnavailableDates,
   requestVacation,
   cancelVacationRequest,
+  getPendingRequests,
+  updateRequestStatus,
+  // compat:
   approveRequest,
   rejectRequest,
-  getPendingRequests,
-  updateRequestStatus
 };
