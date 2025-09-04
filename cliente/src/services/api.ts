@@ -8,16 +8,15 @@ import axios, {
 } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
 
-// 🔧 Base URL: proxy en dev, Render en prod (vía env)
-const API_BASE_URL =
-    import.meta.env.VITE_API_BASE_URL
-    ? (import.meta.env.VITE_API_BASE_URL ?? 'https://intranet-corporativa.onrender.com')
-    : '/api';
+// ✅ En dev usamos el proxy de Vite (/api). En prod usamos la ENV o el Render con /api.
+const API_BASE_URL = import.meta.env.PROD
+  ? (import.meta.env.VITE_API_BASE_URL ?? 'https://intranet-corporativa.onrender.com/api')
+  : '/api';
 
 const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
-  withCredentials: true, // si usas cookies; si usas Bearer puedes quitarlo
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -25,7 +24,6 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-/** ===== Interceptor de petición ===== */
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const authStore = useAuthStore();
@@ -48,7 +46,6 @@ api.interceptors.request.use(
   (error) => Promise.reject(error instanceof Error ? error : new Error(String(error)))
 );
 
-/** ===== Interceptor de respuesta ===== */
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -71,7 +68,6 @@ api.interceptors.response.use(
   }
 );
 
-/** ===== API Service tipado ===== */
 export const apiService = {
   get:   <T = unknown>(url: string, config?: AxiosRequestConfig) =>
     api.get<T>(url, config),
