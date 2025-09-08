@@ -1,4 +1,5 @@
-﻿import express from 'express';
+﻿// server/src/index.js
+import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -19,27 +20,25 @@ dotenv.config();
 
 const app = express();
 
-/** Muy importante detrás de proxies (Render/Vercel) para que cookies `secure` funcionen */
+/** Detrás de proxies (Render/Vercel) para que cookies `secure` funcionen */
 app.set('trust proxy', 1);
 
 /** Cookies firmadas */
 app.use(cookieParser(process.env.COOKIE_SECRET));
 
-/** Helmet (CSP mínima para API). Si sirves el frontend desde Vercel, no necesitas CSP estricta aquí */
-app.use(helmet({
-  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}));
-
-/** CORS unificado: whitelist + regex */
+/** ====================== CORS (DEBE IR ANTES DE HELMET) ====================== */
 const allowedList = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
-const originRegex = process.env.CORS_ORIGIN_REGEX ? new RegExp(process.env.CORS_ORIGIN_REGEX) : null;
+
+const originRegex = process.env.CORS_ORIGIN_REGEX
+  ? new RegExp(process.env.CORS_ORIGIN_REGEX)
+  : null;
+
 const allowedLower = allowedList.map(o => o.toLowerCase());
 
-app.use(cors({
+const corsOptions = {
   origin(origin, cb) {
     if (!origin) return cb(null, true); // curl/Postman/SSR
     const low = origin.toLowerCase();
@@ -52,6 +51,16 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   exposedHeaders: ['Set-Cookie'],
   optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // preflight para todas las rutas
+/** ========================================================================== */
+
+/** Helmet (después de CORS) */
+app.use(helmet({
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 
 app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
@@ -80,9 +89,10 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/vacations', vacationRoutes);
 
-/** (Opcional) Servir frontend build local SOLO si lo quieres monolito
- *  Para Render + Vercel, déjalo apagado (SERVE_STATIC != 'true')
- *  OJO: la carpeta correcta en tu repo es `cliente/dist` (no `client/dist`)
+/**
+ * (Opcional) Servir frontend build local sólo si quieres monolito
+ * Para Render + Vercel, déjalo apagado (SERVE_STATIC != 'true')
+ * OJO: la carpeta correcta en tu repo es `cliente/dist`
  */
 if (process.env.SERVE_STATIC === 'true') {
   const __filename = fileURLToPath(import.meta.url);
