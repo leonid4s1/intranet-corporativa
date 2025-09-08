@@ -26,7 +26,7 @@ app.set('trust proxy', 1);
 /** Cookies firmadas */
 app.use(cookieParser(process.env.COOKIE_SECRET));
 
-/** ====================== CORS (DEBE IR ANTES DE HELMET) ====================== */
+/* ====================== CORS (DEBE IR ANTES DE HELMET) ====================== */
 const allowedList = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
   .split(',')
   .map(s => s.trim())
@@ -37,25 +37,47 @@ const originRegex = process.env.CORS_ORIGIN_REGEX
   : null;
 
 const allowedLower = allowedList.map(o => o.toLowerCase());
+const CORS_DEBUG = process.env.CORS_DEBUG === 'true';
 
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true); // curl/Postman/SSR
+    if (!origin) {
+      CORS_DEBUG && console.log('[CORS] sin Origin (curl/Postman) -> OK');
+      return cb(null, true);
+    }
     const low = origin.toLowerCase();
-    if (allowedLower.includes(low)) return cb(null, true);
-    if (originRegex && originRegex.test(origin)) return cb(null, true);
-    return cb(new Error(`CORS: Origen ${origin} no permitido. Permitidos: ${allowedList.join(', ')}; Regex: ${process.env.CORS_ORIGIN_REGEX || 'N/A'}`));
+    const passList = allowedLower.includes(low);
+    const passRegex = originRegex ? originRegex.test(origin) : false;
+
+    CORS_DEBUG && console.log(
+      '[CORS] origin:', origin,
+      '| passList:', passList,
+      '| passRegex:', passRegex,
+      '| allowedList:', allowedList.join(', '),
+      '| regex:', originRegex ? originRegex.source : 'N/A'
+    );
+
+    if (passList || passRegex) return cb(null, true);
+    return cb(new Error(`CORS: Origen ${origin} NO permitido`));
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  exposedHeaders: ['Set-Cookie'],
+  // Deja que el paquete 'cors' refleje los headers y métodos solicitados en el preflight
+  allowedHeaders: undefined,
+  methods: undefined,
   optionsSuccessStatus: 204,
+  preflightContinue: false,
 };
 
+// ⚠️ CORS PRIMERO
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions)); // preflight para todas las rutas
-/** ========================================================================== */
+
+// Evita problemas de cache/CDN con CORS
+app.use((req, res, next) => {
+  res.header('Vary', 'Origin');
+  next();
+});
+/* ========================================================================== */
 
 /** Helmet (después de CORS) */
 app.use(helmet({
@@ -90,8 +112,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/vacations', vacationRoutes);
 
 /**
- * (Opcional) Servir frontend build local sólo si quieres monolito
- * Para Render + Vercel, déjalo apagado (SERVE_STATIC != 'true')
+ * (Opcional) Servir frontend build local sólo si quieres monolito.
+ * Para Render + Vercel, déjalo apagado (SERVE_STATIC != 'true').
  * OJO: la carpeta correcta en tu repo es `cliente/dist`
  */
 if (process.env.SERVE_STATIC === 'true') {
