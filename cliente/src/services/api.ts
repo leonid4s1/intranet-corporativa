@@ -24,6 +24,23 @@ const api: AxiosInstance = axios.create({
   },
 });
 
+/**
+ * 🔒 Reescritura a URL absoluta (a prueba de balas)
+ * Si la petición usa una URL que empieza con "/", en PROD la forzamos a
+ *  `https://intranet-corporativa.onrender.com/api/...`
+ * Esto cubre el caso en que Axios no combine correctamente baseURL+url.
+ */
+api.interceptors.request.use((config) => {
+  const isProdApiAbsolute = /^https?:\/\//i.test(API_BASE_URL);
+  if (isProdApiAbsolute && config.url && config.url.startsWith('/')) {
+    const base = API_BASE_URL.replace(/\/+$/, '');
+    const path = config.url.replace(/^\/+/, '');
+    config.url = `${base}/${path}`;
+  }
+  return config;
+});
+
+/** ===== Interceptor de petición (auth, cache busting, etc.) ===== */
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const authStore = useAuthStore();
@@ -46,6 +63,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error instanceof Error ? error : new Error(String(error)))
 );
 
+/** ===== Interceptor de respuesta ===== */
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -68,6 +86,7 @@ api.interceptors.response.use(
   }
 );
 
+/** ===== API Service tipado ===== */
 export const apiService = {
   get:   <T = unknown>(url: string, config?: AxiosRequestConfig) =>
     api.get<T>(url, config),
