@@ -10,11 +10,11 @@ import errorHandler from './middleware/errorHandler.js';
 import authRoutes from './routes/auth.js';
 import newsRoutes from './routes/news.js';
 import tasksRoutes from './routes/tasks.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import cookieParser from 'cookie-parser';
 import userRoutes from './routes/users.js';
 import vacationRoutes from './routes/vacations.js';
+import cookieParser from 'cookie-parser';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -41,37 +41,51 @@ const CORS_DEBUG = process.env.CORS_DEBUG === 'true';
 
 const corsOptions = {
   origin(origin, cb) {
+    // Permite curl/Postman/SSR (sin cabecera Origin)
     if (!origin) {
-      CORS_DEBUG && console.log('[CORS] sin Origin (curl/Postman) -> OK');
+      CORS_DEBUG && console.log('[CORS] sin Origin -> OK');
       return cb(null, true);
     }
+
     const low = origin.toLowerCase();
-    const passList = allowedLower.includes(low);
-    const passRegex = originRegex ? originRegex.test(origin) : false;
 
-    CORS_DEBUG && console.log(
-      '[CORS] origin:', origin,
-      '| passList:', passList,
-      '| passRegex:', passRegex,
-      '| allowedList:', allowedList.join(', '),
-      '| regex:', originRegex ? originRegex.source : 'N/A'
+    // 1) Acepta cualquier *.vercel.app (Vercel cambia subdominio cada deploy)
+    if (low.endsWith('.vercel.app')) {
+      CORS_DEBUG && console.log('[CORS] vercel match:', origin);
+      return cb(null, true);
+    }
+
+    // 2) Lista blanca exacta
+    if (allowedLower.includes(low)) {
+      CORS_DEBUG && console.log('[CORS] whitelist match:', origin);
+      return cb(null, true);
+    }
+
+    // 3) Regex opcional desde ENV
+    if (originRegex && originRegex.test(low)) {
+      CORS_DEBUG && console.log('[CORS] regex match:', origin);
+      return cb(null, true);
+    }
+
+    // NO permitido (NO lanzamos error para no romper el preflight con 500)
+    console.warn(
+      '[CORS] NO permitido:',
+      origin,
+      '| allowed:',
+      allowedList.join(', ') || '(vacío)',
+      '| regex:',
+      originRegex ? originRegex.source : 'N/A'
     );
-
-    if (passList || passRegex) return cb(null, true);
-    return cb(new Error(`CORS: Origen ${origin} NO permitido`));
+    return cb(null, false);
   },
   credentials: true,
-  // Deja que el paquete 'cors' refleje los headers y métodos solicitados en el preflight
-  allowedHeaders: undefined,
-  methods: undefined,
+  // Deja que 'cors' responda con los headers adecuados
   optionsSuccessStatus: 204,
   preflightContinue: false,
 };
 
-// ⚠️ CORS PRIMERO
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // preflight para todas las rutas
-
+app.options('*', cors(corsOptions)); // preflight global
 // Evita problemas de cache/CDN con CORS
 app.use((req, res, next) => {
   res.header('Vary', 'Origin');
@@ -80,10 +94,12 @@ app.use((req, res, next) => {
 /* ========================================================================== */
 
 /** Helmet (después de CORS) */
-app.use(helmet({
-  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}));
+app.use(
+  helmet({
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
 
 app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 app.use(express.json({ limit: '10kb' }));
@@ -133,7 +149,11 @@ const port = process.env.PORT || 3000;
 const server = app.listen(port, () => {
   console.log(`🚀 Servidor corriendo en modo ${process.env.NODE_ENV || 'development'}`);
   console.log(`📡 URL: http://localhost:${port}`);
-  console.log(`🌍 CORS whitelist: ${allowedList.join(', ') || '(vacío)'} | regex: ${process.env.CORS_ORIGIN_REGEX || 'N/A'}`);
+  console.log(
+    `🌍 CORS whitelist: ${allowedList.join(', ') || '(vacío)'} | regex: ${
+      originRegex ? originRegex.source : 'N/A'
+    }`
+  );
 });
 
 process.on('unhandledRejection', (err) => {
