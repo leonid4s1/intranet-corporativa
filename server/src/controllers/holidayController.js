@@ -1,228 +1,223 @@
 // server/src/controllers/holidayController.js
-import mongoose from "mongoose";
-import Holiday from "../models/Holiday.js";
-import { createAuditLog } from './auditController.js'
+import mongoose from 'mongoose';
+import Holiday from '../models/Holiday.js';
+import { createAuditLog } from './auditController.js';
 
-// Crear un nuevo dia festivo
+// Helpers de fecha
+const toUTCDate = (s) => {
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return d; // inválida
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+};
+const toYMD = (d) => new Date(d).toISOString().split('T')[0];
+
+// ===================== CREATE =====================
 export const createHoliday = async (req, res) => {
-    try {
-        const { name, date, recurring, description } = req.body;
+  try {
+    const { name, date, recurring, description } = req.body;
 
-        // Validacion mejorada
-        if (!name || !date) {
-            return res.status(400).json({
-                success: false,
-                error: 'Nombre y fecha son obligatorios',
-                details: {
-                    missingFields: {
-                        name: !name ? 'Campo requerido' : undefined,
-                        date: !date ? 'Campo requerido' : undefined
-                    }
-                }
-            });
-        }
-
-        // Validar formato de fecha
-        const dateObj = new Date(date);
-        if (isNaN(dateObj.getTime())) {
-            return res.status(400).json({
-                success: false,
-                error: 'Formato de fecha inválido',
-                expectedFormat: 'YYYY-MM-DD'
-            });
-        }
-        // Fijar la hora a medianoche UTC para evitar desfase
-        dateObj.setUTCHours(0, 0, 0, 0);
-
-        // Verificar si ya existe un festivo para esa fecha
-        const existingHoliday = await Holiday.findOne({ date: dateObj });
-        if (existingHoliday) {
-            return res.status(400).json({
-                success: false,
-                error: 'Ya existe un festivo para esta fecha',
-                existingHolidayId: existingHoliday._id
-            });
-        }
-
-        const holiday = new Holiday({
-            name,
-            date: dateObj,
-            recurring: recurring ?? false,
-            description: description || undefined
-        });
-
-        await holiday.save();
-        
-        // Auditoria
-        await createAuditLog({
-            user: req.user.id,
-            action: 'create_holiday',
-            entity: 'Holiday',
-            entityId: holiday._id,
-            details: { name, date: dateObj.toISOString() }
-        });
-
-        res.status(201).json({
-            success: true,
-            data: {
-                id: holiday._id,
-                name: holiday.name,
-                date: holiday.date.toISOString().split('T')[0],
-                recurring: holiday.recurring,
-                description: holiday.description
-            }
-        });
-    } catch (error) {
-        console.error('Error al crear dia festivo:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Error interno del servidor',
-            systemError: error.message
-        });
+    if (!name || !date) {
+      return res.status(400).json({
+        success: false,
+        error: 'Nombre y fecha son obligatorios',
+        details: {
+          missingFields: {
+            name: !name ? 'Campo requerido' : undefined,
+            date: !date ? 'Campo requerido' : undefined,
+          },
+        },
+      });
     }
+
+    const dateObj = toUTCDate(date);
+    if (Number.isNaN(dateObj.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Formato de fecha inválido',
+        expectedFormat: 'YYYY-MM-DD',
+      });
+    }
+
+    const existingHoliday = await Holiday.findOne({ date: dateObj });
+    if (existingHoliday) {
+      return res.status(400).json({
+        success: false,
+        error: 'Ya existe un festivo para esta fecha',
+        existingHolidayId: existingHoliday._id,
+      });
+    }
+
+    const holiday = await Holiday.create({
+      name,
+      date: dateObj,
+      recurring: !!recurring,
+      description: description || undefined,
+    });
+
+    // Auditoría
+    try {
+      await createAuditLog({
+        user: req.user?.id,
+        action: 'create_holiday',
+        entity: 'Holiday',
+        entityId: holiday._id,
+        details: { name, date: toYMD(dateObj) },
+      });
+    } catch (_) {}
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        id: String(holiday._id),
+        name: holiday.name,
+        date: toYMD(holiday.date),
+        recurring: holiday.recurring,
+        description: holiday.description,
+      },
+    });
+  } catch (error) {
+    console.error('Error al crear dia festivo:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+      systemError: error.message,
+    });
+  }
 };
 
-// Obtener todos los dias festivos (con filtro por rango de fechas)
+// ===================== READ (rango opcional) =====================
 export const getHolidays = async (req, res) => {
-    try {
-        const { startDate, endDate } = req.query;
+  try {
+    const { startDate, endDate } = req.query;
 
-        let query = {};
-        if (startDate && endDate) {
-            const start = new Date(startDate);
-            const end = new Date(endDate);
-
-            start.setUTCHours(0, 0, 0, 0);
-            end.setUTCHours(23, 59, 59, 999);
-
-            query.date = {
-                $gte: new Date(startDate),
-                $lte: new Date(endDate)
-            };
-        }
-
-        const holidays = await Holiday.find(query)
-            .sort({ date: 1 })
-            .lean();
-
-        res.json({
-            success: true,
-            data: holidays
+    const q = {};
+    if (startDate && endDate) {
+      const start = toUTCDate(startDate);
+      const end = toUTCDate(endDate);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Fechas inválidas',
+          expectedFormat: 'YYYY-MM-DD',
         });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+      }
+      // día completo en UTC
+      end.setUTCHours(23, 59, 59, 999);
+      q.date = { $gte: start, $lte: end };
     }
+
+    const items = await Holiday.find(q).sort({ date: 1 }).lean();
+
+    return res.json({
+      success: true,
+      data: items.map((h) => ({
+        id: String(h._id),
+        name: h.name,
+        date: toYMD(h.date),
+        recurring: !!h.recurring,
+        description: h.description || undefined,
+      })),
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
 };
 
-// Actualizar un dia festivo
+// ===================== UPDATE =====================
 export const updateHoliday = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, date, recurring, description } = req.body;
 
-    let dateObj;
+    const updateData = {};
+    if (typeof name === 'string') updateData.name = name;
+    if (typeof recurring === 'boolean') updateData.recurring = recurring;
+    if (typeof description === 'string' || description === null)
+      updateData.description = description || undefined;
+
     if (date) {
-      dateObj = new Date(date);
-      if (isNaN(dateObj.getTime())) {
+      const dateObj = toUTCDate(date);
+      if (Number.isNaN(dateObj.getTime())) {
         return res.status(400).json({
           success: false,
           error: 'Formato de fecha inválido',
-          expectedFormat: 'YYYY-MM-DD'
+          expectedFormat: 'YYYY-MM-DD',
         });
       }
-      // Fijar la hora a medianoche UTC
-      dateObj.setUTCHours(0, 0, 0, 0);
-    }
-
-    const updateData = {
-      name,
-      recurring,
-      description
-    };
-
-    if (dateObj) {
       updateData.date = dateObj;
     }
 
-    const updateHoliday = await Holiday.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true }
-    );
+    const updatedHoliday = await Holiday.findByIdAndUpdate(id, updateData, {
+      new: true,
+    });
 
-    if (!updateHoliday) {
-      return res.status(404).json({ error: 'Dia festivo no encontrado' });
+    if (!updatedHoliday) {
+      return res
+        .status(404)
+        .json({ success: false, error: 'Día festivo no encontrado' });
     }
 
-    res.json({ success: true, data: updateHoliday });
+    return res.json({
+      success: true,
+      data: {
+        id: String(updatedHoliday._id),
+        name: updatedHoliday.name,
+        date: toYMD(updatedHoliday.date),
+        recurring: !!updatedHoliday.recurring,
+        description: updatedHoliday.description || undefined,
+      },
+    });
   } catch (error) {
     console.error('Error al actualizar dias festivos:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// Eliminar un dia festivo
+// ===================== DELETE =====================
 export const deleteHoliday = async (req, res) => {
-    try {
-        const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-        const isValidObjectId = mongoose.Types.ObjectId.isValid(id);
+    const isValidObjectId = mongoose.Types.ObjectId.isValid(id);
+    const filter = isValidObjectId ? { _id: id } : { customId: id };
 
-        const filter = isValidObjectId
-            ? { _id: id }
-            : { customId: id };
+    const deleted = await Holiday.findOneAndDelete(filter);
 
-        const deleted = await Holiday.findOneAndDelete(filter);
-
-        if (!deleted) {
-            return res.status(404).json({
-                success: false,
-                error: 'Día festivo no encontrado',
-                input: id,
-                suggestions: await Holiday.find({
-                    $or: [
-                        { name: { $regex: id, $options: 'i' } },
-                        { customId: { $regex: id, $options: 'i' } }
-                    ]
-                }).limit(5)
-            });
-        }
-
-        // Auditoría
-        await createAuditLog({
-            user: req.user.id,
-            action: 'delete_holiday',
-            entity: 'Holiday',
-            entityId: deleted._id,
-            details: {
-                name: deleted.name,
-                date: deleted.date,
-                customId: deleted.customId
-            }
-        });
-
-        res.json({
-            success: true,
-            data: {
-                deleted: {
-                    id: deleted._id,
-                    customId: deleted.customId,
-                    name: deleted.name
-                },
-                remaining: await Holiday.countDocuments()
-            }
-        });
-    } catch (error) {
-        console.error('Error al eliminar día festivo:', error);
-
-        res.status(500).json({
-            success: false,
-            error: 'Error interno del servidor',
-            systemError: process.env.NODE_ENV === 'development' ? error.stack || error.message : undefined,
-            docs: 'https://api.tudominio.com/docs/errors#holiday-deletion'
-        });
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        error: 'Día festivo no encontrado',
+        input: id,
+      });
     }
+
+    try {
+      await createAuditLog({
+        user: req.user?.id,
+        action: 'delete_holiday',
+        entity: 'Holiday',
+        entityId: deleted._id,
+        details: {
+          name: deleted.name,
+          date: toYMD(deleted.date),
+          customId: deleted.customId,
+        },
+      });
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      data: {
+        deleted: { id: String(deleted._id), name: deleted.name, date: toYMD(deleted.date) },
+      },
+    });
+  } catch (error) {
+    console.error('Error al eliminar día festivo:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor',
+      systemError: process.env.NODE_ENV === 'development' ? error.stack || error.message : undefined,
+    });
+  }
 };

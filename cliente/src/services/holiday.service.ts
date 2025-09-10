@@ -1,237 +1,245 @@
 // src/services/holiday.service.ts
-import api from "./api";
+import api from './api';
 
-interface HolidayBase {
+/* =========================
+ * Tipos
+ * ========================= */
+
+export interface Holiday {
   id: string;
   name: string;
-  date: string;
+  date: string;         // YYYY-MM-DD
   recurring: boolean;
   description?: string;
   customId?: string;
 }
 
-interface Holiday extends HolidayBase {
-  id: string;
-  date: string; // ISO format
-}
-
-interface HolidayCreateData {
+export interface HolidayCreateData {
   name: string;
-  date: string; // YYYY-MM-DD or ISO
+  date: string;         // YYYY-MM-DD o ISO
   recurring?: boolean;
   description?: string;
   customId?: string;
 }
 
-interface HolidayUpdateData extends Partial<HolidayCreateData> {
-  id: string;
-}
+export type HolidayUpdateData = Partial<HolidayCreateData>;
 
-interface DeleteHolidayResponse {
+type DeletedMeta = { id: string; name?: string; customId?: string };
+
+export interface DeleteHolidayResponse {
   success: boolean;
   remaining: number;
-  deletedHoliday?: Pick<Holiday, 'id' | 'name' | 'date'>;
+  deleted?: DeletedMeta;
 }
 
-interface ApiError {
-  error?: string;
-  details?: Record<string, unknown>;
-  suggestions?: Array<Pick<Holiday, 'id' | 'name'>>;
-}
+/* =========================
+ * Constantes y helpers
+ * ========================= */
 
-const MIN_NAME_LENGTH = 5;
+const MIN_NAME_LENGTH = 3;
 const DATE_FORMAT = 'YYYY-MM-DD';
 
-// Función helper para normalizar errores (ahora fuera del objeto)
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return typeof x === 'object' && x !== null;
+}
+
+function toMidnightUTC(isoOrYmd: string): string {
+  const d = new Date(isoOrYmd);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Formato de fecha inválido. Use ${DATE_FORMAT}`);
+  }
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
 function normalizeHolidayError(error: unknown, action: string): Error {
-  // Error de validación manual
-  if (error instanceof Error && !('response' in error)) {
+  // Errores lanzados manualmente
+  if (error instanceof Error && !(isRecord((error as unknown as { response?: unknown }).response))) {
     return error;
   }
 
-  // Error de Axios
-  const axiosError = error as { response?: { data?: ApiError } };
-  const serverError = axiosError.response?.data?.error;
-  const details = axiosError.response?.data?.details;
+  const axiosLike = error as { response?: { data?: unknown; status?: number } };
+  const data = axiosLike.response?.data;
 
-  let errorMessage = `Error al ${action} día festivo`;
-  if (serverError) errorMessage += `: ${serverError}`;
-  if (details) errorMessage += ` (${JSON.stringify(details)})`;
+  let serverError: string | undefined;
+  let details: unknown;
 
-  return new Error(errorMessage);
+  if (isRecord(data)) {
+    const errVal = data.error;
+    const msgVal = data.message;
+    if (typeof errVal === 'string') serverError = errVal;
+    else if (typeof msgVal === 'string') serverError = msgVal;
+
+    details = data.details;
+  }
+
+  let msg = `Error al ${action} día festivo`;
+  if (serverError) msg += `: ${serverError}`;
+  if (details) msg += ` (${JSON.stringify(details)})`;
+  return new Error(msg);
 }
 
+function mapApiHoliday(h: unknown): Holiday | null {
+  if (!isRecord(h)) return null;
+
+  const id =
+    (typeof h.id === 'string' && h.id) ||
+    (typeof h._id === 'string' && h._id) ||
+    '';
+
+  const name = typeof h.name === 'string' ? h.name : '';
+  const dateStr = typeof h.date === 'string' ? h.date : '';
+  const recurring = Boolean(h.recurring);
+  const description =
+    typeof h.description === 'string' ? h.description : undefined;
+  const customId =
+    typeof h.customId === 'string' ? h.customId : undefined;
+
+  if (!id || !name || !dateStr) return null;
+
+  return {
+    id,
+    name,
+    date: toMidnightUTC(dateStr),
+    recurring,
+    description,
+    customId,
+  };
+}
+
+/* =========================
+ * Servicio
+ * ========================= */
+
 const holidayService = {
-  /**
-   * Crea un nuevo día festivo
-   * @throws {Error} Con mensaje descriptivo cuando falla
-   */
-  async createHoliday(data: HolidayCreateData): Promise<Holiday> {
+  /** Crear festivo */
+  async createHoliday(payload: HolidayCreateData): Promise<Holiday> {
     try {
-      // Validación avanzada del frontend
-      if (!data.name?.trim() || data.name.trim().length < MIN_NAME_LENGTH) {
+      const name = (payload.name ?? '').trim();
+      if (!name || name.length < MIN_NAME_LENGTH) {
         throw new Error(`El nombre debe tener al menos ${MIN_NAME_LENGTH} caracteres`);
       }
+      if (!payload.date) throw new Error('La fecha es obligatoria');
 
-      if (!data.date) {
-        throw new Error('La fecha es obligatoria');
-      }
-
-      const dateObj = new Date(data.date);
-      if (isNaN(dateObj.getTime())) {
-        throw new Error(`Formato de fecha inválido. Use ${DATE_FORMAT}`);
-      }
-
-      // Ajustar a medianoche UTC
-      dateObj.setUTCHours(0, 0, 0, 0);
-
-      // Normalización de datos
-      const payload = {
-        ...data,
-        date: dateObj.toISOString().split('T')[0], // Ensure YYYY-MM-DD
-        name: data.name.trim()
+      const body: HolidayCreateData = {
+        ...payload,
+        name,
+        date: toMidnightUTC(payload.date),
       };
 
-      const response = await api.post<{ data: Holiday; error?: string }>(
+      const { data } = await api.post<{ success: boolean; data?: unknown; error?: string }>(
         '/vacations/holidays',
-        payload
+        body
       );
 
-      if (response.data.error) {
-        throw new Error(response.data.error);
+      if (!data?.success || !data.data) {
+        throw new Error(data?.error || 'No se pudo crear el festivo');
       }
 
-      // Ajustar fecha recibida a medianoche UTC para evitar desfase
-      const returnedDate = new Date(response.data.data.date);
-      returnedDate.setUTCHours(0, 0, 0, 0);
-
-      return {
-        ...response.data.data,
-        date: returnedDate.toISOString().split('T')[0] // Ensure ISO format
-      };
-    } catch (error: unknown) {
-      throw normalizeHolidayError(error, 'crear');
+      const mapped = mapApiHoliday(data.data);
+      if (!mapped) throw new Error('Respuesta inválida del servidor al crear festivo');
+      return mapped;
+    } catch (e) {
+      throw normalizeHolidayError(e, 'crear');
     }
   },
 
-  /**
-   * Obtiene días festivos en un rango de fechas
-   */
+  /** Listar festivos */
   async getHolidays(startDate?: string, endDate?: string): Promise<Holiday[]> {
     try {
-      const params = startDate && endDate ? {
-        startDate,
-        endDate,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-      } : {};
+      const params =
+        startDate && endDate
+          ? {
+              startDate,
+              endDate,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            }
+          : {};
 
-      const response = await api.get<{ data: Holiday[]; error?: string }>(
+      const { data } = await api.get<{ success: boolean; data?: unknown; error?: string }>(
         '/vacations/holidays',
         { params }
       );
 
-      if (response.data.error) {
-        throw new Error(response.data.error);
+      if (!data?.success || !data.data) {
+        throw new Error(data?.error || 'No se pudieron obtener los festivos');
       }
 
-      return response.data.data.map(holiday => {
-        const d = new Date(holiday.date);
-        d.setUTCHours(0, 0, 0, 0);
-        return {
-          ...holiday,
-          date: d.toISOString().split('T')[0]
-        };
+      const arr = Array.isArray(data.data) ? data.data : [];
+      return arr
+        .map(mapApiHoliday)
+        .filter((x): x is Holiday => x !== null);
+    } catch (e) {
+      throw normalizeHolidayError(e, 'obtener');
+    }
+  },
+
+  /** Eliminar festivo */
+  async deleteHoliday(identifier: string | { id?: string; customId?: string }): Promise<DeleteHolidayResponse> {
+    try {
+      const id = typeof identifier === 'string' ? identifier : (identifier.id || identifier.customId);
+      if (!id) throw new Error('Identificador de festivo inválido');
+
+      const { data } = await api.delete<{
+        success: boolean;
+        data?: { deleted: DeletedMeta; remaining: number };
+        error?: string;
+        suggestions?: Array<{ id?: string; name?: string }>;
+      }>(`/vacations/holidays/${encodeURIComponent(id)}`, {
+        validateStatus: (s) => s < 500, // tratar 4xx como respuesta manejable
       });
-    } catch (error: unknown) {
-      throw normalizeHolidayError(error, 'obtener');
+
+      if (data?.success && data?.data) {
+        return {
+          success: true,
+          remaining: data.data.remaining,
+          deleted: data.data.deleted,
+        };
+      }
+
+      let msg = data?.error || 'No se pudo eliminar el día festivo';
+      if (Array.isArray(data?.suggestions) && data!.suggestions.length > 0) {
+        const names = data!.suggestions.map((s) => s?.name || 'sin nombre').join(', ');
+        msg += `. Sugerencias: ${names}`;
+      }
+      throw new Error(msg);
+    } catch (e) {
+      throw normalizeHolidayError(e, 'eliminar');
     }
   },
 
-  /**
-   * Elimina un día festivo por ID, customId u objeto Holiday
-   * @returns Información sobre la operación y conteo restante
-   */
-  async deleteHoliday(
-    identifier: string | Pick<Holiday, 'id' | 'customId'>
-  ): Promise<DeleteHolidayResponse> {
+  /** Actualizar festivo (PATCH) */
+  async updateHoliday(holidayId: string, patch: HolidayUpdateData): Promise<Holiday> {
     try {
-      const id = typeof identifier === 'string'
-        ? identifier
-        : identifier.id || identifier.customId;
+      const body: HolidayUpdateData = { ...patch };
 
-      if (!id) {
-        throw new Error('Identificador de festivo inválido');
-      }
-
-      const response = await api.delete<DeleteHolidayResponse & ApiError>(
-        `/vacations/holidays/${encodeURIComponent(id)}`,
-        { validateStatus: status => status < 500 }
-      );
-
-      if (response.data.success) {
-        return response.data;
-      }
-
-      // Manejo de errores estructurado
-      const { error, suggestions } = response.data;
-      let errorMessage = error || 'No se pudo eliminar el día festivo';
-
-      if (suggestions?.length) {
-        const safeNames = suggestions.map(s => s?.name || 'sin nombre');
-        errorMessage += `. Sugerencias: ${safeNames.join(', ')}`;
-      }
-
-      throw new Error(errorMessage);
-    } catch (error: unknown) {
-      throw normalizeHolidayError(error, 'eliminar');
-    }
-  },
-
-  /**
-   * Actualiza un día festivo existente
-   */
-  async updateHoliday(
-    holidayId: string,
-    data: HolidayUpdateData
-  ): Promise<Holiday> {
-    try {
-      // Validación de fecha
-      if (data.date) {
-        const dateObj = new Date(data.date);
-        if (isNaN(dateObj.getTime())) {
-          throw new Error(`Formato de fecha inválido. Use ${DATE_FORMAT}`);
+      if (typeof body.name === 'string') {
+        body.name = body.name.trim();
+        if (body.name.length > 0 && body.name.length < MIN_NAME_LENGTH) {
+          throw new Error(`El nombre debe tener al menos ${MIN_NAME_LENGTH} caracteres`);
         }
-        // Ajustar a medianoche UTC
-        dateObj.setUTCHours(0, 0, 0, 0);
-        data.date = dateObj.toISOString().split('T')[0];
       }
 
-      // Validación de nombre
-      if (data.name && data.name.trim().length < MIN_NAME_LENGTH) {
-        throw new Error(`El nombre debe tener al menos ${MIN_NAME_LENGTH} caracteres`);
+      if (typeof body.date === 'string') {
+        body.date = toMidnightUTC(body.date);
       }
 
-      const response = await api.put<{ data: Holiday; error?: string }>(
-        `/vacations/holidays/${holidayId}`,
-        data
+      const { data } = await api.patch<{ success: boolean; data?: unknown; error?: string }>(
+        `/vacations/holidays/${encodeURIComponent(holidayId)}`,
+        body
       );
 
-      if (response.data.error) {
-        throw new Error(response.data.error);
+      if (!data?.success || !data.data) {
+        throw new Error(data?.error || 'No se pudo actualizar el festivo');
       }
 
-      const returnedDate = new Date(response.data.data.date);
-      returnedDate.setUTCHours(0, 0, 0, 0);
-
-      return {
-        ...response.data.data,
-        date: returnedDate.toISOString().split('T')[0]
-      };
-    } catch (error: unknown) {
-      throw normalizeHolidayError(error, 'actualizar');
+      const mapped = mapApiHoliday(data.data);
+      if (!mapped) throw new Error('Respuesta inválida del servidor al actualizar festivo');
+      return mapped;
+    } catch (e) {
+      throw normalizeHolidayError(e, 'actualizar');
     }
-  }
+  },
 };
 
 export default holidayService;
-export type { Holiday, HolidayCreateData, HolidayUpdateData, DeleteHolidayResponse };
