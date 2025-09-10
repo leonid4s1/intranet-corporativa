@@ -10,13 +10,16 @@ import {
   getVacationBalance,
   manageVacationDays,
   checkVacationAvailability,
-  getHolidaysForCalendar,
+  // getHolidaysForCalendar, // <- ya no lo usamos; unificamos con holidayController.getHolidays
   getUserVacationsForCalendar,
   getTeamVacationsForCalendar,
   getAllUsersVacationDays,
   getUnavailableDatesForCalendar,
 } from '../controllers/vacationController.js';
 import { validateDateRange, validateDateParams } from '../middleware/validation.js';
+
+// 👇 CRUD de días festivos
+import * as holidayController from '../controllers/holidayController.js';
 
 const router = Router();
 
@@ -81,19 +84,20 @@ router.post('/check-availability',
 
 /* -------------------------------- Calendario ------------------------------- */
 
+// Unificamos en holidayController.getHolidays para ambos endpoints
 router.get(
   '/calendar/holidays',
   authenticate,
   validateDateParams,
-  getHolidaysForCalendar
+  holidayController.getHolidays
 );
 
-// alias de compatibilidad
+// alias de compatibilidad (usado por el front)
 router.get(
   '/holidays',
   authenticate,
   validateDateParams,
-  getHolidaysForCalendar
+  holidayController.getHolidays
 );
 
 router.get('/calendar/user-vacations',
@@ -111,6 +115,32 @@ router.get('/calendar/unavailable-dates',
   authenticate,
   validateDateParams,
   getUnavailableDatesForCalendar
+);
+
+/* ---------------------------- Festivos (ADMIN) ---------------------------- */
+
+// Crear festivo
+router.post(
+  '/holidays',
+  authenticate,
+  authorize('admin'),
+  holidayController.createHoliday
+);
+
+// Actualizar festivo por ID
+router.patch(
+  '/holidays/:id',
+  authenticate,
+  authorize('admin'),
+  holidayController.updateHoliday
+);
+
+// Eliminar festivo por ID
+router.delete(
+  '/holidays/:id',
+  authenticate,
+  authorize('admin'),
+  holidayController.deleteHoliday
 );
 
 /* --------------------------------- Admin ---------------------------------- */
