@@ -20,11 +20,56 @@ import { validateDateRange, validateDateParams } from '../middleware/validation.
 
 const router = Router();
 
-/** Usuarios */
+/* -------------------- Validaciones ligeras de payload -------------------- */
+
+// reason opcional al crear solicitud: string máx 500
+const validateOptionalReason = (req, res, next) => {
+  const { reason } = req.body || {};
+  if (reason == null) return next();
+  if (typeof reason !== 'string') {
+    return res.status(400).json({ success: false, error: 'El motivo debe ser texto' });
+  }
+  const trimmed = reason.trim();
+  if (trimmed.length > 500) {
+    return res.status(400).json({ success: false, error: 'El motivo no puede exceder 500 caracteres' });
+  }
+  req.body.reason = trimmed;
+  next();
+};
+
+// si se rechaza, exigir rejectReason 3–500
+const validateStatusChange = (req, res, next) => {
+  const { status, rejectReason } = req.body || {};
+  if (!status) {
+    return res.status(400).json({ success: false, error: 'Debes indicar el estado' });
+  }
+  if (status === 'rejected') {
+    if (typeof rejectReason !== 'string') {
+      return res.status(400).json({ success: false, error: 'Debes indicar un motivo de rechazo' });
+    }
+    const trimmed = rejectReason.trim();
+    if (trimmed.length < 3) {
+      return res.status(400).json({ success: false, error: 'El motivo de rechazo debe tener al menos 3 caracteres' });
+    }
+    if (trimmed.length > 500) {
+      return res.status(400).json({ success: false, error: 'El motivo de rechazo no puede exceder 500 caracteres' });
+    }
+    req.body.rejectReason = trimmed;
+  }
+  next();
+};
+
+/* -------------------------------- Usuarios -------------------------------- */
+
 router.get('/balance', authenticate, getVacationBalance);
 
 router.route('/requests')
-  .post(authenticate, validateDateRange, requestVacation)
+  .post(
+    authenticate,
+    validateDateRange,        // valida startDate / endDate
+    validateOptionalReason,   // valida reason opcional
+    requestVacation
+  )
   .get(authenticate, getUserVacations);
 
 router.patch('/requests/:id/cancel', authenticate, cancelVacationRequest);
@@ -34,7 +79,8 @@ router.post('/check-availability',
   checkVacationAvailability
 );
 
-/** Calendario */
+/* -------------------------------- Calendario ------------------------------- */
+
 router.get(
   '/calendar/holidays',
   authenticate,
@@ -42,7 +88,7 @@ router.get(
   getHolidaysForCalendar
 );
 
-// alias para compatibilidad con el front (si usa /vacations/holidays)
+// alias de compatibilidad
 router.get(
   '/holidays',
   authenticate,
@@ -67,7 +113,8 @@ router.get('/calendar/unavailable-dates',
   getUnavailableDatesForCalendar
 );
 
-/** Admin */
+/* --------------------------------- Admin ---------------------------------- */
+
 router.route('/users/:userId/days')
   .put(authenticate, authorize('admin'), manageVacationDays);
 
@@ -80,6 +127,7 @@ router.get('/users/days',
 router.patch('/requests/:id/status',
   authenticate,
   authorize('admin'),
+  validateStatusChange,          // <- exige rejectReason si status = rejected
   updateVacationRequestStatus
 );
 

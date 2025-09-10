@@ -74,6 +74,7 @@
             <tr>
               <th>USUARIO</th>
               <th>FECHAS</th>
+              <th>MOTIVO</th>
               <th>DÍAS</th>
               <th>ESTADO</th>
               <th class="center">ACCIONES</th>
@@ -81,10 +82,10 @@
           </thead>
           <tbody>
             <tr v-if="loadingPending">
-              <td colspan="5" class="muted center">Cargando solicitudes…</td>
+              <td colspan="6" class="muted center">Cargando solicitudes…</td>
             </tr>
             <tr v-else-if="pendingRequests.length === 0">
-              <td colspan="5" class="muted center">No hay solicitudes pendientes</td>
+              <td colspan="6" class="muted center">No hay solicitudes pendientes</td>
             </tr>
             <tr v-else v-for="r in pendingRequests" :key="r.id">
               <td>
@@ -94,7 +95,8 @@
                 </div>
               </td>
               <td>{{ formatDate(r.startDate) }} - {{ formatDate(r.endDate) }}</td>
-              <td class="center">{{ spanDays(r.startDate, r.endDate) }}</td>
+              <td class="wrap">{{ r.reason?.trim() || '—' }}</td>
+              <td class="center">{{ r.daysRequested ?? spanDays(r.startDate, r.endDate) }}</td>
               <td>
                 <span class="badge warn">Pendiente</span>
               </td>
@@ -109,9 +111,9 @@
                 <button
                   class="btn danger"
                   :disabled="isActionLoading === r.id"
-                  @click="rejectRequest(r.id)"
+                  @click="openRejectDialog(r.id)"
                 >
-                  {{ isActionLoading === r.id ? 'Rechazando…' : 'Rechazar' }}
+                  Rechazar
                 </button>
               </td>
             </tr>
@@ -119,6 +121,25 @@
         </table>
       </div>
     </section>
+
+    <!-- ========= DIÁLOGO RECHAZO ========= -->
+    <div v-if="reject.open" class="modal-backdrop" @click.self="closeRejectDialog">
+      <div class="modal">
+        <h3>Motivo de rechazo</h3>
+        <p class="muted">Este motivo será visible para el usuario.</p>
+        <textarea
+          v-model="reject.text"
+          rows="4"
+          placeholder="Escribe el motivo del rechazo…"
+        ></textarea>
+        <div class="modal-actions">
+          <button class="btn" @click="closeRejectDialog" :disabled="reject.loading">Cancelar</button>
+          <button class="btn danger" @click="confirmReject" :disabled="reject.loading || !reject.text.trim()">
+            {{ reject.loading ? 'Rechazando…' : 'Rechazar solicitud' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Alertas -->
     <AlertDialog
@@ -152,6 +173,8 @@ interface VacationRequest {
   startDate: string; // YYYY-MM-DD
   endDate: string;   // YYYY-MM-DD
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  reason?: string;         // <- MOTIVO del solicitante
+  daysRequested?: number;  // <- si viene del backend, úsalo
 }
 
 interface Holiday {
@@ -173,6 +196,14 @@ const holidays = ref<Holiday[]>([]);
 const loadingHolidays = ref<boolean>(false);
 const deletingHolidayKey = ref<string | null>(null);
 
+/* ========= DIÁLOGO DE RECHAZO ========= */
+const reject = ref<{ open: boolean; id: string | null; text: string; loading: boolean }>({
+  open: false,
+  id: null,
+  text: '',
+  loading: false
+});
+
 /* ========= ALERTAS ========= */
 const alert = ref<{ visible: boolean; type: 'success' | 'error' | 'warning' | 'info'; message: string }>({
   visible: false,
@@ -189,7 +220,7 @@ function formatDate(ymd: string): string {
   return dayjs(ymd).format('DD/MM/YYYY');
 }
 function spanDays(start: string, end: string): number {
-  // Diferencia natural (incluyendo ambos extremos)
+  // Diferencia natural (incluye ambos extremos)
   return dayjs(end).diff(dayjs(start), 'day') + 1;
 }
 function getErrMsg(err: unknown): string {
@@ -201,7 +232,10 @@ function getErrMsg(err: unknown): string {
 async function loadPending() {
   try {
     loadingPending.value = true;
-    pendingRequests.value = await vacationService.getPendingRequests();
+    // El servicio ya trae reason y daysRequested si el backend los envía
+    const list = await vacationService.getPendingRequests();
+    // Adaptar a nuestro tipo local (ya coinciden las propiedades)
+    pendingRequests.value = list as unknown as VacationRequest[];
   } catch (err) {
     console.error('Error cargando pendientes:', err);
     showAlert('error', getErrMsg(err));
@@ -239,24 +273,40 @@ async function approveRequest(id: string) {
   }
 }
 
-async function rejectRequest(id: string) {
+function openRejectDialog(id: string) {
+  reject.value = { open: true, id, text: '', loading: false };
+}
+
+function closeRejectDialog() {
+  if (reject.value.loading) return;
+  reject.value.open = false;
+  reject.value.id = null;
+  reject.value.text = '';
+}
+
+async function confirmReject() {
+  const id = reject.value.id;
+  const text = reject.value.text.trim();
+  if (!id || !text) return;
+
   try {
+    reject.value.loading = true;
     isActionLoading.value = id;
-    await vacationService.updateRequestStatus({ id, status: 'rejected' });
+    // Enviamos como rejectReason (el backend lo espera con ese nombre)
+    await vacationService.updateRequestStatus({ id, status: 'rejected', reason: text });
     showAlert('success', 'Solicitud rechazada');
+    closeRejectDialog();
     await loadPending();
   } catch (err) {
     console.error('Error rechazando solicitud:', err);
     showAlert('error', getErrMsg(err));
   } finally {
+    reject.value.loading = false;
     isActionLoading.value = null;
   }
 }
 
-/* ========= FESTIVOS (CRUD BÁSICO) =========
-   - Aquí dejo acciones mínimas (abrir modal / editar / borrar).
-   - Reemplaza openHolidayModal / editHoliday por tus diálogos si ya existen.
-========================================== */
+/* ========= FESTIVOS (CRUD BÁSICO) ========= */
 function openHolidayModal() {
   showAlert('info', 'Implementa tu modal para crear festivo (openHolidayModal).');
 }
@@ -276,8 +326,7 @@ async function deleteHoliday(h: Holiday) {
 
   try {
     deletingHolidayKey.value = key;
-    // Si tu holidayService tiene deleteHoliday(date) o deleteHolidayById(id):
-    // Aquí supongo deleteHoliday(date) para mantener simple.
+    // Si tu holidayService tiene deleteHoliday(date) o deleteHolidayById(id), úsalo:
     await holidayService.deleteHoliday?.(h.date);
     showAlert('success', 'Festivo eliminado');
     await loadHolidays();
@@ -320,9 +369,7 @@ h1 {
   margin-bottom: 10px;
 }
 
-.card-head h2 {
-  margin: 0;
-}
+.card-head h2 { margin: 0; }
 
 .head-actions {
   display: flex;
@@ -330,18 +377,11 @@ h1 {
   gap: 12px;
 }
 
-.year-filter {
-  font-size: .95rem;
-}
+.year-filter { font-size: .95rem; }
 
-.table-wrap {
-  overflow: auto;
-}
+.table-wrap { overflow: auto; }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
+table { width: 100%; border-collapse: collapse; }
 
 thead th {
   text-align: left;
@@ -355,6 +395,12 @@ tbody td {
   border-bottom: 1px solid #f2f2f2;
   padding: 10px 8px;
   vertical-align: middle;
+}
+
+.wrap {
+  max-width: 360px;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .center { text-align: center; }
@@ -400,4 +446,37 @@ tbody td {
 }
 
 .badge.warn { background: #fff9c4; color: #9a6700; }
+
+/* ===== Modal ===== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .45);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+.modal {
+  width: min(560px, calc(100% - 32px));
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.2);
+}
+.modal h3 { margin: 0 0 8px 0; }
+.modal p  { margin: 0 0 12px 0; }
+.modal textarea {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px;
+  font-family: inherit;
+  resize: vertical;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
 </style>

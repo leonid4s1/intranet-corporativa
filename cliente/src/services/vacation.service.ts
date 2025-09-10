@@ -2,63 +2,65 @@
 import api from './api';
 
 /* =========================
- * Tipos públicos (importa con "type" para verbatimModuleSyntax)
+ * Tipos públicos
  * ========================= */
 
+export type Status = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
 export type VacationBalance = {
-  availableDays: number;   // días disponibles (restantes)
-  usedDays: number;        // días usados
-  totalAnnualDays: number; // días anuales totales
+  availableDays: number;
+  usedDays: number;
+  totalAnnualDays: number;
 };
 
 export type VacationRequestApi = {
-  _id: string;
-  startDate: string; // 'YYYY-MM-DD'
-  endDate: string;   // 'YYYY-MM-DD'
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
-  reason?: string;          // motivo opcional (por ejemplo al rechazar)
-  daysRequested?: number;   // cantidad de días solicitados
+  id?: string;
+  _id?: string;
+  user?: { id?: string; _id?: string; name?: string; email?: string };
+  startDate: string;     // 'YYYY-MM-DD'
+  endDate: string;       // 'YYYY-MM-DD'
+  status: Status;
+  reason?: string;       // motivo escrito por el usuario al solicitar
+  rejectReason?: string; // motivo escrito por el admin al rechazar
+  daysRequested?: number;
   createdAt?: string;
   updatedAt?: string;
-};
-
-export type UIVacationRequest = {
-  id: string;
-  user: { id: string; name: string; email?: string };
-  startDate: string; // 'YYYY-MM-DD'
-  endDate: string;   // 'YYYY-MM-DD'
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
 };
 
 export type VacationsUserResponse = {
   approved: VacationRequestApi[];
   pending: VacationRequestApi[];
+  rejected?: VacationRequestApi[]; // <- opcional
+};
+
+export type UIVacationRequest = {
+  id: string;
+  user: { id: string; name: string; email?: string };
+  startDate: string;
+  endDate: string;
+  status: Status;
+  reason?: string;        // mostrar al admin
+  rejectReason?: string;  // mostrar al usuario si fue rechazada
+  daysRequested?: number;
 };
 
 export type TeamVacationApi = {
-  startDate: string; // 'YYYY-MM-DD'
-  endDate: string;   // 'YYYY-MM-DD'
-  user?: {
-    id?: string;
-    _id?: string;
-    name?: string;
-  };
+  startDate: string;
+  endDate: string;
+  user?: { id?: string; _id?: string; name?: string };
 };
 
-export type ApiHoliday = {
-  date: string;   // 'YYYY-MM-DD'
-  name?: string;  // nombre del festivo (si el backend lo envía)
-};
+export type ApiHoliday = { date: string; name?: string };
 
 /* =========================
- * Helpers seguros (sin any)
+ * Helpers seguros
  * ========================= */
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
 }
 
-/** Algunos controladores devuelven `{ data: ... }` y otros devuelven el payload directo */
+/** Algunos endpoints vienen como { data: ... } */
 function unwrapData<T>(data: unknown, fallback: T): T {
   if (isRecord(data) && 'data' in data) {
     const inner = (data as { data: unknown }).data;
@@ -76,18 +78,16 @@ export async function getVacationBalance(): Promise<VacationBalance> {
     headers: { 'Cache-Control': 'no-store' },
   });
 
-  // distintas formas que suelen venir del backend
-  const root = data?.data ?? data ?? {};
-  const current = root.current ?? root.balance?.current ?? root.balance ?? root;
+  const root = (data?.data ?? data ?? {}) as Record<string, unknown>;
+  const current = (root.current ??
+    (isRecord(root.balance) ? root.balance : root)) as Record<string, unknown>;
 
   const availableDays = Number(
-    current.availableDays ?? current.remaining ?? current.remainingDays ?? current.available ?? 0
+    (current.availableDays ?? current.remaining ?? current.remainingDays ?? current.available ?? 0) as number
   );
-  const usedDays = Number(
-    current.usedDays ?? current.used ?? 0
-  );
+  const usedDays = Number((current.usedDays ?? current.used ?? 0) as number);
   const totalAnnualDays = Number(
-    current.totalAnnualDays ?? current.total ?? current.annual ?? 0
+    (current.totalAnnualDays ?? current.total ?? current.annual ?? 0) as number
   );
 
   return { availableDays, usedDays, totalAnnualDays };
@@ -98,26 +98,19 @@ export async function getHolidays(
   endDate: string,
   timezone?: string
 ): Promise<ApiHoliday[]> {
-  // Servidor: GET /api/vacations/holidays
   const { data } = await api.get('/vacations/holidays', {
     params: { startDate, endDate, timezone },
   });
 
-  // Puede ser [{date,name}] o directamente ['YYYY-MM-DD', ...]
   const list = unwrapData<unknown>(data, []);
   const arr = Array.isArray(list) ? list : [];
 
   return arr
     .map((h: unknown): ApiHoliday | null => {
-      if (typeof h === 'string') {
-        return { date: h };
-      }
+      if (typeof h === 'string') return { date: h };
       if (isRecord(h)) {
         const date = typeof h.date === 'string' ? h.date : '';
-        const name =
-          typeof h.name === 'string'
-            ? h.name
-            : undefined;
+        const name = typeof h.name === 'string' ? h.name : undefined;
         return date ? { date, name } : null;
       }
       return null;
@@ -125,29 +118,41 @@ export async function getHolidays(
     .filter((x): x is ApiHoliday => !!x);
 }
 
+// pequeño type guard opcional
+function isVacationRequestApi(x: unknown): x is VacationRequestApi {
+  return (
+    isRecord(x) &&
+    typeof x.startDate === 'string' &&
+    typeof x.endDate === 'string' &&
+    typeof x.status === 'string'
+  );
+}
+
 export async function getUserVacations(): Promise<VacationsUserResponse> {
-  // Servidor: GET /api/vacations/requests  -> { approved:[], pending:[] } o { data:{ approved, pending } }
   const { data } = await api.get('/vacations/requests');
 
   const wrapped = unwrapData<unknown>(data, {});
-  const approved: VacationRequestApi[] =
-    (isRecord(wrapped) && Array.isArray(wrapped.approved)
-      ? wrapped.approved
-      : []) as VacationRequestApi[];
 
-  const pending: VacationRequestApi[] =
-    (isRecord(wrapped) && Array.isArray(wrapped.pending)
-      ? wrapped.pending
-      : []) as VacationRequestApi[];
+  // lector seguro sin any
+  const readList = (key: 'approved' | 'pending' | 'rejected'): VacationRequestApi[] => {
+    if (isRecord(wrapped) && Array.isArray(wrapped[key])) {
+      // filtramos por si vienen elementos raros
+      return (wrapped[key] as unknown[]).filter(isVacationRequestApi);
+    }
+    return [];
+  };
 
-  return { approved, pending };
+  const approved = readList('approved');
+  const pending  = readList('pending');
+  const rejected = readList('rejected');
+
+  return rejected.length ? { approved, pending, rejected } : { approved, pending };
 }
 
 export async function getTeamVacations(
   startDate: string,
   endDate: string
 ): Promise<TeamVacationApi[]> {
-  // Servidor: GET /api/vacations/calendar/team-vacations
   const { data } = await api.get('/vacations/calendar/team-vacations', {
     params: { startDate, endDate },
   });
@@ -178,7 +183,6 @@ export async function getUnavailableDates(
   startDate: string,
   endDate: string
 ): Promise<string[]> {
-  // Servidor: GET /api/vacations/calendar/unavailable-dates
   const { data } = await api.get('/vacations/calendar/unavailable-dates', {
     params: { startDate, endDate },
   });
@@ -193,13 +197,11 @@ export async function requestVacation(payload: {
   endDate: string;
   reason?: string;
 }) {
-  // Servidor: POST /api/vacations/requests
   const { data } = await api.post('/vacations/requests', payload);
   return data;
 }
 
 export async function cancelVacationRequest(id: string) {
-  // Servidor: PATCH /api/vacations/requests/:id/cancel
   const { data } = await api.patch(`/vacations/requests/${id}/cancel`);
   return data;
 }
@@ -209,7 +211,6 @@ export async function cancelVacationRequest(id: string) {
  * ========================= */
 
 export async function getPendingRequests(): Promise<UIVacationRequest[]> {
-  // Ideal: /vacations/requests/pending  (si no existe, usa /vacations/requests?status=pending)
   const { data } = await api.get('/vacations/requests/pending');
   const list = unwrapData<unknown>(data, []);
   const arr = Array.isArray(list) ? list : [];
@@ -225,17 +226,26 @@ export async function getPendingRequests(): Promise<UIVacationRequest[]> {
         : '';
 
     const startDate = typeof rec.startDate === 'string' ? rec.startDate : '';
-    const endDate   = typeof rec.endDate   === 'string' ? rec.endDate   : '';
-    const status    = (typeof rec.status   === 'string' ? rec.status : 'pending') as UIVacationRequest['status'];
+    const endDate = typeof rec.endDate === 'string' ? rec.endDate : '';
+    const status = (typeof rec.status === 'string' ? rec.status : 'pending') as Status;
+    const reason = typeof rec.reason === 'string' ? rec.reason : undefined;
+    const rejectReason = typeof rec.rejectReason === 'string' ? rec.rejectReason : undefined;
+    const daysRequested =
+      typeof rec.daysRequested === 'number' ? rec.daysRequested : undefined;
 
     const u = isRecord(rec.user) ? (rec.user as Record<string, unknown>) : {};
     const user = {
-      id:    typeof u._id  === 'string' ? u._id  : (typeof u.id === 'string' ? u.id : ''),
-      name:  typeof u.name === 'string' ? u.name : 'Usuario',
+      id:
+        typeof u._id === 'string'
+          ? u._id
+          : typeof u.id === 'string'
+          ? u.id
+          : '',
+      name: typeof u.name === 'string' ? u.name : 'Usuario',
       email: typeof u.email === 'string' ? u.email : undefined,
     };
 
-    return { id, user, startDate, endDate, status };
+    return { id, user, startDate, endDate, status, reason, rejectReason, daysRequested };
   });
 }
 
@@ -243,24 +253,29 @@ type ApproveReject = 'approved' | 'rejected';
 type UpdateStatusPayload = {
   id: string;
   status: ApproveReject;
+  /** si rechaza, este es el motivo que exige el backend */
   reason?: string;
+  /** por si lo llamas explícito como rejectReason */
+  rejectReason?: string;
 };
 
 function isUpdatePayload(v: unknown): v is UpdateStatusPayload {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    'id' in v &&
-    'status' in v &&
-    (typeof (v as { id: unknown }).id === 'string') &&
-    (v as { status: unknown }).status === 'approved' ||
-    (v as { status: unknown }).status === 'rejected'
-  );
+  if (!isRecord(v)) return false;
+  const idOk = typeof v.id === 'string' && v.id.length > 0;
+  const st = v.status;
+  const statusOk = st === 'approved' || st === 'rejected';
+  return idOk && statusOk;
 }
 
+// Overloads
 export function updateRequestStatus(payload: UpdateStatusPayload): Promise<unknown>;
-export function updateRequestStatus(id: string, status: ApproveReject, reason?: string): Promise<unknown>;
+export function updateRequestStatus(
+  id: string,
+  status: ApproveReject,
+  rejectReason?: string
+): Promise<unknown>;
 
+// Impl
 export async function updateRequestStatus(
   arg1: UpdateStatusPayload | string,
   arg2?: ApproveReject,
@@ -268,24 +283,31 @@ export async function updateRequestStatus(
 ): Promise<unknown> {
   let id: string;
   let status: ApproveReject;
-  let reason: string | undefined;
+  let rejectReason: string | undefined;
 
   if (isUpdatePayload(arg1)) {
     id = arg1.id;
     status = arg1.status;
-    reason = arg1.reason;
+    // admitir reason o rejectReason desde el caller
+    rejectReason = arg1.rejectReason ?? arg1.reason;
   } else {
     id = arg1;
     status = arg2 as ApproveReject;
-    reason = arg3;
+    rejectReason = arg3;
   }
 
-  const { data } = await api.patch(`/vacations/requests/${id}/status`, { status, reason });
+  const body: Record<string, unknown> = { status };
+  // el backend espera rejectReason cuando es rechazado
+  if (status === 'rejected') {
+    body.rejectReason = rejectReason ?? '';
+  }
+
+  const { data } = await api.patch(`/vacations/requests/${id}/status`, body);
   return data as unknown;
 }
 
 /* =========================
- * Export por defecto (compatible con tus imports actuales)
+ * Export por defecto
  * ========================= */
 export default {
   getVacationBalance,

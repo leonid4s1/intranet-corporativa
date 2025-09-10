@@ -61,16 +61,13 @@ const validateVacationRequestDates = (startDateStr, endDateStr) => {
   const startUTC = toDateUTC(startDateStr);
   const endUTC = toDateUTC(endDateStr);
 
-  // Fechas válidas
   if (Number.isNaN(startUTC.getTime())) errors.push('Fecha de inicio inválida');
   if (Number.isNaN(endUTC.getTime())) errors.push('Fecha de fin inválida');
 
-  // Orden correcto
   if (!Number.isNaN(startUTC.getTime()) && !Number.isNaN(endUTC.getTime()) && startUTC > endUTC) {
     errors.push('La fecha de inicio debe ser menor o igual a la de fin');
   }
 
-  // No permitir hoy ni fechas pasadas
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   if (!Number.isNaN(startUTC.getTime()) && startUTC.getTime() <= today.getTime()) {
@@ -161,10 +158,10 @@ export const getVacationBalance = async (req, res, next) => {
   }
 };
 
-// GET /vacations/requests
+// GET /vacations/requests (para el usuario)
 export const getUserVacations = async (req, res, next) => {
   try {
-    const [approved, pending] = await Promise.all([
+    const [approved, pending, rejected] = await Promise.all([
       VacationRequest.find({ user: req.user.id, status: 'approved' })
         .populate('user', 'name email')
         .sort({ startDate: 1 })
@@ -173,35 +170,32 @@ export const getUserVacations = async (req, res, next) => {
         .populate('user', 'name email')
         .sort({ startDate: 1 })
         .lean(),
+      VacationRequest.find({ user: req.user.id, status: 'rejected' })
+        .populate('user', 'name email')
+        .sort({ startDate: -1 })
+        .lean(),
     ]);
+
+    const map = (v) => ({
+      _id: String(v._id),
+      id: String(v._id),
+      user: { id: String(v.user?._id || req.user.id), name: v.user?.name || '', email: v.user?.email || '' },
+      startDate: toYMDUTC(v.startDate),
+      endDate: toYMDUTC(v.endDate),
+      daysRequested: v.daysRequested,
+      status: v.status,
+      reason: v.reason || '',
+      rejectReason: v.rejectReason || '',
+      createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
+      updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
+    });
 
     return res.json({
       success: true,
       data: {
-        approved: approved.map(v => ({
-          _id: String(v._id),
-          id: String(v._id),
-          user: { id: String(v.user?._id || req.user.id), name: v.user?.name || '', email: v.user?.email || '' },
-          startDate: toYMDUTC(v.startDate),
-          endDate: toYMDUTC(v.endDate),
-          daysRequested: v.daysRequested,
-          status: v.status,
-          reason: v.reason || '',
-          createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
-          updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
-        })),
-        pending: pending.map(v => ({
-          _id: String(v._id),
-          id: String(v._id),
-          user: { id: String(v.user?._id || req.user.id), name: v.user?.name || '', email: v.user?.email || '' },
-          startDate: toYMDUTC(v.startDate),
-          endDate: toYMDUTC(v.endDate),
-          daysRequested: v.daysRequested,
-          status: v.status,
-          reason: v.reason || '',
-          createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
-          updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
-        })),
+        approved: approved.map(map),
+        pending: pending.map(map),
+        rejected: rejected.map(map),
       },
     });
   } catch (e) {
@@ -228,7 +222,8 @@ export const getPendingVacationRequests = async (_req, res, next) => {
       endDate: toYMDUTC(v.endDate),
       daysRequested: v.daysRequested,
       status: v.status,
-      reason: v.reason || '',
+      reason: v.reason || '',        // <-- Motivo del usuario para que el admin lo vea
+      rejectReason: v.rejectReason || '',
       createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
       updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
     }));
@@ -303,7 +298,7 @@ export const getHolidaysForCalendar = async (req, res, next) => {
   }
 };
 
-// Función pura para unavailable (se usa en el handler HTTP de abajo)
+// Función pura para unavailable
 export const getUnavailableDates = async (startDate, endDate) => {
   const startUTC = toDateUTC(String(startDate));
   const endUTC = toDateUTC(String(endDate));
@@ -422,6 +417,7 @@ export const requestVacation = async (req, res, next) => {
         daysRequested: v.daysRequested,
         status: v.status,
         reason: v.reason || '',
+        rejectReason: v.rejectReason || '',
         createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
         updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
       }
@@ -436,18 +432,52 @@ export const requestVacation = async (req, res, next) => {
 // PATCH /vacations/requests/:id/status (admin)
 export const updateVacationRequestStatus = async (req, res, next) => {
   try {
-    const { status } = req.body; // 'approved' | 'rejected'
+    const { status, rejectReason } = req.body; // 'approved' | 'rejected'
+
     if (!['approved', 'rejected'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Estado inválido' });
     }
-    const doc = await VacationRequest.findByIdAndUpdate(
-      req.params.id,
-      { status, processedBy: req.user.id, processedAt: new Date() },
-      { new: true }
-    ).populate('user', 'name email');
+
+    const update = {
+      status,
+      processedBy: req.user.id,
+      processedAt: new Date(),
+    };
+
+    if (status === 'rejected') {
+      const reason = (rejectReason || '').trim();
+      if (reason.length < 3) {
+        return res.status(400).json({ success: false, error: 'Debes indicar un motivo de rechazo (mín. 3 caracteres)' });
+      }
+      if (reason.length > 500) {
+        return res.status(400).json({ success: false, error: 'El motivo de rechazo no puede exceder 500 caracteres' });
+      }
+      update.rejectReason = reason;
+    } else {
+      // Si se aprueba, limpiar posible motivo previo
+      update.rejectReason = '';
+    }
+
+    const doc = await VacationRequest
+      .findByIdAndUpdate(req.params.id, update, { new: true })
+      .populate('user', 'name email');
+
     if (!doc) return res.status(404).json({ success: false, error: 'Solicitud no encontrada' });
 
-    return res.json({ success: true, data: doc });
+    return res.json({
+      success: true,
+      data: {
+        id: String(doc._id),
+        user: { id: String(doc.user?._id || doc.user), name: doc.user?.name || '', email: doc.user?.email || '' },
+        startDate: toYMDUTC(doc.startDate),
+        endDate: toYMDUTC(doc.endDate),
+        daysRequested: doc.daysRequested,
+        status: doc.status,
+        reason: doc.reason || '',
+        rejectReason: doc.rejectReason || '',
+        processedAt: doc.processedAt?.toISOString?.() || null,
+      }
+    });
   } catch (e) {
     next(e);
   }
@@ -466,7 +496,6 @@ export const cancelVacationRequest = async (req, res) => {
     }
     const userId = req.user?._id || req.user?.id;
 
-    // Busca solicitud del propio usuario
     const request = await VacationRequest.findOne({ _id: id, user: userId }).session(session);
     if (!request) {
       await session.abortTransaction();
@@ -478,7 +507,6 @@ export const cancelVacationRequest = async (req, res) => {
       return res.status(400).json({ success: false, error: 'La solicitud ya no puede cancelarse' });
     }
 
-    // Normalizamos a 00:00 UTC para comparar por día (sin horas)
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
@@ -488,9 +516,6 @@ export const cancelVacationRequest = async (req, res) => {
         : request.startDate.toISOString().slice(0, 10)
     );
 
-    // Reglas:
-    // - PENDING: siempre se puede cancelar (sin mirar fechas)
-    // - APPROVED: solo si falta ≥ 1 día (hoy < inicio)
     if (request.status === 'approved' && startUTC.getTime() <= today.getTime()) {
       await session.abortTransaction();
       return res.status(400).json({
@@ -499,9 +524,7 @@ export const cancelVacationRequest = async (req, res) => {
       });
     }
 
-    // Si estaba aprobada, devolvemos días usados
     if (request.status === 'approved') {
-      // Intentamos leer el campo de días guardado
       const candidates = [
         request.daysBusiness,
         request.businessDays,
@@ -512,7 +535,6 @@ export const cancelVacationRequest = async (req, res) => {
         .map(n => Number(n))
         .find(n => Number.isFinite(n) && n > 0);
 
-      // Fallback: si no hay campo guardado, calculamos días hábiles inclusivos
       if (!daysToRefund) {
         const endUTC = toDateUTC(
           typeof request.endDate === 'string'
@@ -600,7 +622,7 @@ export const getAllUsersVacationDays = async (_req, res, next) => {
   } catch (e) { next(e); }
 };
 
-// POST /vacations/check-availability (opcional)
+// POST /vacations/check-availability
 export const checkVacationAvailability = async (req, res) => {
   const { startDate, endDate } = req.body || {};
   const { isValid, errors, startUTC, endUTC } = validateVacationRequestDates(startDate, endDate);

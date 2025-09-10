@@ -58,9 +58,7 @@
               'is-holiday': day.isHoliday,
               'is-full': day.isFull,
               'is-selected': day.inSelection,
-              // disponible visible
               'is-available': !day.isFull && !day.isHoliday && !day.isWeekend && !day.inSelection && day.isAvailable,
-              // ganchos para chips
               'has-holiday-name': !!day.holidayName,
               'has-team-approved': day.hasTeamApproved
             }"
@@ -70,7 +68,6 @@
           >
             <div class="day-number">{{ day.day }}</div>
 
-            <!-- Chips: nombre de festivo y nombres con vacaciones aprobadas -->
             <div class="labels">
               <span
                 v-if="day.isHoliday && day.holidayName"
@@ -89,7 +86,6 @@
               </span>
             </div>
 
-            <!-- Dot de estado (se mantiene) -->
             <span
               v-if="day.isFull || day.isHoliday || day.isWeekend || day.inSelection || day.isAvailable"
               class="dot"
@@ -104,7 +100,7 @@
         </div>
       </section>
 
-      <!-- Panel derecho (pendientes / aprobadas) -->
+      <!-- Panel derecho -->
       <aside class="side-panels">
         <section class="panel">
           <h3>Instrucciones</h3>
@@ -169,6 +165,32 @@
             </div>
           </div>
         </section>
+
+        <!-- NUEVO: Solicitudes rechazadas (muestra motivo del admin) -->
+        <section class="panel">
+          <h3>Solicitudes rechazadas</h3>
+          <div v-if="rejectedRequests.length === 0" class="muted">
+            No tienes solicitudes rechazadas
+          </div>
+          <div v-else class="requests">
+            <div v-for="req in rejectedRequests" :key="req._id" class="request-row">
+              <div>
+                {{ formatDate(req.startDate) }} - {{ formatDate(req.endDate) }}<br />
+                <small class="muted">{{ pluralizeDays(req.daysRequested || countBusinessDays(req.startDate, req.endDate)) }}</small>
+                <template v-if="req.rejectReason || req.reason">
+                  <br />
+                  <small class="muted">
+                    <strong>Motivo del rechazo:</strong>
+                    {{ req.rejectReason || req.reason }}
+                  </small>
+                </template>
+              </div>
+              <div class="actions">
+                <span class="badge" style="background:#fee2e2; color:#991b1b;">Rechazada</span>
+              </div>
+            </div>
+          </div>
+        </section>
       </aside>
     </div>
 
@@ -208,7 +230,8 @@ type VacationRequest = {
   startDate: string
   endDate: string
   status: 'pending' | 'approved' | 'rejected' | 'cancelled'
-  reason?: string
+  reason?: string            // motivo escrito por el usuario al solicitar
+  rejectReason?: string      // NUEVO: motivo de rechazo del admin (si el backend lo envía)
   daysRequested?: number
 }
 type VacationBalance = { availableDays: number; usedDays: number; totalAnnualDays: number }
@@ -325,7 +348,6 @@ type CalendarDay = {
   isFull: boolean
   isAvailable: boolean
   inSelection: boolean
-  // NUEVO: chips
   holidayName?: string
   hasTeamApproved: boolean
   approvedNamesShort: string
@@ -335,8 +357,8 @@ type CalendarDay = {
 const calendarDays = computed<CalendarDay[]>(() => {
   const startOfMonth = currentDate.value.startOf('month')
   const endOfMonth = currentDate.value.endOf('month')
-  const startGrid = startOfMonth.startOf('week') // domingo
-  const endGrid = endOfMonth.endOf('week')       // sábado
+  const startGrid = startOfMonth.startOf('week')
+  const endGrid = endOfMonth.endOf('week')
 
   const out: CalendarDay[] = []
   let d = startGrid
@@ -347,10 +369,8 @@ const calendarDays = computed<CalendarDay[]>(() => {
     const full = isFull(dateStr)
     const available = canPickDay(d)
 
-    // Festivo -> nombre
     const holidayName = holidays.value.find(h => h.date === dateStr)?.name || ''
 
-    // Nombres de equipo con vacaciones aprobadas que cubren este día
     const dd = dayjs(dateStr)
     const teamApprovedNames = teamVacations.value
       .filter(tv => {
@@ -369,7 +389,6 @@ const calendarDays = computed<CalendarDay[]>(() => {
         ? approvedNamesFull
         : `${uniqueNames[0]}, ${uniqueNames[1]} +${uniqueNames.length - 2}`
 
-    // inSelection usa previewEnd si existe
     let inSelection = false
     const endRef = previewEnd.value ?? selectedEnd.value
     if (selectedStart.value && endRef) {
@@ -390,7 +409,6 @@ const calendarDays = computed<CalendarDay[]>(() => {
       isFull: full,
       isAvailable: available,
       inSelection,
-      // chips
       holidayName,
       hasTeamApproved,
       approvedNamesShort,
@@ -460,6 +478,7 @@ function goNextMonth() { currentDate.value = currentDate.value.add(1, 'month'); 
 /** Datos remotos */
 const pendingRequests = ref<VacationRequest[]>([])
 const approvedRequests = ref<VacationRequest[]>([])
+const rejectedRequests = ref<VacationRequest[]>([]) // NUEVO
 
 async function loadBalance() {
   try {
@@ -491,9 +510,17 @@ async function loadCalendarData() {
 }
 
 async function loadUserRequests() {
-  const data = await getUserVacations()
-  pendingRequests.value = (data.pending ?? []).filter(r => r.status === 'pending')
-  approvedRequests.value = (data.approved ?? []).filter(r => r.status === 'approved')
+  const data = await getUserVacations();
+
+  // soporta tanto {approved, pending, rejected} como solo {approved, pending}
+  const pending  = (data.pending  ?? []).filter((r: { status: string }) => r.status === 'pending');
+  const approved = (data.approved ?? []).filter((r: { status: string }) => r.status === 'approved');
+  const rejected = (data.rejected ?? []).filter((r: { status: string }) => r.status === 'rejected');
+
+  pendingRequests.value  = pending  as VacationRequest[];
+  approvedRequests.value = approved as VacationRequest[];
+  rejectedRequests.value = rejected as VacationRequest[];
+
 }
 
 /** Diálogo */
@@ -644,7 +671,7 @@ onMounted(async () => {
   padding:.05rem .35rem; font-size:.68rem; border-radius:8px;
 }
 
-/* === Chips (festivo + aprobados) === */
+/* Chips */
 .labels{
   position:absolute; top:6px; right:6px;
   display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;
@@ -672,7 +699,7 @@ onMounted(async () => {
 .side-panels .panel:nth-of-type(2) .request-row{ border-left:4px solid var(--warn); background:#fff7ed }
 .side-panels .panel:nth-of-type(3) .request-row{ border-left:4px solid var(--ok); background:#ecfdf5 }
 .actions{ display:flex; align-items:center; gap:.5rem }
-.btn{ padding:.45rem .7rem; border-radius:10px; border:1px solid var(--line); background:#f8fafc; color:var(--text); cursor:pointer }
+.btn{ padding:.45rem .7rem; border-radius:10px; border:1px solid var(--line); background:#f8fafc; color: var(--text); cursor:pointer; }
 .btn:hover{ background:#eef2ff }
 .btn-danger{ background:#fee2e2; color:#991b1b; border-color:#fecaca }
 .btn-danger:hover{ background:#fecaca }
