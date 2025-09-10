@@ -144,7 +144,12 @@
             No tienes vacaciones aprobadas
           </div>
           <div v-else class="requests">
-            <div v-for="req in approvedRequests" :key="req._id" class="request-row">
+            <div
+              v-for="req in approvedRequests"
+              :key="req._id"
+              class="request-row"
+              :class="{ expired: isPast(req.endDate) }"
+            >
               <div>
                 {{ formatDate(req.startDate) }} - {{ formatDate(req.endDate) }}<br />
                 <small class="muted">{{ pluralizeDays(req.daysRequested || countBusinessDays(req.startDate, req.endDate)) }}</small>
@@ -154,9 +159,10 @@
               </div>
               <div class="actions">
                 <span class="badge badge-success">Aprobada</span>
+                <!-- Oculto si ya pasó o si no es cancelable -->
                 <button
+                  v-if="!isPast(req.endDate) && canCancel(req.startDate)"
                   class="btn btn-danger ml-2"
-                  :disabled="!canCancel(req.startDate)"
                   @click="cancel(req._id)"
                 >
                   Cancelar
@@ -166,14 +172,14 @@
           </div>
         </section>
 
-        <!-- NUEVO: Solicitudes rechazadas (muestra motivo del admin) -->
+        <!-- Solo MOSTRAR el último rechazo -->
         <section class="panel">
           <h3>Solicitudes rechazadas</h3>
-          <div v-if="rejectedRequests.length === 0" class="muted">
+          <div v-if="latestRejected.length === 0" class="muted">
             No tienes solicitudes rechazadas
           </div>
           <div v-else class="requests">
-            <div v-for="req in rejectedRequests" :key="req._id" class="request-row">
+            <div v-for="req in latestRejected" :key="req._id" class="request-row">
               <div>
                 {{ formatDate(req.startDate) }} - {{ formatDate(req.endDate) }}<br />
                 <small class="muted">{{ pluralizeDays(req.daysRequested || countBusinessDays(req.startDate, req.endDate)) }}</small>
@@ -231,8 +237,10 @@ type VacationRequest = {
   endDate: string
   status: 'pending' | 'approved' | 'rejected' | 'cancelled'
   reason?: string            // motivo escrito por el usuario al solicitar
-  rejectReason?: string      // NUEVO: motivo de rechazo del admin (si el backend lo envía)
+  rejectReason?: string      // motivo de rechazo del admin (si el backend lo envía)
   daysRequested?: number
+  createdAt?: string
+  updatedAt?: string
 }
 type VacationBalance = { availableDays: number; usedDays: number; totalAnnualDays: number }
 
@@ -280,6 +288,10 @@ const isUnavailable = (dateStr: string) => unavailable.value.includes(dateStr)
 const pluralizeDays = (n: number) => `${n} ${n === 1 ? 'día' : 'días'}`
 const formatDate = (iso: string) => dayjs(iso).format('DD/MM/YYYY')
 
+// ¿ya pasó la fecha (considerando fin del día)?
+const today = computed(() => dayjs().startOf('day'))
+const isPast = (iso: string) => dayjs(iso).endOf('day').isBefore(today.value)
+
 function countBusinessDays(startISO: string, endISO: string): number {
   let d = dayjs(startISO)
   const end = dayjs(endISO)
@@ -291,9 +303,6 @@ function countBusinessDays(startISO: string, endISO: string): number {
   }
   return count
 }
-
-// Hoy normalizado
-const today = computed(() => dayjs().startOf('day'))
 
 function canPickDay(d: Dayjs): boolean {
   const key = d.format('YYYY-MM-DD')
@@ -478,7 +487,18 @@ function goNextMonth() { currentDate.value = currentDate.value.add(1, 'month'); 
 /** Datos remotos */
 const pendingRequests = ref<VacationRequest[]>([])
 const approvedRequests = ref<VacationRequest[]>([])
-const rejectedRequests = ref<VacationRequest[]>([]) // NUEVO
+const rejectedRequests = ref<VacationRequest[]>([])
+
+// Computado: solo el último rechazo
+const latestRejected = computed<VacationRequest[]>(() => {
+  if (!rejectedRequests.value.length) return []
+  const sorted = [...rejectedRequests.value].sort((a, b) => {
+    const aKey = dayjs(a.createdAt ?? a.startDate).valueOf()
+    const bKey = dayjs(b.createdAt ?? b.startDate).valueOf()
+    return bKey - aKey
+  })
+  return [sorted[0]]
+})
 
 async function loadBalance() {
   try {
@@ -510,17 +530,19 @@ async function loadCalendarData() {
 }
 
 async function loadUserRequests() {
-  const data = await getUserVacations();
+  const data = await getUserVacations()
 
   // soporta tanto {approved, pending, rejected} como solo {approved, pending}
-  const pending  = (data.pending  ?? []).filter((r: { status: string }) => r.status === 'pending');
-  const approved = (data.approved ?? []).filter((r: { status: string }) => r.status === 'approved');
-  const rejected = (data.rejected ?? []).filter((r: { status: string }) => r.status === 'rejected');
+  type WithStatus = { status?: VacationRequest['status'] }
+  const byStatus = (s: VacationRequest['status']) => (r: WithStatus): r is Required<WithStatus> => r.status === s
 
-  pendingRequests.value  = pending  as VacationRequest[];
-  approvedRequests.value = approved as VacationRequest[];
-  rejectedRequests.value = rejected as VacationRequest[];
+  const pending  = (data.pending  ?? []).filter(byStatus('pending'))
+  const approved = (data.approved ?? []).filter(byStatus('approved'))
+  const rejected = (data.rejected ?? []).filter(byStatus('rejected'))
 
+  pendingRequests.value  = pending  as unknown as VacationRequest[]
+  approvedRequests.value = approved as unknown as VacationRequest[]
+  rejectedRequests.value = rejected as unknown as VacationRequest[]
 }
 
 /** Diálogo */
@@ -695,9 +717,27 @@ onMounted(async () => {
 .instructions{ margin:0 0 0 1.1rem; color:var(--muted) }
 .muted{ color:var(--muted) }
 .requests{ display:flex; flex-direction:column; gap:.75rem }
-.request-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; padding:.65rem .75rem; border:1px dashed var(--line); border-radius:12px; background:#fff }
+
+/* Filas de solicitudes */
+.request-row{
+  display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;
+  padding:.65rem .75rem; border:1px dashed var(--line); border-radius:12px; background:#fff
+}
 .side-panels .panel:nth-of-type(2) .request-row{ border-left:4px solid var(--warn); background:#fff7ed }
 .side-panels .panel:nth-of-type(3) .request-row{ border-left:4px solid var(--ok); background:#ecfdf5 }
+
+/* Aprobadas que ya pasaron */
+.request-row.expired{
+  background:#f3f4f6;       /* gris claro */
+  border-color:#e5e7eb;
+  color:#6b7280;
+}
+.request-row.expired .badge-success{
+  background:#e5e7eb;
+  color:#6b7280;
+}
+.request-row.expired .btn{ display:none; }
+
 .actions{ display:flex; align-items:center; gap:.5rem }
 .btn{ padding:.45rem .7rem; border-radius:10px; border:1px solid var(--line); background:#f8fafc; color: var(--text); cursor:pointer; }
 .btn:hover{ background:#eef2ff }
