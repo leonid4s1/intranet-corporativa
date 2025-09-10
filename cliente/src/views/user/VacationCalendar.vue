@@ -1,5 +1,8 @@
 <template>
   <div class="vacations-page">
+    <!-- Toast informativo -->
+    <div v-if="toastMsg" class="toast">{{ toastMsg }}</div>
+
     <!-- KPIs -->
     <div class="kpi-grid">
       <div class="kpi-card">
@@ -236,8 +239,8 @@ type VacationRequest = {
   startDate: string
   endDate: string
   status: 'pending' | 'approved' | 'rejected' | 'cancelled'
-  reason?: string            // motivo escrito por el usuario al solicitar
-  rejectReason?: string      // motivo de rechazo del admin (si el backend lo envía)
+  reason?: string
+  rejectReason?: string
   daysRequested?: number
   createdAt?: string
   updatedAt?: string
@@ -264,6 +267,13 @@ const selectedStart = ref<string | null>(null)
 const selectedEnd = ref<string | null>(null)
 const hoverDate = ref<string | null>(null)
 const requestOpen = ref(false)
+
+/** Toast */
+const toastMsg = ref<string | null>(null)
+function notify(msg: string) {
+  toastMsg.value = msg
+  setTimeout(() => (toastMsg.value = null), 3500)
+}
 
 /** Conteo equipo por fecha (cupo) */
 const teamCountByDate = computed<Record<string, number>>(() => {
@@ -304,24 +314,59 @@ function countBusinessDays(startISO: string, endISO: string): number {
   return count
 }
 
+/** Reglas de selección por día (permitiendo festivos/fines) */
 function canPickDay(d: Dayjs): boolean {
   const key = d.format('YYYY-MM-DD')
+  // Pasado u hoy -> NO
   if (!d.isAfter(today.value, 'day')) return false
+
+  const weekend = isWeekend(d)
+  const holiday = isHoliday(key)
+
+  // Festivo / fin de semana siempre seleccionables
+  if (weekend || holiday) return true
+
+  // Días hábiles: bloqueos normales
   if (isFull(key)) return false
   if (isUnavailable(key)) return false
   return true
 }
 
-function hasBlockedInsideRange(startISO: string, endISO: string): boolean {
+function getSingleDayBlockReason(d: Dayjs): string {
+  const key = d.format('YYYY-MM-DD')
+  if (!d.isAfter(today.value, 'day')) return 'No puedes seleccionar fechas pasadas ni el día de hoy.'
+  const weekend = isWeekend(d)
+  const holiday = isHoliday(key)
+  if (weekend || holiday) return '' // no debería bloquear
+  if (isFull(key)) return `No disponible: cupo lleno el ${formatDate(key)} (máximo ${MAX_PER_DAY} personas).`
+  if (isUnavailable(key)) return `Día no disponible: ${formatDate(key)}.`
+  return 'No se puede seleccionar este día.'
+}
+
+/** Validación del rango: permite festivos/fines, bloquea pasados y llenos/unavailable solo en laborables */
+function validateRangeSelection(startISO: string, endISO: string): { ok: boolean; reason?: string } {
   let d = dayjs(startISO)
   const end = dayjs(endISO)
+
   while (d.isSame(end, 'day') || d.isBefore(end, 'day')) {
     const key = d.format('YYYY-MM-DD')
-    if (!d.isAfter(today.value, 'day')) return true
-    if (isFull(key) || isUnavailable(key)) return true
+    const weekend = isWeekend(d)
+    const holiday = isHoliday(key)
+
+    if (!d.isAfter(today.value, 'day')) {
+      return { ok: false, reason: `No puedes seleccionar fechas pasadas (incluye ${formatDate(key)}).` }
+    }
+    if (!(weekend || holiday)) {
+      if (isFull(key)) {
+        return { ok: false, reason: `Cupo lleno el ${formatDate(key)} (máximo ${MAX_PER_DAY} personas).` }
+      }
+      if (isUnavailable(key)) {
+        return { ok: false, reason: `Día no disponible: ${formatDate(key)}.` }
+      }
+    }
     d = d.add(1, 'day')
   }
-  return false
+  return { ok: true }
 }
 
 function normalizeRange(aISO: string, bISO: string): { start: string; end: string } {
@@ -447,20 +492,35 @@ function getDayTooltip(day: CalendarDay): string {
 
 /** Interacción */
 function onClickDay(day: CalendarDay) {
-  if (!day.isAvailable && !day.inSelection && !day.isToday) return
+  const d = dayjs(day.date)
 
+  // Si no hay inicio (o ya estaba cerrado), validamos el clic como inicio
   if (!selectedStart.value || selectedEnd.value) {
+    if (!canPickDay(d)) {
+      notify(getSingleDayBlockReason(d))
+      return
+    }
     selectedStart.value = day.date
     selectedEnd.value = null
     previewEnd.value = day.date
     return
   }
 
+  // Tenemos inicio y queremos cerrar rango
   const { start, end } = normalizeRange(selectedStart.value, day.date)
-  if (hasBlockedInsideRange(start, end)) return
-  const business = countBusinessDays(start, end)
-  if (business < 1) return
-  if (business > availableDays.value) return
+
+  const check = validateRangeSelection(start, end)
+  if (!check.ok) {
+    notify(check.reason || 'No se puede seleccionar ese rango.')
+    return
+  }
+
+  const business = countBusinessDays(start, end) // festivos/fines no cuentan
+  // Permitimos business === 0 (rango solo festivos/fines)
+  if (business > availableDays.value) {
+    notify(`No tienes suficientes días disponibles. Selección requerida: ${business}, disponibles: ${availableDays.value}.`)
+    return
+  }
 
   selectedStart.value = start
   selectedEnd.value = end
@@ -526,7 +586,10 @@ async function loadCalendarData() {
 
   holidays.value = h
   teamVacations.value = tv
-  unavailable.value = un
+
+  // Evitar que 'unavailable' bloquee festivos (permitidos)
+  const holidaySet = new Set(h.map(x => x.date))
+  unavailable.value = (un || []).filter(d => !holidaySet.has(d))
 }
 
 async function loadUserRequests() {
@@ -587,6 +650,20 @@ onMounted(async () => {
   --danger: #ef4444;
   --info: #3b82f6;
   --ring: rgba(37,99,235,.25);
+}
+
+/* Toast */
+.toast{
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  background:#111827;
+  color:#fff;
+  padding:.6rem .9rem;
+  border-radius:10px;
+  box-shadow:0 8px 20px rgba(0,0,0,.25);
+  z-index: 99;
+  max-width: 80vw;
 }
 
 /* ===== Página ===== */
