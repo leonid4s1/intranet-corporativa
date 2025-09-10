@@ -26,7 +26,14 @@ app.set('trust proxy', 1);
 /** Cookies firmadas */
 app.use(cookieParser(process.env.COOKIE_SECRET));
 
-/* ====================== CORS (DEBE IR ANTES DE HELMET) ====================== */
+/* ============================================================================
+   C O R S  (debe ir antes de helmet)
+   - ALLOWED_ORIGINS: lista blanca separada por comas.
+   - CORS_ORIGIN_REGEX: opcional (regex como string, ej: ^https://.*mi-dominio\.com$).
+   - VERCEL_PROJECT_HINT: opcional; si lo pones, solo aceptará previews cuyo
+     hostname incluya ese identificador (p.ej. "leonardos-projects-cbfe09bc").
+   - CORS_DEBUG=true para log de decisiones.
+============================================================================ */
 const allowedList = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
   .split(',')
   .map(s => s.trim())
@@ -36,8 +43,24 @@ const originRegex = process.env.CORS_ORIGIN_REGEX
   ? new RegExp(process.env.CORS_ORIGIN_REGEX)
   : null;
 
-const allowedLower = allowedList.map(o => o.toLowerCase());
+const projectHint = process.env.VERCEL_PROJECT_HINT || ''; // ej: "leonardos-projects-cbfe09bc"
 const CORS_DEBUG = process.env.CORS_DEBUG === 'true';
+
+const vercelPreviewOk = (origin) => {
+  if (!origin) return false;
+  try {
+    const { hostname, protocol } = new URL(origin);
+    if (protocol !== 'https:') return false;
+    if (!hostname.endsWith('.vercel.app')) return false;
+    // Si hay hint, exigir que el hostname lo contenga
+    if (projectHint && !hostname.includes(projectHint)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const allowedLower = allowedList.map(o => o.toLowerCase());
 
 const corsOptions = {
   origin(origin, cb) {
@@ -49,43 +72,48 @@ const corsOptions = {
 
     const low = origin.toLowerCase();
 
-    // 1) Acepta cualquier *.vercel.app (Vercel cambia subdominio cada deploy)
-    if (low.endsWith('.vercel.app')) {
-      CORS_DEBUG && console.log('[CORS] vercel match:', origin);
+    // 1) Previews de Vercel (acota por hint si se configuró)
+    if (vercelPreviewOk(origin)) {
+      CORS_DEBUG && console.log('[CORS] vercel preview OK:', origin);
       return cb(null, true);
     }
 
     // 2) Lista blanca exacta
     if (allowedLower.includes(low)) {
-      CORS_DEBUG && console.log('[CORS] whitelist match:', origin);
+      CORS_DEBUG && console.log('[CORS] whitelist OK:', origin);
       return cb(null, true);
     }
 
     // 3) Regex opcional desde ENV
     if (originRegex && originRegex.test(low)) {
-      CORS_DEBUG && console.log('[CORS] regex match:', origin);
+      CORS_DEBUG && console.log('[CORS] regex OK:', origin);
       return cb(null, true);
     }
 
-    // NO permitido (NO lanzamos error para no romper el preflight con 500)
+    // No permitido
     console.warn(
-      '[CORS] NO permitido:',
+      '[CORS] BLOQUEADO:',
       origin,
-      '| allowed:',
+      '| whitelist:',
       allowedList.join(', ') || '(vacío)',
       '| regex:',
-      originRegex ? originRegex.source : 'N/A'
+      originRegex ? originRegex.source : 'N/A',
+      '| vercel-hint:',
+      projectHint || '(no configurado)'
     );
+    // Devolver false NO lanza 500; responde 200/204 al preflight sin exponer
     return cb(null, false);
   },
   credentials: true,
-  // Deja que 'cors' responda con los headers adecuados
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
   optionsSuccessStatus: 204,
   preflightContinue: false,
 };
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions)); // preflight global
+
 // Evita problemas de cache/CDN con CORS
 app.use((req, res, next) => {
   res.header('Vary', 'Origin');
@@ -152,7 +180,7 @@ const server = app.listen(port, () => {
   console.log(
     `🌍 CORS whitelist: ${allowedList.join(', ') || '(vacío)'} | regex: ${
       originRegex ? originRegex.source : 'N/A'
-    }`
+    } | vercel-hint: ${projectHint || '(no configurado)'}`
   );
 });
 
