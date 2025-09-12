@@ -65,26 +65,30 @@
 
       <div class="form-group">
         <label for="password_confirmation">Confirmar contraseña:</label>
-        <input
-          :type="showConfirmPassword ? 'text' : 'password'"
-          id="password_confirmation"
-          v-model.trim="form.password_confirmation"
-          @blur="validatePasswordConfirmation"
-          required
-          placeholder="Repite tu contraseña"
-          minlength="8"
-          :class="{ 'input-error': errors.password_confirmation }"
-          :disabled="isLoading"
-        />
-        <button
-          type="button"
-          class="password-toggle"
-          @click="showConfirmPassword = !showConfirmPassword"
-          :aria-label="showConfirmPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
-        >
-          <EyeIcon :visible="showConfirmPassword" />
-        </button>
-        <span v-if="errors.password_confirmation" class="error-text">{{ errors.password_confirmation }}</span>
+        <div class="password-input-wrapper">
+          <input
+            :type="showConfirmPassword ? 'text' : 'password'"
+            id="password_confirmation"
+            v-model.trim="form.password_confirmation"
+            @blur="validatePasswordConfirmation"
+            required
+            placeholder="Repite tu contraseña"
+            minlength="8"
+            :class="{ 'input-error': errors.password_confirmation }"
+            :disabled="isLoading"
+          />
+          <button
+            type="button"
+            class="password-toggle"
+            @click="showConfirmPassword = !showConfirmPassword"
+            :aria-label="showConfirmPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+          >
+            <EyeIcon :visible="showConfirmPassword" />
+          </button>
+        </div>
+        <span v-if="errors.password_confirmation" class="error-text">
+          {{ errors.password_confirmation }}
+        </span>
       </div>
 
       <div v-if="serverError" class="server-error">
@@ -96,7 +100,7 @@
         type="submit"
         :disabled="isLoading || !isFormValid"
         class="auth-button"
-        :class="{ 'loading': isLoading }"
+        :class="{ loading: isLoading }"
       >
         <template v-if="!isLoading">Registrarse</template>
         <template v-else>
@@ -118,31 +122,26 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { isAxiosError } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
 import EyeIcon from '@/components/icons/EyeIcon.vue';
 import ExclamationCircleIcon from '@/components/icons/ExclamationCircleIcon.vue';
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue';
 import PasswordStrengthMeter from '@/components/auth/PasswordStrengthMeter.vue';
-import { isAxiosError } from 'axios';
 
-const router = useRouter();
-const authStore = useAuthStore();
-
-// Interfaces TypeScript
+/* ------------------------- Tipos locales ------------------------- */
 interface FormState {
   name: string;
   email: string;
   password: string;
   password_confirmation: string;
 }
-
 interface ErrorState {
   name: string;
   email: string;
   password: string;
   password_confirmation: string;
 }
-
 interface PasswordValidationState {
   hasMinLength: boolean;
   hasNumber: boolean;
@@ -150,11 +149,32 @@ interface PasswordValidationState {
   hasUppercase: boolean;
 }
 
-// Estado del componente con tipos
+/* Errores del backend tipados (dos formatos posibles) */
+type FieldErrorItem = { msg: string; param?: keyof ErrorState };
+type ErrorMap = Record<string, string | string[]>;
+interface ServerErrorData {
+  message?: string;
+  error?: string;
+  errors?: FieldErrorItem[] | ErrorMap;
+}
+
+/* Type guards para no usar `any` */
+const isFieldErrorArray = (v: unknown): v is FieldErrorItem[] =>
+  Array.isArray(v) && v.every(it => it && typeof it.msg === 'string');
+
+const isErrorMap = (v: unknown): v is ErrorMap =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+
+/* ------------------------- Estado ------------------------- */
+const router = useRouter();
+const authStore = useAuthStore();
+
 const isLoading = ref<boolean>(false);
 const serverError = ref<string>('');
+
 const showPassword = ref<boolean>(false);
 const showConfirmPassword = ref<boolean>(false);
+
 const passwordValidation = ref<PasswordValidationState>({
   hasMinLength: false,
   hasNumber: false,
@@ -176,69 +196,48 @@ const errors = ref<ErrorState>({
   password_confirmation: ''
 });
 
-// Validación del formulario
+/* ------------------------- Validaciones ------------------------- */
 const isFormValid = computed(() => {
-  return (
-    form.value.name.trim().length >= 3 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.value.email) &&
-    form.value.password.length >= 8 &&
-    form.value.password === form.value.password_confirmation &&
-    !Object.values(errors.value).some(error => error)
-  );
+  const nameOk = form.value.name.trim().length >= 3;
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.value.email);
+  const passOk = form.value.password.length >= 8;
+  const matchOk = form.value.password === form.value.password_confirmation;
+  const noClientErrors = !Object.values(errors.value).some(Boolean);
+  return nameOk && emailOk && passOk && matchOk && noClientErrors;
 });
 
-// Métodos de validación
 const validateName = () => {
-  if (!form.value.name.trim()) {
-    errors.value.name = 'El nombre es requerido';
-  } else if (form.value.name.trim().length < 3) {
-    errors.value.name = 'Mínimo 3 caracteres';
-  } else {
-    errors.value.name = '';
-  }
+  const n = form.value.name.trim();
+  errors.value.name = !n ? 'El nombre es requerido' : n.length < 3 ? 'Mínimo 3 caracteres' : '';
 };
-
 const validateEmail = () => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!form.value.email.trim()) {
-    errors.value.email = 'El email es requerido';
-  } else if (!emailRegex.test(form.value.email)) {
-    errors.value.email = 'Email inválido';
-  } else {
-    errors.value.email = '';
-  }
+  const e = form.value.email.trim();
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  errors.value.email = !e ? 'El email es requerido' : !re.test(e) ? 'Email inválido' : '';
 };
-
 const validatePassword = () => {
-  if (!form.value.password) {
-    errors.value.password = 'La contraseña es requerida';
-  } else if (form.value.password.length < 8) {
-    errors.value.password = 'Mínimo 8 caracteres';
-  } else {
-    errors.value.password = '';
-  }
+  const p = form.value.password;
+  errors.value.password = !p ? 'La contraseña es requerida' : p.length < 8 ? 'Mínimo 8 caracteres' : '';
 };
-
 const validatePasswordConfirmation = () => {
-  if (!form.value.password_confirmation) {
-    errors.value.password_confirmation = 'Confirma tu contraseña';
-  } else if (form.value.password !== form.value.password_confirmation) {
-    errors.value.password_confirmation = 'Las contraseñas no coinciden';
-  } else {
-    errors.value.password_confirmation = '';
-  }
+  const pc = form.value.password_confirmation;
+  errors.value.password_confirmation = !pc
+    ? 'Confirma tu contraseña'
+    : form.value.password !== pc
+    ? 'Las contraseñas no coinciden'
+    : '';
 };
 
 const updatePasswordValidation = (validation: PasswordValidationState) => {
   passwordValidation.value = validation;
 };
 
-// Envío del formulario
+/* ------------------------- Submit ------------------------- */
 const handleSubmit = async () => {
   serverError.value = '';
   isLoading.value = true;
 
-  // Validar todos los campos
+  // Validación previa
   validateName();
   validateEmail();
   validatePassword();
@@ -250,58 +249,51 @@ const handleSubmit = async () => {
   }
 
   try {
-    const userData = {
+    const payload = {
       name: form.value.name.trim(),
       email: form.value.email.trim().toLowerCase(),
       password: form.value.password,
       password_confirmation: form.value.password_confirmation
     };
 
-    await authStore.register(userData);
-    router.push({ name: 'email-verification', query: {force: 'true'} });
+    await authStore.register(payload);
+    router.push({ name: 'email-verification', query: { force: 'true' } });
+  } catch (err: unknown) {
+    console.error('Error en registro:', err);
 
-  } catch (error: unknown) {
-    console.error('Error en registro:', error);
+    // limpia errores previos
+    (Object.keys(errors.value) as Array<keyof ErrorState>).forEach(k => (errors.value[k] = ''));
 
-    // Limpiar errores anteriores
-    Object.keys(errors.value).forEach(key => {
-      errors.value[key as keyof ErrorState] = '';
-    });
+    if (isAxiosError(err)) {
+      const data: ServerErrorData | undefined = err.response?.data;
 
-    if (isAxiosError(error)) {
-      // Manejo específico para errores de Axios
-      if (Array.isArray(error.response?.data?.errors)) {
-        error.response?.data?.errors.forEach((err: { msg: string, param?: string }) => {
-          if (err.param && err.param in errors.value) {
-            errors.value[err.param as keyof ErrorState] = err.msg;
-      } else {
-        // Manejo para otros tipos de Error
-        serverError.value = err.msg;
+      if (data?.errors) {
+        if (isFieldErrorArray(data.errors)) {
+          data.errors.forEach(fe => {
+            if (fe.param) errors.value[fe.param] = fe.msg || 'Campo inválido';
+          });
+        } else if (isErrorMap(data.errors)) {
+          Object.entries(data.errors).forEach(([field, messages]) => {
+            if (field in errors.value) {
+              const key = field as keyof ErrorState;
+              errors.value[key] = Array.isArray(messages) ? messages.join(', ') : String(messages);
+            }
+          });
+        }
       }
-    });
-  }
-  // Manejo para formato antiguo (por compatibilidad)
-  else if (error.response?.data?.errors && typeof error.response.data.errors === 'object') {
-    Object.entries(error.response.data.errors).forEach(([field, messages]) => {
-      if (field in errors.value) {
-        errors.value[field as keyof ErrorState] = Array.isArray(messages)
-          ? messages.join(', ')
-          : String(messages);
-      }
-    });
-  }
-  serverError.value = error.response?.data?.message || error.message || 'Error de conexión';
-} else if (error instanceof Error) {
-  serverError.value = error.message;
-} else {
-  serverError.value = 'Ocurrio un error inesperado';
-}
-} finally {
+
+      serverError.value = data?.message || data?.error || err.message || 'Error de conexión';
+    } else if (err instanceof Error) {
+      serverError.value = err.message;
+    } else {
+      serverError.value = 'Ocurrió un error inesperado';
+    }
+  } finally {
     isLoading.value = false;
   }
 };
 
-// Watcher para confirmación de contraseña
+/* Sincroniza validación de confirmación al escribir */
 watch(() => form.value.password_confirmation, validatePasswordConfirmation);
 </script>
 
@@ -345,6 +337,7 @@ input {
   border-radius: 8px;
   font-size: 1rem;
   transition: border-color 0.2s;
+  width: 100%;
 }
 
 input:focus {
@@ -377,27 +370,6 @@ input:focus {
   cursor: pointer;
   padding: 0.25rem;
   color: var(--text-secondary);
-}
-
-.terms-group {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-.terms-group label {
-  font-weight: normal;
-  font-size: 0.9rem;
-}
-
-.terms-group a {
-  color: var(--primary-color);
-  text-decoration: none;
-}
-
-.terms-group a:hover {
-  text-decoration: underline;
 }
 
 .server-error {
