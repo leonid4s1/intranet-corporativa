@@ -4,6 +4,12 @@ import api from '@/services/api'
 /* ========== Tipos públicos ========== */
 export type Role = 'user' | 'admin' | (string & {})
 
+export interface VacationDays {
+  total: number
+  used: number
+  remaining: number
+}
+
 export interface User {
   id: string
   name: string
@@ -11,10 +17,13 @@ export interface User {
   role: Role
   isActive: boolean
   email_verified_at?: string | null
+  vacationDays?: VacationDays // 👈 NECESARIO para used/total/remaining
 }
 
 export interface UpdateNamePayload {
   name: string
+  /** algunos backends piden email también (tu controller updateUserData lo exige) */
+  email?: string
 }
 
 export interface UpdatePasswordPayload {
@@ -42,14 +51,16 @@ function toBool(v: unknown): boolean | undefined {
   return undefined
 }
 
-/** Normaliza un usuario venido del backend (con o sin envoltorio `data`) */
+/** Normaliza un usuario venido del backend (directo / {user} / {data}) */
 function normalizeUser(raw: unknown): User | null {
-  const r =
-    isRecord(raw) ? raw
-    : isRecord((raw as { data?: unknown })?.data)
-      ? ((raw as { data: unknown }).data as Record<string, unknown>)
-      : null
+  const pick = (x: unknown): Record<string, unknown> | null => {
+    if (!isRecord(x)) return null
+    if (isRecord(x.user)) return x.user as Record<string, unknown>
+    if (isRecord(x.data)) return x.data as Record<string, unknown>
+    return x
+  }
 
+  const r = pick(raw)
   if (!r) return null
 
   const id = toStr(get(r, 'id')) ?? toStr(get(r, '_id'))
@@ -59,7 +70,6 @@ function normalizeUser(raw: unknown): User | null {
   const email = toStr(get(r, 'email')) ?? 'no-email@example.com'
   const role = (toStr(get(r, 'role')) ?? 'user') as Role
 
-  // isActive puede venir como isActive/active o invertido locked/disabled
   const isActive =
     toBool(get(r, 'isActive')) ??
     toBool(get(r, 'active')) ??
@@ -71,12 +81,24 @@ function normalizeUser(raw: unknown): User | null {
     toStr(get(r, 'emailVerifiedAt')) ??
     undefined
 
-  return { id, name, email, role, isActive: isActive ?? true, email_verified_at }
+  // vacaciones (si vienen desde getUsers combinado con VacationData)
+  let vacationDays: VacationDays | undefined
+  if (isRecord(get(r, 'vacationDays'))) {
+    const v = get(r, 'vacationDays') as Record<string, unknown>
+    vacationDays = {
+      total: Number(get(v, 'total') ?? 0),
+      used: Number(get(v, 'used') ?? 0),
+      remaining: Number(get(v, 'remaining') ?? Math.max(0, (Number(get(v, 'total') ?? 0)) - (Number(get(v, 'used') ?? 0)))),
+    }
+  }
+
+  return { id, name, email, role, isActive: isActive ?? true, email_verified_at, vacationDays }
 }
 
 function unwrapList(data: unknown): unknown[] {
-  if (isRecord(data) && Array.isArray(get<unknown[]>(data, 'data'))) {
-    return (get<unknown[]>(data, 'data') as unknown[]) ?? []
+  if (isRecord(data)) {
+    if (Array.isArray(get<unknown[]>(data, 'data'))) return get<unknown[]>(data, 'data') as unknown[]
+    if (Array.isArray(get<unknown[]>(data, 'users'))) return get<unknown[]>(data, 'users') as unknown[]
   }
   return Array.isArray(data) ? data : []
 }
@@ -96,7 +118,8 @@ async function register(payload: RegisterPayload): Promise<void> {
 /** GET /auth/profile -> User */
 async function getProfile(): Promise<User> {
   const { data } = await api.get('/auth/profile')
-  const user = normalizeUser(isRecord(data) ? (get(data as Record<string, unknown>, 'user') ?? data) : data)
+  const payload = isRecord(data) ? (get(data, 'user') ?? data) : data
+  const user = normalizeUser(payload)
   if (!user) throw new Error('Respuesta inválida al cargar perfil')
   return user
 }
@@ -111,48 +134,37 @@ async function logout(): Promise<void> {
 /** GET /users -> User[] (acepta también {data:User[]}) */
 export async function getAllUsers(): Promise<User[]> {
   const { data } = await api.get('/users')
-  return unwrapList(data)
-    .map(normalizeUser)
-    .filter((u): u is User => !!u)
+  return unwrapList(data).map(normalizeUser).filter((u): u is User => !!u)
 }
 
-/** PATCH /users/:id { name } -> User */
+/** PATCH /users/:id/name  (tu backend actual usa updateUserData y pide name+email) */
 export async function updateUserName(userId: string, payload: UpdateNamePayload): Promise<User> {
-  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}`, { name: payload.name })
+  const body: Record<string, unknown> = { name: payload.name }
+  if (payload.email) body.email = payload.email // por si tu controller lo exige
+  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/name`, body)
   const user = normalizeUser(data)
   if (!user) throw new Error('Respuesta inválida al actualizar nombre')
   return user
 }
 
-/** POST /users/:id/toggle-lock -> { id, isActive } (acepta también respuestas con {data}) */
+/** PATCH /users/:id/lock -> { success, user: { id, isActive } } */
 export async function toggleUserLock(
   userId: string
 ): Promise<{ id: string; isActive: boolean }> {
-  const { data } = await api.post(`/users/${encodeURIComponent(userId)}/toggle-lock`)
-
-  // ✅ sin `any`
-  const container: unknown = isRecord(data) ? (get<unknown>(data, 'data') ?? data) : data
+  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/lock`)
+  const container = isRecord(data) ? (get<Record<string, unknown>>(data, 'user') ?? data) : data
 
   if (isRecord(container)) {
-    const id =
-      toStr(get(container, 'id')) ??
-      toStr(get(container, '_id')) ??
-      userId
-
+    const id = toStr(get(container, 'id')) ?? toStr(get(container, '_id')) ?? userId
     const isActive =
       toBool(get(container, 'isActive')) ??
       toBool(get(container, 'active')) ??
-      (toBool(get(container, 'locked')) !== undefined
-        ? !toBool(get(container, 'locked'))!
-        : undefined) ??
+      (toBool(get(container, 'locked')) !== undefined ? !toBool(get(container, 'locked'))! : undefined) ??
       true
-
     return { id, isActive: !!isActive }
   }
-
   return { id: userId, isActive: true }
 }
-
 
 /** PATCH /users/:id/password { newPassword } -> { success } */
 export async function updateUserPassword(
@@ -173,6 +185,22 @@ export async function deleteUser(userId: string): Promise<{ success: boolean }> 
   return { success }
 }
 
+/* ======= Vacaciones ======= */
+/** PATCH /users/:id/vacation/total { total }  -> { success, user? } */
+export async function setVacationTotal(userId: string, payload: { total: number }): Promise<void> {
+  await api.patch(`/users/${encodeURIComponent(userId)}/vacation/total`, { total: Number(payload.total) })
+}
+
+/** (opc) POST /users/:id/vacation/add { days } */
+export async function addVacationDays(userId: string, payload: { days: number }): Promise<void> {
+  await api.post(`/users/${encodeURIComponent(userId)}/vacation/add`, { days: Number(payload.days) })
+}
+
+/** (opc) PATCH /users/:id/vacation/used { used } */
+export async function setVacationUsed(userId: string, payload: { used: number }): Promise<void> {
+  await api.patch(`/users/${encodeURIComponent(userId)}/vacation/used`, { used: Number(payload.used) })
+}
+
 /* ========== Export por defecto (compat con imports actuales) ========== */
 export default {
   // auth
@@ -186,4 +214,8 @@ export default {
   toggleUserLock,
   updateUserPassword,
   deleteUser,
+  // vacaciones
+  setVacationTotal,
+  addVacationDays,
+  setVacationUsed,
 }

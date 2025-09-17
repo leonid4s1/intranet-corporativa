@@ -1,126 +1,115 @@
 // src/router/guards.ts
-import { useAuthStore } from "@/stores/auth.store";
-import type { NavigationGuardNext, RouteLocationNormalized } from "vue-router";
+import { useAuthStore } from '@/stores/auth.store';
+import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router';
+
+type AuthStore = ReturnType<typeof useAuthStore>;
 
 export const authGuard = async (
   to: RouteLocationNormalized,
-  from: RouteLocationNormalized,
+  _from: RouteLocationNormalized,
   next: NavigationGuardNext
 ) => {
-  const authStore = useAuthStore();
-  const {
-    requiresAuth = false,
-    requiresAdmin = false,
-    public: isPublic = false,
-    requiresVerifiedEmail = true
-  } = to.meta;
+  const auth = useAuthStore();
 
-  // Initialize auth if needed
-  if (!authStore.isInitialized && (requiresAuth || requiresAdmin)) {
+  const meta = to.meta as {
+    public?: boolean;
+    requiresAuth?: boolean;
+    requiresAdmin?: boolean;
+    requiresVerifiedEmail?: boolean;
+  };
+
+  const requiresAuth = !!meta.requiresAuth;
+  const requiresAdmin = !!meta.requiresAdmin;
+  const isPublic = !!meta.public;
+  const requiresVerifiedEmail = meta.requiresVerifiedEmail ?? true;
+
+  // Inicializa si la ruta lo requiere
+  if (!auth.isInitialized && (requiresAuth || requiresAdmin)) {
     try {
-      await authStore.initialize();
-    } catch (error) {
-      authStore.clearAuth();
-      return redirectToLogin(to, next);
+      await auth.initialize();
+    } catch {
+      auth.clearAuth();
+      return redirectToLogin(auth, to, next);
     }
   }
 
-  // Handle public routes
+  // Rutas públicas
   if (isPublic) {
-    return handlePublicRoute(authStore, to, from, next);
+    return handlePublicRoute(auth, to, next);
   }
 
-  // Check authentication
-  if (requiresAuth && !authStore.isAuthenticated) {
-    return redirectToLogin(to, next);
+  // Requiere autenticación
+  if (requiresAuth && !auth.isAuthenticated) {
+    return redirectToLogin(auth, to, next);
   }
 
-  // Check email verification
-  if (requiresVerifiedEmail && !authStore.isEmailVerified && to.name !== 'email-verification') {
-    return redirectToEmailVerification(authStore, to, next);
+  // Verificación de email (no bloquear tu propia página de verificación)
+  if (
+    requiresVerifiedEmail &&
+    !auth.isEmailVerified &&
+    to.name !== 'email-verification'
+  ) {
+    return redirectToEmailVerification(auth, to, next);
   }
 
-  // Check admin role
-  if (requiresAdmin && !authStore.isAdmin) {
+  // Requiere admin
+  if (requiresAdmin && !auth.isAdmin) {
     return next({ name: 'forbidden' });
   }
 
-  // Prevent showing verification page if already verified
-  if (to.name === 'email-verification' && authStore.isEmailVerified && to.query.force !== 'true') {
-    return next(authStore.isAdmin ? '/admin' : '/');
-  }
-
-  // All checks passed
-  next();
-};
-
-// Helper functions
-const redirectToLogin = (to: RouteLocationNormalized, next: NavigationGuardNext) => {
-  const authStore = useAuthStore();
-  authStore.setReturnUrl(to.fullPath);
-  return next({
-    name: 'login',
-    query: { redirect: to.fullPath }
-  });
-};
-
-const redirectToEmailVerification = (
-  authStore: ReturnType<typeof useAuthStore>,
-  to: RouteLocationNormalized,
-  next: NavigationGuardNext
-) => {
-  return next({
-    name: 'email-verification',
-    query: {
-      email: authStore.userData?.email,
-      redirect: to.fullPath
-    }
-  });
-};
-
-const handlePublicRoute = (
-  authStore: ReturnType<typeof useAuthStore>,
-  to: RouteLocationNormalized,
-  from: RouteLocationNormalized,
-  next: NavigationGuardNext
-) => {
-  // Allow during registration/verification flow
-  if (authStore.isAuthenticated && ['register', 'email-verification'].includes(from.name as string)) {
-    return next();
-  }
-
-  // Redirect authenticated users away from auth pages
-  if (authStore.isAuthenticated && ['login', 'register'].includes(to.name as string)) {
-    return next(authStore.isAdmin ? '/admin' : '/');
+  // Si ya está verificado, no mostrar la página de verificación (a menos que force=true)
+  if (to.name === 'email-verification' && auth.isEmailVerified && to.query.force !== 'true') {
+    return next(auth.isAdmin ? '/admin' : '/');
   }
 
   return next();
 };
 
-// Admin guard (specific for admin routes)
+// === Helpers ===
+const redirectToLogin = (auth: AuthStore, to: RouteLocationNormalized, next: NavigationGuardNext) => {
+  // guarda hacia dónde querías ir (solo si no vienes ya de login)
+  auth.setReturnUrl(to.fullPath);
+  return next({ name: 'login', query: { redirect: to.fullPath } });
+};
+
+const redirectToEmailVerification = (auth: AuthStore, to: RouteLocationNormalized, next: NavigationGuardNext) => {
+  return next({
+    name: 'email-verification',
+    query: { email: auth.userData?.email, redirect: to.fullPath },
+  });
+};
+
+const handlePublicRoute = (auth: AuthStore, to: RouteLocationNormalized, next: NavigationGuardNext) => {
+  // Evitar que usuarios autenticados visiten login/registro
+  const isAuthPage = ['login', 'register'].includes(String(to.name));
+  if (auth.isAuthenticated && isAuthPage) {
+    return next(auth.isAdmin ? '/admin' : '/');
+  }
+  return next();
+};
+
+// Guard específico para rutas admin (si quieres aplicarlo en rutas sueltas)
 export const adminGuard = async (
   to: RouteLocationNormalized,
-  from: RouteLocationNormalized,
+  _from: RouteLocationNormalized,
   next: NavigationGuardNext
 ) => {
-  const authStore = useAuthStore();
+  const auth = useAuthStore();
 
-  if (!authStore.isInitialized) {
+  if (!auth.isInitialized) {
     try {
-      await authStore.initialize();
-    } catch (error) {
-      authStore.clearAuth();
-      return redirectToLogin(to, next);
+      await auth.initialize();
+    } catch {
+      auth.clearAuth();
+      return redirectToLogin(auth, to, next);
     }
   }
 
-  if (!authStore.isAuthenticated) {
-    return redirectToLogin(to, next);
+  if (!auth.isAuthenticated) {
+    return redirectToLogin(auth, to, next);
   }
-
-  if (!authStore.isAdmin) {
+  if (!auth.isAdmin) {
     return next({ name: 'forbidden' });
   }
-
-  next();
+  return next();
 };
