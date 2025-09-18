@@ -34,9 +34,7 @@
                 <span v-if="u.email_verified_at" class="verified-badge">Verificado</span>
               </div>
             </td>
-            <td class="email-cell">
-              {{ u.email }}
-            </td>
+            <td class="email-cell">{{ u.email }}</td>
             <td class="role-cell">
               <span class="role-badge" :class="u.role">
                 {{ u.role === 'admin' ? 'Administrador' : 'Usuario' }}
@@ -76,9 +74,7 @@
         </tbody>
       </table>
 
-      <div v-else class="empty-state">
-        No se encontraron usuarios
-      </div>
+      <div v-else class="empty-state">No se encontraron usuarios</div>
     </div>
 
     <!-- Edit User Modal -->
@@ -139,9 +135,7 @@
           <button class="save-btn" @click="updateUser">Guardar</button>
         </div>
 
-        <div v-if="modalError" class="modal-error">
-          {{ modalError }}
-        </div>
+        <div v-if="modalError" class="modal-error">{{ modalError }}</div>
       </div>
     </div>
 
@@ -178,6 +172,7 @@
               min="0"
               step="1"
               v-model.number="vacForm.newTotal"
+              @keyup.enter.stop.prevent="saveVacationTotal()"
             />
             <small v-if="vacForm.newTotal < vacForm.used" class="text-warn">
               El total no puede ser menor que los días usados ({{ vacForm.used }}).
@@ -190,15 +185,13 @@
           <button
             class="save-btn"
             :disabled="savingVac || vacForm.newTotal < vacForm.used"
-            @click="saveVacationTotal"
+            @click.stop.prevent="saveVacationTotal()"
           >
             {{ savingVac ? 'Guardando…' : 'Guardar' }}
           </button>
         </div>
 
-        <div v-if="vacError" class="modal-error">
-          {{ vacError }}
-        </div>
+        <div v-if="vacError" class="modal-error">{{ vacError }}</div>
       </div>
     </div>
   </div>
@@ -289,9 +282,6 @@ async function updateUser() {
       await userService.updateUserPassword(selectedUser.value.id, { newPassword: newPassword.value })
     }
 
-    // (Nota) El rol se muestra, pero aquí no estamos llamando endpoint de rol.
-    // Si quieres persistir rol: userService.updateUserRole(selectedUser.value.id, { role: selectedUser.value.role })
-
     await fetchUsers()
     closeModal()
   } catch (err: unknown) {
@@ -303,7 +293,6 @@ async function updateUser() {
 async function confirmDelete(userId: string) {
   const ok = window.confirm('¿Seguro que quieres eliminar este usuario?')
   if (!ok) return
-
   try {
     await userService.deleteUser(userId)
     users.value = users.value.filter(u => u.id !== userId)
@@ -331,6 +320,7 @@ function openVacationModal(u: User) {
     currentTotal: total(u),
     newTotal: total(u)
   }
+  console.log('[vacModal] open', JSON.parse(JSON.stringify(vacForm.value)))
 }
 
 function closeVacModal() {
@@ -341,11 +331,17 @@ function closeVacModal() {
 async function saveVacationTotal() {
   try {
     savingVac.value = true
-    await userService.setVacationTotal(vacForm.value.id, { total: Number(vacForm.value.newTotal) })
+    const newTotal = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
+    console.log('[saveVacationTotal] START', { id: vacForm.value.id, newTotal })
+
+    await userService.setVacationTotal(vacForm.value.id, { total: newTotal })
+
+    console.log('[saveVacationTotal] OK -> refetch users')
     await fetchUsers()
     closeVacModal()
   } catch (e: unknown) {
     vacError.value = e instanceof Error ? e.message : 'No se pudieron guardar los días'
+    console.error('[saveVacationTotal] ERROR', e)
   } finally {
     savingVac.value = false
   }
@@ -357,7 +353,6 @@ async function saveVacationTotal() {
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
 .title { font-size: 1.5rem; font-weight: 600; color: #1a202c; }
 .loading-indicator { color: #4a5568; font-size: 0.875rem; }
-
 .error-message { padding: 1rem; background-color: #fff5f5; color: #e53e3e; border-radius: 0.375rem; margin-bottom: 1.5rem; }
 
 .table-container { background-color: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
@@ -371,7 +366,6 @@ async function saveVacationTotal() {
 .role-column { width: 12%; }
 .vac-col { width: 8%; }
 .actions-column { width: 18%; }
-
 .text-right { text-align: right; }
 
 .user-info { display: flex; flex-direction: column; gap: 0.25rem; }
@@ -386,24 +380,11 @@ async function saveVacationTotal() {
 .role-badge.user  { background-color: #f0fff4; color: #48bb78; }
 
 .actions-cell { display: flex; gap: 0.5rem; }
-
-.edit-btn, .delete-btn, .vac-btn {
-  padding: 0.5rem;
-  border-radius: 0.375rem;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s;
-}
-.edit-btn { color: #4299e1; background-color: #ebf8ff; }
-.edit-btn:hover { background-color: #bee3f8; }
-
-.vac-btn { color: #2b6cb0; background-color: #ebf8ff; }
-.vac-btn:hover { background-color: #bee3f8; }
-
-.delete-btn { color: #f56565; background-color: #fff5f5; }
-.delete-btn:hover { background-color: #fed7d7; }
-
+.edit-btn, .delete-btn, .vac-btn { padding: 0.5rem; border-radius: 0.375rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.edit-btn { color: #4299e1; background-color: #ebf8ff; } .edit-btn:hover { background-color: #bee3f8; }
+.vac-btn { color: #2b6cb0; background-color: #ebf8ff; } .vac-btn:hover { background-color: #bee3f8; }
+.delete-btn { color: #f56565; background-color: #fff5f5; } .delete-btn:hover { background-color: #fed7d7; }
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
-
 .empty-state { padding: 2rem; text-align: center; color: #718096; }
 
 /* Modal */
@@ -411,8 +392,7 @@ async function saveVacationTotal() {
 .modal-content { background-color: white; border-radius: 0.5rem; width: 100%; max-width: 520px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
 .modal-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #edf2f7; display: flex; justify-content: space-between; align-items: center; }
 .modal-header h3 { font-size: 1.1rem; font-weight: 600; color: #1a202c; }
-.close-btn { color: #a0aec0; background: none; border: none; cursor: pointer; padding: 0.25rem; }
-.close-btn:hover { color: #718096; }
+.close-btn { color: #a0aec0; background: none; border: none; cursor: pointer; padding: 0.25rem; } .close-btn:hover { color: #718096; }
 .modal-body { padding: 1.5rem; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; margin-bottom: .75rem; }
 .stat { background: #f7fafc; border: 1px solid #edf2f7; padding: .5rem .75rem; border-radius: .375rem; }
@@ -428,10 +408,8 @@ async function saveVacationTotal() {
 
 .modal-footer { padding: 1.25rem 1.5rem; border-top: 1px solid #edf2f7; display: flex; justify-content: flex-end; gap: 0.75rem; }
 .cancel-btn, .save-btn { padding: 0.625rem 1.25rem; border-radius: 0.375rem; font-weight: 500; transition: all 0.2s; }
-.cancel-btn { background-color: #edf2f7; color: #4a5568; }
-.cancel-btn:hover { background-color: #e2e8f0; }
-.save-btn { background-color: #4299e1; color: white; }
-.save-btn:hover { background-color: #3182ce; }
+.cancel-btn { background-color: #edf2f7; color: #4a5568; } .cancel-btn:hover { background-color: #e2e8f0; }
+.save-btn { background-color: #4299e1; color: white; } .save-btn:hover { background-color: #3182ce; }
 
 .modal-error { margin: .75rem 1.5rem 1.25rem; padding: 0.75rem; background-color: #fff5f5; color: #e53e3e; border-radius: 0.375rem; font-size: 0.875rem; }
 </style>
