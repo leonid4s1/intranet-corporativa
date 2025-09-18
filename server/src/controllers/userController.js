@@ -23,21 +23,28 @@ const toNum = (v, def = 0) => {
 // Entero >= 0
 const toInt = (v, def = 0) => {
   const n = Math.floor(Number(v));
-  return Number.isFinite(n) ? n : def;
+  return Number.isFinite(n) ? Math.max(0, n) : def;
 };
 
-// Fuerza sincronización inmediata con VacationData (además del post-save del modelo User)
+// Sincroniza VacationData para un usuario, tolerando upserts concurrentes (E11000).
 const upsertVacationData = async (userDoc) => {
   const total = toInt(userDoc?.vacationDays?.total, 0);
   const used = toInt(userDoc?.vacationDays?.used, 0);
   const remaining = Math.max(0, total - used);
+  const filter = { user: userDoc._id };
+  const $set = { total, used, remaining, lastUpdate: new Date() };
 
-  await VacationData.findOneAndUpdate(
-    { user: userDoc._id },
-    { total, used, remaining, lastUpdate: new Date() },
-    { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
-  );
-
+  try {
+    // updateOne con upsert minimiza carreras; si igualmente choca, reintenta sin upsert.
+    await VacationData.updateOne(filter, { $set }, { upsert: true, runValidators: true, setDefaultsOnInsert: true });
+  } catch (err) {
+    if (err?.code === 11000) {
+      // Ya existe el doc (o carrera): solo actualiza.
+      await VacationData.updateOne(filter, { $set });
+    } else {
+      throw err;
+    }
+  }
   return { total, used, remaining };
 };
 
@@ -113,8 +120,7 @@ export const getUsers = async (_req, res) => {
 };
 
 /* ==============================
-   POST /api/users
-   Crear usuario (admin)
+   POST /api/users   (admin)
    Body: { name, email, password, role?, isActive?, isVerified?, availableDays? }
    ============================== */
 export const createUser = async (req, res) => {
@@ -170,7 +176,7 @@ export const createUser = async (req, res) => {
     });
   } catch (error) {
     console.error('Error creando usuario:', error);
-    return res.status(500).json({ success: false, message: 'Error al crear usuario' });
+    return res.status(500).json({ success: false, message: 'Error al crear usuario', error: error.message });
   }
 };
 
@@ -379,8 +385,8 @@ export const setVacationTotal = async (req, res) => {
 
     user.vacationDays.total = total;
     user.vacationDays.lastUpdate = new Date();
-    await user.save();                   // dispara post-save
-    const sync = await upsertVacationData(user); // fuerza sync inmediato
+    await user.save();                         // post-save
+    const sync = await upsertVacationData(user); // sincronía explícita
 
     return res.json({
       success: true,
@@ -391,7 +397,7 @@ export const setVacationTotal = async (req, res) => {
     console.error('setVacationTotal error:', error);
     return res
       .status(500)
-      .json({ success: false, message: 'Error actualizando días', error: error.message });
+      .json({ success: false, message: 'Error actualizando días', error: error.message, code: error?.code });
   }
 };
 
@@ -426,7 +432,7 @@ export const addVacationDays = async (req, res) => {
     console.error('addVacationDays error:', error);
     return res
       .status(500)
-      .json({ success: false, message: 'Error añadiendo días', error: error.message });
+      .json({ success: false, message: 'Error añadiendo días', error: error.message, code: error?.code });
   }
 };
 
@@ -470,6 +476,7 @@ export const setVacationUsed = async (req, res) => {
       success: false,
       message: 'Error actualizando días usados',
       error: error.message,
+      code: error?.code,
     });
   }
 };
@@ -511,6 +518,7 @@ export const setVacationAvailable = async (req, res) => {
       success: false,
       message: 'Error actualizando disponibles',
       error: error.message,
+      code: error?.code,
     });
   }
 };
