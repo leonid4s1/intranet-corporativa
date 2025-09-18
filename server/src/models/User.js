@@ -291,33 +291,31 @@ UserSchema.virtual('vacationDays.remaining').get(function () {
   return Math.max(0, this.vacationDays.total - this.vacationDays.used);
 });
 
-// Middleware para logging y sync con VacationData
+// Middleware para logging y sync con VacationData (upsert robusto)
 UserSchema.post('save', async function (doc, next) {
   try {
-    console.log(`Usuario ${doc.email} guardado/actualizado`);
-
     if (doc.vacationDays) {
-      const VacationModel = mongoose.models.VacationData || mongoose.model('VacationData'); // 👈 robusto
-      const { total, used } = doc.vacationDays;
-      const remaining = total - used;
+      const VacationModel =
+        mongoose.models.VacationData || mongoose.model('VacationData');
 
-      await VacationModel.findOneAndUpdate(
+      const total = Number(doc.vacationDays.total || 0);
+      const used = Number(doc.vacationDays.used || 0);
+      const remaining = Math.max(0, total - used);
+
+      await VacationModel.updateOne(
         { user: doc._id },
         {
-          total,
-          used,
-          remaining,
-          lastUpdate: new Date()
+          $set: {
+            total,
+            used,
+            remaining,
+            lastUpdate: new Date()
+          },
+          $setOnInsert: { user: doc._id } // 👈 crea si aún no existía
         },
-        {
-          upsert: true,
-          new: true,
-          runValidators: true
-        }
+        { upsert: true }
       );
     }
-
-    console.log(`Datos de vacaciones sincronizados para ${doc.email}`);
     next();
   } catch (error) {
     console.error('Error en post-save hook:', error);
