@@ -9,7 +9,7 @@ const ERROR_MESSAGES = {
   USER_NOT_FOUND: 'Usuario no encontrado',
   PASSWORD_REQUIRED: 'La nueva contraseña es requerida',
   EMAIL_IN_USE: 'El email ya está en uso',
-  DEFAULT_ERROR: 'Error en el servidor'
+  DEFAULT_ERROR: 'Error en el servidor',
 };
 
 /* ==============================
@@ -20,6 +20,27 @@ const toNum = (v, def = 0) => {
   return Number.isFinite(n) ? n : def;
 };
 
+// Entero >= 0
+const toInt = (v, def = 0) => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? n : def;
+};
+
+// Fuerza sincronización inmediata con VacationData (además del post-save del modelo User)
+const upsertVacationData = async (userDoc) => {
+  const total = toInt(userDoc?.vacationDays?.total, 0);
+  const used = toInt(userDoc?.vacationDays?.used, 0);
+  const remaining = Math.max(0, total - used);
+
+  await VacationData.findOneAndUpdate(
+    { user: userDoc._id },
+    { total, used, remaining, lastUpdate: new Date() },
+    { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+  );
+
+  return { total, used, remaining };
+};
+
 // Mapea el usuario + datos de vacaciones con fallback a user.vacationDays
 const mapUserWithVacation = (user, vacationMap) => {
   const vacDoc = vacationMap.get(user._id.toString());
@@ -28,11 +49,11 @@ const mapUserWithVacation = (user, vacationMap) => {
   const uVac = user.vacationDays ?? { total: 0, used: 0 };
   const base = {
     total: toNum(uVac.total, 0),
-    used: toNum(uVac.used, 0)
+    used: toNum(uVac.used, 0),
   };
   const fallback = {
     ...base,
-    remaining: Math.max(0, base.total - base.used)
+    remaining: Math.max(0, base.total - base.used),
   };
 
   // Si existe documento en VacationData, úsalo
@@ -43,7 +64,7 @@ const mapUserWithVacation = (user, vacationMap) => {
         remaining:
           vacDoc.remaining != null
             ? toNum(vacDoc.remaining, 0)
-            : Math.max(0, toNum(vacDoc.total, 0) - toNum(vacDoc.used, 0))
+            : Math.max(0, toNum(vacDoc.total, 0) - toNum(vacDoc.used, 0)),
       }
     : null;
 
@@ -56,7 +77,7 @@ const mapUserWithVacation = (user, vacationMap) => {
     isVerified: user.isVerified,
     email_verified_at: user.email_verified_at,
     createdAt: user.createdAt,
-    vacationDays: fromDoc || fallback
+    vacationDays: fromDoc || fallback,
   };
 };
 
@@ -70,7 +91,7 @@ export const getUsers = async (_req, res) => {
         .select('name email role isActive isVerified email_verified_at createdAt vacationDays')
         .lean()
         .exec(),
-      VacationData.find().lean().exec()
+      VacationData.find().lean().exec(),
     ]);
 
     const vacationMap = new Map(vacationDataList.map((v) => [v.user.toString(), v]));
@@ -78,7 +99,7 @@ export const getUsers = async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       success: true,
-      data: users.map((u) => mapUserWithVacation(u, vacationMap))
+      data: users.map((u) => mapUserWithVacation(u, vacationMap)),
     });
   } catch (error) {
     console.error('Error en getUsers:', error);
@@ -86,7 +107,7 @@ export const getUsers = async (_req, res) => {
       success: false,
       message: 'Error al obtener usuarios',
       error: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 };
@@ -105,7 +126,7 @@ export const createUser = async (req, res) => {
       role = 'user',
       isActive = true,
       isVerified = false,
-      availableDays
+      availableDays,
     } = req.body;
 
     if (!name || !email || !password) {
@@ -130,7 +151,7 @@ export const createUser = async (req, res) => {
       role,
       isActive,
       isVerified,
-      email_verified_at: isVerified ? new Date() : undefined
+      email_verified_at: isVerified ? new Date() : undefined,
     });
 
     if (typeof availableDays === 'number' && availableDays >= 0) {
@@ -140,11 +161,12 @@ export const createUser = async (req, res) => {
     }
 
     await user.save();
+    await upsertVacationData(user);
 
     return res.status(201).json({
       success: true,
       message: 'Usuario creado',
-      user: user.toObject()
+      user: user.toObject(),
     });
   } catch (error) {
     console.error('Error creando usuario:', error);
@@ -164,14 +186,14 @@ export const deleteUser = async (req, res) => {
     return res.json({
       success: true,
       message: 'Usuario eliminado',
-      userId: req.params.id
+      userId: req.params.id,
     });
   } catch (error) {
     console.error('Error eliminando usuario:', error);
     return res.status(500).json({
       success: false,
       message: ERROR_MESSAGES.DEFAULT_ERROR,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -200,14 +222,14 @@ export const updateUserRole = async (req, res) => {
     return res.json({
       success: true,
       message: 'Rol actualizado',
-      user
+      user,
     });
   } catch (error) {
     console.error('Error actualizando rol:', error);
     return res.status(500).json({
       success: false,
       message: ERROR_MESSAGES.DEFAULT_ERROR,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -231,15 +253,15 @@ export const toggleUserLock = async (req, res) => {
       user: {
         id: user._id.toString(),
         name: user.name,
-        isActive: user.isActive
-      }
+        isActive: user.isActive,
+      },
     });
   } catch (error) {
     console.error('Error cambiando estado usuario:', error);
     return res.status(500).json({
       success: false,
       message: ERROR_MESSAGES.DEFAULT_ERROR,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -255,7 +277,7 @@ export const updateUserPassword = async (req, res) => {
     if (!newPassword || newPassword.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'La contraseña debe tener al menos 8 caracteres'
+        message: 'La contraseña debe tener al menos 8 caracteres',
       });
     }
 
@@ -269,14 +291,14 @@ export const updateUserPassword = async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Contraseña actualizada'
+      message: 'Contraseña actualizada',
     });
   } catch (error) {
     console.error('Error actualizando contraseña:', error);
     return res.status(500).json({
       success: false,
       message: ERROR_MESSAGES.DEFAULT_ERROR,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -302,7 +324,7 @@ export const updateUserData = async (req, res) => {
     const user = await User.findByIdAndUpdate(req.params.id, update, {
       new: true,
       runValidators: true,
-      context: 'query'
+      context: 'query',
     }).select('-password -refreshToken');
 
     if (!user) {
@@ -312,7 +334,7 @@ export const updateUserData = async (req, res) => {
     return res.json({
       success: true,
       message: 'Datos actualizados',
-      user
+      user,
     });
   } catch (error) {
     console.error('Error actualizando datos:', error);
@@ -322,7 +344,7 @@ export const updateUserData = async (req, res) => {
     return res.status(500).json({
       success: false,
       message,
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -337,7 +359,7 @@ export const updateUserData = async (req, res) => {
 export const setVacationTotal = async (req, res) => {
   try {
     const { id } = req.params;
-    const total = toNum(req.body.total, -1);
+    const total = toInt(req.body.total, -1);
 
     if (total < 0) {
       return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' });
@@ -348,19 +370,22 @@ export const setVacationTotal = async (req, res) => {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
 
-    const used = toNum(user.vacationDays?.used, 0);
+    const used = toInt(user.vacationDays?.used, 0);
     if (total < used) {
       return res
         .status(400)
         .json({ success: false, message: 'El total no puede ser menor que los usados' });
     }
 
-    await user.setVacationDays(Math.floor(total)); // dispara post-save → sincroniza VacationData
+    user.vacationDays.total = total;
+    user.vacationDays.lastUpdate = new Date();
+    await user.save();                   // dispara post-save
+    const sync = await upsertVacationData(user); // fuerza sync inmediato
 
     return res.json({
       success: true,
       message: 'Días de vacaciones (total) actualizados',
-      data: user.vacationDays
+      data: sync,
     });
   } catch (error) {
     console.error('setVacationTotal error:', error);
@@ -376,9 +401,9 @@ export const setVacationTotal = async (req, res) => {
 export const addVacationDays = async (req, res) => {
   try {
     const { id } = req.params;
-    const days = toNum(req.body.days, 0);
+    const add = toInt(req.body.days, 0);
 
-    if (days <= 0) {
+    if (add <= 0) {
       return res.status(400).json({ success: false, message: 'days debe ser un entero > 0' });
     }
 
@@ -387,12 +412,15 @@ export const addVacationDays = async (req, res) => {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
 
-    await user.addVacationDays(Math.floor(days)); // dispara post-save → sincroniza VacationData
+    user.vacationDays.total = toInt(user.vacationDays?.total, 0) + add;
+    user.vacationDays.lastUpdate = new Date();
+    await user.save();
+    const sync = await upsertVacationData(user);
 
     return res.json({
       success: true,
       message: 'Días añadidos',
-      data: user.vacationDays
+      data: sync,
     });
   } catch (error) {
     console.error('addVacationDays error:', error);
@@ -408,7 +436,7 @@ export const addVacationDays = async (req, res) => {
 export const setVacationUsed = async (req, res) => {
   try {
     const { id } = req.params;
-    const used = toNum(req.body.used, -1);
+    const used = toInt(req.body.used, -1);
 
     if (used < 0) {
       return res.status(400).json({ success: false, message: 'used debe ser un número >= 0' });
@@ -419,28 +447,29 @@ export const setVacationUsed = async (req, res) => {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
 
-    const total = toNum(user.vacationDays?.total, 0);
+    const total = toInt(user.vacationDays?.total, 0);
     if (used > total) {
       return res
         .status(400)
         .json({ success: false, message: 'Los días usados no pueden exceder el total' });
     }
 
-    user.vacationDays.used = Math.floor(used);
+    user.vacationDays.used = used;
     user.vacationDays.lastUpdate = new Date();
-    await user.save(); // dispara post-save → sincroniza VacationData
+    await user.save();
+    const sync = await upsertVacationData(user);
 
     return res.json({
       success: true,
       message: 'Días usados actualizados',
-      data: user.vacationDays
+      data: sync,
     });
   } catch (error) {
     console.error('setVacationUsed error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error actualizando días usados',
-      error: error.message
+      error: error.message,
     });
   }
 };
@@ -452,7 +481,7 @@ export const setVacationUsed = async (req, res) => {
 export const setVacationAvailable = async (req, res) => {
   try {
     const { id } = req.params;
-    const available = toNum(req.body.available, -1);
+    const available = toInt(req.body.available, -1);
 
     if (available < 0) {
       return res.status(400).json({ success: false, message: 'available debe ser >= 0' });
@@ -463,22 +492,25 @@ export const setVacationAvailable = async (req, res) => {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
 
-    const used = toNum(user.vacationDays?.used, 0);
-    const newTotal = Math.floor(used + available);
+    const used = toInt(user.vacationDays?.used, 0);
+    const newTotal = Math.max(0, used + available);
 
-    await user.setVacationDays(newTotal); // dispara post-save
+    user.vacationDays.total = newTotal;
+    user.vacationDays.lastUpdate = new Date();
+    await user.save();
+    const sync = await upsertVacationData(user);
 
     return res.json({
       success: true,
       message: 'Días disponibles actualizados',
-      data: user.vacationDays
+      data: sync,
     });
   } catch (error) {
     console.error('setVacationAvailable error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error actualizando disponibles',
-      error: error.message
+      error: error.message,
     });
   }
 };

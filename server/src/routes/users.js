@@ -2,7 +2,7 @@
 import express from 'express';
 import {
   getUsers,
-  createUser,            // 👈 NUEVO: exportado desde userController.js
+  createUser,
   deleteUser,
   updateUserRole,
   updateUserPassword,
@@ -11,25 +11,34 @@ import {
   setVacationTotal,
   addVacationDays,
   setVacationUsed,
-  // setVacationAvailable, // 👈 opcional si quieres editar "disponibles" directo
+  // setVacationAvailable, // ← habilita si quieres editar "disponibles" directo
 } from '../controllers/userController.js';
 
 import { authenticate } from '../middleware/auth.js';
 import { adminMiddleware } from '../middleware/admin.js';
 
-// (Opcional) para el wrapper de /:id/name si no mandas email desde el front
+// Opcional: wrapper para completar email si el front solo envía { name }
 import User from '../models/User.js';
 
 const router = express.Router();
 
-// Helper: todas requieren admin
+// Helper: todas estas rutas requieren admin
 const adminOnly = [authenticate, adminMiddleware];
 
+/* =============================
+   Usuarios
+   ============================= */
+
 // GET /api/users
-router.get('/', ...adminOnly, (req, res, next) => {
-  res.set('Cache-Control', 'no-store');
-  next();
-}, getUsers);
+router.get(
+  '/',
+  ...adminOnly,
+  (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  },
+  getUsers
+);
 
 // POST /api/users  -> crear usuario
 router.post('/', ...adminOnly, createUser);
@@ -48,14 +57,16 @@ router.patch('/:id/lock', ...adminOnly, toggleUserLock);
 
 /**
  * PATCH /api/users/:id/name
- * Tu controller updateUserData requiere { name, email }.
+ * El controller updateUserData permite { name?, email? }.
  * Si el front solo manda { name }, aquí completamos el email actual del usuario.
  */
 router.patch('/:id/name', ...adminOnly, async (req, res, next) => {
   try {
     if (!req.body?.email) {
       const u = await User.findById(req.params.id).select('email').lean();
-      if (!u) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      if (!u) {
+        return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      }
       req.body.email = u.email;
     }
     return updateUserData(req, res);
@@ -65,19 +76,19 @@ router.patch('/:id/name', ...adminOnly, async (req, res, next) => {
 });
 
 /* =============================
-   Vacaciones (días disponibles)
+   Vacaciones
    ============================= */
 
-// PATCH /api/users/:id/vacation/total
+// PATCH /api/users/:id/vacation/total  { total }
 router.patch('/:id/vacation/total', ...adminOnly, setVacationTotal);
 
-// POST /api/users/:id/vacation/add
+// POST /api/users/:id/vacation/add    { days }
 router.post('/:id/vacation/add', ...adminOnly, addVacationDays);
 
-// PATCH /api/users/:id/vacation/used
+// PATCH /api/users/:id/vacation/used  { used }
 router.patch('/:id/vacation/used', ...adminOnly, setVacationUsed);
 
-// (OPCIONAL) PATCH /api/users/:id/vacation/available
+// (OPCIONAL) PATCH /api/users/:id/vacation/available { available }
 // router.patch('/:id/vacation/available', ...adminOnly, setVacationAvailable);
 
 export default router;
