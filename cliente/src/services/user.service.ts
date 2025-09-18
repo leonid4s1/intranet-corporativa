@@ -17,7 +17,7 @@ export interface User {
   role: Role
   isActive: boolean
   email_verified_at?: string | null
-  vacationDays?: VacationDays // 👈 NECESARIO para used/total/remaining
+  vacationDays?: VacationDays
 }
 
 export interface UpdateNamePayload {
@@ -34,6 +34,9 @@ export interface UpdatePasswordPayload {
 export interface LoginPayload { email: string; password: string }
 export interface RegisterPayload { name: string; email: string; password: string }
 
+/* Vacaciones */
+export interface SetVacationTotalPayload { total: number }
+
 /* ========== Helpers seguros ========== */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null
@@ -48,6 +51,11 @@ function toBool(v: unknown): boolean | undefined {
   if (typeof v === 'boolean') return v
   if (v === 'true') return true
   if (v === 'false') return false
+  return undefined
+}
+function toNum(v: unknown): number | undefined {
+  if (typeof v === 'number' && !Number.isNaN(v)) return v
+  if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v)
   return undefined
 }
 
@@ -85,11 +93,10 @@ function normalizeUser(raw: unknown): User | null {
   let vacationDays: VacationDays | undefined
   if (isRecord(get(r, 'vacationDays'))) {
     const v = get(r, 'vacationDays') as Record<string, unknown>
-    vacationDays = {
-      total: Number(get(v, 'total') ?? 0),
-      used: Number(get(v, 'used') ?? 0),
-      remaining: Number(get(v, 'remaining') ?? Math.max(0, (Number(get(v, 'total') ?? 0)) - (Number(get(v, 'used') ?? 0)))),
-    }
+    const total = toNum(get(v, 'total')) ?? 0
+    const used  = toNum(get(v, 'used'))  ?? 0
+    const remaining = toNum(get(v, 'remaining')) ?? Math.max(0, total - used)
+    vacationDays = { total, used, remaining }
   }
 
   return { id, name, email, role, isActive: isActive ?? true, email_verified_at, vacationDays }
@@ -97,8 +104,8 @@ function normalizeUser(raw: unknown): User | null {
 
 function unwrapList(data: unknown): unknown[] {
   if (isRecord(data)) {
-    if (Array.isArray(get<unknown[]>(data, 'data'))) return get<unknown[]>(data, 'data') as unknown[]
-    if (Array.isArray(get<unknown[]>(data, 'users'))) return get<unknown[]>(data, 'users') as unknown[]
+    if (Array.isArray(get<unknown[]>(data, 'data')))  return (get<unknown[]>(data, 'data')  as unknown[]) ?? []
+    if (Array.isArray(get<unknown[]>(data, 'users'))) return (get<unknown[]>(data, 'users') as unknown[]) ?? []
   }
   return Array.isArray(data) ? data : []
 }
@@ -131,9 +138,9 @@ async function logout(): Promise<void> {
 
 /* ========== USERS (admin) ========== */
 
-/** GET /users -> User[] (acepta también {data:User[]}) */
+/** GET /users -> User[] (cache-bust con _t) */
 export async function getAllUsers(): Promise<User[]> {
-  const { data } = await api.get('/users')
+  const { data } = await api.get('/users', { params: { _t: Date.now() } })
   return unwrapList(data).map(normalizeUser).filter((u): u is User => !!u)
 }
 
@@ -186,10 +193,27 @@ export async function deleteUser(userId: string): Promise<{ success: boolean }> 
 }
 
 /* ======= Vacaciones ======= */
-/** PATCH /users/:id/vacation/total { total }  -> { success, user? } */
-export async function setVacationTotal(userId: string, payload: { total: number }): Promise<void> {
-  await api.patch(`/users/${encodeURIComponent(userId)}/vacation/total`, { total: Number(payload.total) })
+
+/** PATCH /users/:id/vacation/total { total } -> VacationDays (útil si lo quieres usar) */
+export async function setVacationTotal(
+  userId: string,
+  payload: { total: number }
+): Promise<VacationDays> {
+  const { data } = await api.patch(
+    `/users/${encodeURIComponent(userId)}/vacation/total`,
+    { total: Number(payload.total) }
+  );
+
+  // data puede venir como { success, data: {...} } o directamente el objeto
+  const containerRaw: unknown = isRecord(data) ? (get<unknown>(data, 'data') ?? data) : data;
+  const container: Record<string, unknown> = isRecord(containerRaw) ? containerRaw : {};
+
+  const total = toNum(get(container, 'total')) ?? 0;
+  const used  = toNum(get(container, 'used'))  ?? 0;
+
+  return { total, used, remaining: Math.max(0, total - used) };
 }
+
 
 /** (opc) POST /users/:id/vacation/add { days } */
 export async function addVacationDays(userId: string, payload: { days: number }): Promise<void> {

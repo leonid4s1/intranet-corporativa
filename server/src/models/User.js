@@ -1,10 +1,10 @@
 // server/src/models/User.js
 import mongoose from 'mongoose';
+import './VacationData.js';              // 👈 asegura que el modelo exista antes del post-save
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { type } from 'os';
 
 dotenv.config();
 
@@ -87,7 +87,7 @@ const UserSchema = new mongoose.Schema({
       type: Number,
       default: 0,
       min: [0, 'Los dias de vacaciones no pueden ser negativos'],
-      set: function(value) {
+      set: function (value) {
         return Math.max(0, Math.floor(value));
       }
     },
@@ -96,7 +96,7 @@ const UserSchema = new mongoose.Schema({
       default: 0,
       min: [0, 'Los dias usados no pueden ser negativos'],
       validate: {
-        validator: function(value) {
+        validator: function (value) {
           return value <= this.vacationDays.total;
         },
         message: 'Los dias usados no pueden exceder los dias totales'
@@ -115,9 +115,9 @@ const UserSchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  toJSON: { 
+  toJSON: {
     virtuals: true,
-    transform: function(doc, ret) {
+    transform: function (doc, ret) {
       delete ret._id;
       delete ret.__v;
       delete ret.password;
@@ -134,9 +134,9 @@ UserSchema.index({ isActive: 1 });
 UserSchema.index({ isVerified: 1 });
 
 // Middleware para encriptar contraseña
-UserSchema.pre('save', async function(next) {
+UserSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
-  
+
   try {
     const salt = await bcrypt.genSalt(12);
     this.password = await bcrypt.hash(this.password, salt);
@@ -147,19 +147,19 @@ UserSchema.pre('save', async function(next) {
 });
 
 // Método para comparar contraseñas
-UserSchema.methods.comparePassword = async function(candidatePassword) {
+UserSchema.methods.comparePassword = async function (candidatePassword) {
   try {
     if (!candidatePassword) throw new Error('No se proporciono contraseña para comparar');
     if (!this.password) throw new Error('No se encontro contraseña almacenada');
     return await bcrypt.compare(candidatePassword, this.password);
   } catch (error) {
     console.error(`Error comparando contraseñas para usuario ${this.email}:`, error);
-    throw error; // Propaga el error para manejo superior
+    throw error;
   }
 };
 
 // Generar tokens
-UserSchema.methods.generateAuthToken = function() {
+UserSchema.methods.generateAuthToken = function () {
   if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET no configurado');
   return jwt.sign(
     { userId: this._id, role: this.role },
@@ -168,7 +168,7 @@ UserSchema.methods.generateAuthToken = function() {
   );
 };
 
-UserSchema.methods.generateRefreshToken = function() {
+UserSchema.methods.generateRefreshToken = function () {
   if (!process.env.REFRESH_TOKEN_SECRET) throw new Error('REFRESH_TOKEN_SECRET no configurado');
   const refreshToken = jwt.sign(
     { userId: this._id },
@@ -180,7 +180,7 @@ UserSchema.methods.generateRefreshToken = function() {
 };
 
 // Métodos para reset de contraseña
-UserSchema.methods.createPasswordResetToken = function() {
+UserSchema.methods.createPasswordResetToken = function () {
   const resetToken = crypto.randomBytes(32).toString('hex');
   this.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
   this.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutos
@@ -188,7 +188,7 @@ UserSchema.methods.createPasswordResetToken = function() {
 };
 
 // Bloqueo de cuenta por intentos fallidos
-UserSchema.methods.incrementLoginAttempts = async function() {
+UserSchema.methods.incrementLoginAttempts = async function () {
   const MAX_LOGIN_ATTEMPTS = 5;
   const LOCK_TIME = 15 * 60 * 1000; // 15 minutos
   if (this.lockUntil && this.lockUntil > Date.now()) throw new Error('Cuenta temporalmente bloqueada');
@@ -197,7 +197,7 @@ UserSchema.methods.incrementLoginAttempts = async function() {
   await this.save();
 };
 
-UserSchema.methods.resetLoginAttempts = async function() {
+UserSchema.methods.resetLoginAttempts = async function () {
   this.loginAttempts = 0;
   this.lockUntil = undefined;
   await this.save();
@@ -257,11 +257,11 @@ UserSchema.methods = {
 };
 
 // Métodos estáticos
-UserSchema.statics.findByRefreshToken = async function(refreshToken) {
+UserSchema.statics.findByRefreshToken = async function (refreshToken) {
   return this.findOne({ refreshToken }).select('+refreshToken');
 };
 
-UserSchema.statics.findByResetToken = async function(resetToken) {
+UserSchema.statics.findByResetToken = async function (resetToken) {
   const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
   return this.findOne({
     passwordResetToken: hashedToken,
@@ -270,11 +270,11 @@ UserSchema.statics.findByResetToken = async function(resetToken) {
 };
 
 // Virtuals
-UserSchema.virtual('isLocked').get(function() {
+UserSchema.virtual('isLocked').get(function () {
   return !!(this.lockUntil && this.lockUntil > Date.now());
 });
 
-UserSchema.virtual('profile').get(function() {
+UserSchema.virtual('profile').get(function () {
   return {
     id: this._id,
     email: this.email,
@@ -291,15 +291,13 @@ UserSchema.virtual('vacationDays.remaining').get(function () {
   return Math.max(0, this.vacationDays.total - this.vacationDays.used);
 });
 
-// Middleware para logging
-UserSchema.post('save', async function(doc, next) {
+// Middleware para logging y sync con VacationData
+UserSchema.post('save', async function (doc, next) {
   try {
-    // 1. Log básico de la operación
     console.log(`Usuario ${doc.email} guardado/actualizado`);
 
-    // 2. Sincronización con VacationData (solo si tiene vacationDays)
     if (doc.vacationDays) {
-      const VacationModel = mongoose.model('VacationData');
+      const VacationModel = mongoose.models.VacationData || mongoose.model('VacationData'); // 👈 robusto
       const { total, used } = doc.vacationDays;
       const remaining = total - used;
 
@@ -312,59 +310,20 @@ UserSchema.post('save', async function(doc, next) {
           lastUpdate: new Date()
         },
         {
-          upsert: true, // Crea si no existe
-          new: true
+          upsert: true,
+          new: true,
+          runValidators: true
         }
       );
     }
+
     console.log(`Datos de vacaciones sincronizados para ${doc.email}`);
     next();
-  }catch (error){
+  } catch (error) {
     console.error('Error en post-save hook:', error);
-    // No pasar el error a next() para no interrumpir el flujo principal
-    next();
+    next(); // no interrumpe el flujo principal
   }
 });
-
-export const getUsers = async (req, res) => {
-    try {
-        // Usamos select explícito para mayor seguridad
-        const users = await User.find()
-            .select('name email role isActive isVerified email_verified_at createdAt lastLogin')
-            .lean()
-            .exec();
-
-        // Transformación segura con verificación de tipos
-        const normalizedUsers = users.map(user => {
-            const userObj = user.toObject ? user.toObject() : user;
-            
-            return {
-                id: userObj._id ? userObj._id.toString() : null,
-                name: userObj.name || '',
-                email: userObj.email || '',
-                role: userObj.role || 'user',
-                isActive: userObj.isActive !== undefined ? userObj.isActive : true,
-                isVerified: userObj.isVerified || false,
-                emailVerified: !!userObj.email_verified_at,
-                lastLogin: userObj.lastLogin || null,
-                createdAt: userObj.createdAt || new Date()
-            };
-        });
-
-        res.status(200).json({
-            success: true,
-            count: normalizedUsers.length,
-            data: normalizedUsers
-        });
-    } catch (error) {
-        console.error('Error en getUsers:', error);
-        res.status(500).json({ 
-            success: false,
-            message: 'Error al obtener usuarios',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-};
 
 const User = mongoose.model('User', UserSchema);
 export default User;
