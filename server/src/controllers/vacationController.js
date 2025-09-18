@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import VacationRequest from '../models/VacationRequest.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
+import VacationData from '../models/VacationData.js';
 
 /* ===========================
    Helpers de fechas (UTC)
@@ -109,6 +110,58 @@ const checkConcurrentAvailabilityCore = async (startUTC, endUTC) => {
     }
   }
   return { isAvailable: true };
+};
+
+/* ===========================
+   Sincronización de usados
+=========================== */
+
+/**
+ * Suma los días aprobados de un usuario y sincroniza:
+ *  - User.vacationDays (total/used/lastUpdate)
+ *  - VacationData (total/used/remaining/lastUpdate)
+ */
+const recomputeUserVacationUsed = async (userId) => {
+  const approved = await VacationRequest.find({ user: userId, status: 'approved' }).lean();
+
+  let used = 0;
+  for (const r of approved) {
+    let n = Number(r.daysRequested);
+    if (!Number.isFinite(n) || n <= 0) {
+      // fallback: calcula días hábiles por fechas, excluyendo festivos
+      const s = toDateUTC(r.startDate);
+      const e = toDateUTC(r.endDate);
+      const hol = await getHolidayDatesInRange(s, e);
+      n = calculateBusinessDaysUTC(s, e, hol);
+    }
+    used += n;
+  }
+
+  const user = await User.findById(userId).lean();
+  if (!user) return { total: 0, used: 0, remaining: 0 };
+
+  const total = Number(user?.vacationDays?.total ?? user?.totalAnnualDays ?? 0) || 0;
+  const remaining = Math.max(0, total - used);
+
+  // Actualiza User
+  await User.findByIdAndUpdate(
+    userId,
+    {
+      'vacationDays.total': total,
+      'vacationDays.used': used,
+      'vacationDays.lastUpdate': new Date()
+    },
+    { new: true }
+  );
+
+  // Actualiza/crea VacationData
+  await VacationData.findOneAndUpdate(
+    { user: userId },
+    { total, used, remaining, lastUpdate: new Date() },
+    { upsert: true, new: true, runValidators: true }
+  );
+
+  return { total, used, remaining };
 };
 
 /* ===========================
@@ -222,7 +275,7 @@ export const getPendingVacationRequests = async (_req, res, next) => {
       endDate: toYMDUTC(v.endDate),
       daysRequested: v.daysRequested,
       status: v.status,
-      reason: v.reason || '',        // <-- Motivo del usuario para que el admin lo vea
+      reason: v.reason || '',
       rejectReason: v.rejectReason || '',
       createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
       updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
@@ -464,11 +517,15 @@ export const updateVacationRequestStatus = async (req, res, next) => {
 
     if (!doc) return res.status(404).json({ success: false, error: 'Solicitud no encontrada' });
 
+    // 👇 Recalcula y sincroniza usados para el dueño de la solicitud
+    const uid = String(doc.user?._id || doc.user);
+    await recomputeUserVacationUsed(uid);
+
     return res.json({
       success: true,
       data: {
         id: String(doc._id),
-        user: { id: String(doc.user?._id || doc.user), name: doc.user?.name || '', email: doc.user?.email || '' },
+        user: { id: uid, name: doc.user?.name || '', email: doc.user?.email || '' },
         startDate: toYMDUTC(doc.startDate),
         endDate: toYMDUTC(doc.endDate),
         daysRequested: doc.daysRequested,
@@ -524,52 +581,27 @@ export const cancelVacationRequest = async (req, res) => {
       });
     }
 
-    if (request.status === 'approved') {
-      const candidates = [
-        request.daysBusiness,
-        request.businessDays,
-        request.days,
-        request.daysRequested,
-      ];
-      let daysToRefund = candidates
-        .map(n => Number(n))
-        .find(n => Number.isFinite(n) && n > 0);
-
-      if (!daysToRefund) {
-        const endUTC = toDateUTC(
-          typeof request.endDate === 'string'
-            ? request.endDate
-            : request.endDate.toISOString().slice(0, 10)
-        );
-        const hol = await getHolidayDatesInRange(startUTC, endUTC);
-        daysToRefund = calculateBusinessDaysUTC(startUTC, endUTC, hol);
-      }
-
-      if (daysToRefund > 0) {
-        await User.findByIdAndUpdate(
-          userId,
-          { $inc: { usedDays: -daysToRefund } },
-          { session }
-        );
-      }
-    }
-
+    // Cambia a cancelada
     request.status = 'cancelled';
     request.updatedAt = new Date();
     await request.save({ session });
 
     await session.commitTransaction();
+    session.endSession();
+
+    // 👇 Recalcula usados del usuario (quita el impacto de esta solicitud si estaba approved)
+    await recomputeUserVacationUsed(userId);
+
     return res.json({ success: true, data: request });
   } catch (e) {
     await session.abortTransaction();
+    session.endSession();
     console.error('Error cancelVacationRequest:', e);
     return res.status(500).json({ success: false, error: 'Error al cancelar solicitud' });
-  } finally {
-    session.endSession();
   }
 };
 
-// PUT /vacations/users/:userId/days (admin)
+// PUT /vacations/users/:userId/days (admin)  **(legacy; mejor usar /users/:id/vacation/total)**
 export const manageVacationDays = async (req, res, next) => {
   try {
     const t = Number(req.body?.total) || 0;
@@ -577,13 +609,20 @@ export const manageVacationDays = async (req, res, next) => {
 
     const user = await User.findByIdAndUpdate(
       req.params.userId,
-      { $set: { totalAnnualDays: t, usedDays: u } },
+      { $set: { totalAnnualDays: t, usedDays: u, 'vacationDays.total': t, 'vacationDays.used': u, 'vacationDays.lastUpdate': new Date() } },
       { new: true, runValidators: true }
     ).lean();
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
     }
+
+    // Sincroniza VacationData también
+    await VacationData.findOneAndUpdate(
+      { user: user._id },
+      { total: t, used: u, remaining: Math.max(t - u, 0), lastUpdate: new Date() },
+      { upsert: true, new: true, runValidators: true }
+    );
 
     const remaining = Math.max(t - u, 0);
     return res.json({
