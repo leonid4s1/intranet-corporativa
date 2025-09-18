@@ -2,9 +2,9 @@
 import User from '../models/User.js';
 import VacationData from '../models/VacationData.js';
 
-// ==============================
-// Constantes para mensajes
-// ==============================
+/* ==============================
+   Constantes para mensajes
+   ============================== */
 const ERROR_MESSAGES = {
   USER_NOT_FOUND: 'Usuario no encontrado',
   PASSWORD_REQUIRED: 'La nueva contraseña es requerida',
@@ -12,11 +12,40 @@ const ERROR_MESSAGES = {
   DEFAULT_ERROR: 'Error en el servidor'
 };
 
-// ==============================
-// Helper: mapear usuario + vacaciones
-// ==============================
+/* ==============================
+   Helpers
+   ============================== */
+const toNum = (v, def = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+};
+
+// Mapea el usuario + datos de vacaciones con fallback a user.vacationDays
 const mapUserWithVacation = (user, vacationMap) => {
-  const vacation = vacationMap.get(user._id.toString());
+  const vacDoc = vacationMap.get(user._id.toString());
+
+  // Fallback con lo que venga incrustado en el propio documento de usuario
+  const uVac = user.vacationDays ?? { total: 0, used: 0 };
+  const base = {
+    total: toNum(uVac.total, 0),
+    used: toNum(uVac.used, 0),
+  };
+  const fallback = {
+    ...base,
+    remaining: Math.max(0, base.total - base.used),
+  };
+
+  // Si existe documento en VacationData, úsalo
+  const fromDoc = vacDoc
+    ? {
+        total: toNum(vacDoc.total, 0),
+        used: toNum(vacDoc.used, 0),
+        remaining: vacDoc.remaining != null
+          ? toNum(vacDoc.remaining, 0)
+          : Math.max(0, toNum(vacDoc.total, 0) - toNum(vacDoc.used, 0)),
+      }
+    : null;
+
   return {
     id: user._id.toString(),
     name: user.name,
@@ -26,31 +55,29 @@ const mapUserWithVacation = (user, vacationMap) => {
     isVerified: user.isVerified,
     email_verified_at: user.email_verified_at,
     createdAt: user.createdAt,
-    vacationDays: vacation
-      ? { total: vacation.total, used: vacation.used, remaining: vacation.remaining }
-      : { total: 0, used: 0, remaining: 0 }
+    vacationDays: fromDoc || fallback,
   };
 };
 
-// ==============================
-// GET /api/users
-// ==============================
-export const getUsers = async (req, res) => {
+/* ==============================
+   GET /api/users
+   ============================== */
+export const getUsers = async (_req, res) => {
   try {
     const [users, vacationDataList] = await Promise.all([
       User.find()
-        .select('name email role isActive isVerified email_verified_at createdAt')
+        .select('name email role isActive isVerified email_verified_at createdAt vacationDays')
         .lean()
         .exec(),
-      VacationData.find().lean().exec()
+      VacationData.find().lean().exec(),
     ]);
 
-    const vacationMap = new Map(vacationDataList.map(v => [v.user.toString(), v]));
+    const vacationMap = new Map(vacationDataList.map((v) => [v.user.toString(), v]));
 
     res.set('Cache-Control', 'no-store');
     return res.status(200).json({
       success: true,
-      data: users.map(user => mapUserWithVacation(user, vacationMap))
+      data: users.map((u) => mapUserWithVacation(u, vacationMap)),
     });
   } catch (error) {
     console.error('Error en getUsers:', error);
@@ -58,16 +85,16 @@ export const getUsers = async (req, res) => {
       success: false,
       message: 'Error al obtener usuarios',
       error: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
 };
 
-// ==============================
-// POST /api/users
-// Crear usuario (admin)
-// Body: { name, email, password, role?, isActive?, isVerified?, availableDays? }
-// ==============================
+/* ==============================
+   POST /api/users
+   Crear usuario (admin)
+   Body: { name, email, password, role?, isActive?, isVerified?, availableDays? }
+   ============================== */
 export const createUser = async (req, res) => {
   try {
     const {
@@ -77,11 +104,13 @@ export const createUser = async (req, res) => {
       role = 'user',
       isActive = true,
       isVerified = false,
-      availableDays
+      availableDays,
     } = req.body;
 
     if (!name || !email || !password) {
-      return res.status(400).json({ success: false, message: 'Nombre, email y contraseña son requeridos' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Nombre, email y contraseña son requeridos' });
     }
 
     const exists = await User.findOne({ email }).lean().exec();
@@ -100,12 +129,13 @@ export const createUser = async (req, res) => {
       role,
       isActive,
       isVerified,
-      email_verified_at: isVerified ? new Date() : undefined
+      email_verified_at: isVerified ? new Date() : undefined,
     });
 
     if (typeof availableDays === 'number' && availableDays >= 0) {
       user.vacationDays.total = Math.floor(availableDays);
       user.vacationDays.used = 0;
+      user.vacationDays.lastUpdate = new Date();
     }
 
     await user.save();
@@ -113,7 +143,7 @@ export const createUser = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Usuario creado',
-      user: user.toObject()
+      user: user.toObject(),
     });
   } catch (error) {
     console.error('Error creando usuario:', error);
@@ -121,9 +151,9 @@ export const createUser = async (req, res) => {
   }
 };
 
-// ==============================
-// DELETE /api/users/:id
-// ==============================
+/* ==============================
+   DELETE /api/users/:id
+   ============================== */
 export const deleteUser = async (req, res) => {
   try {
     const deletedUser = await User.findByIdAndDelete(req.params.id);
@@ -133,31 +163,32 @@ export const deleteUser = async (req, res) => {
     return res.json({
       success: true,
       message: 'Usuario eliminado',
-      userId: req.params.id
+      userId: req.params.id,
     });
   } catch (error) {
     console.error('Error eliminando usuario:', error);
     return res.status(500).json({
       success: false,
       message: ERROR_MESSAGES.DEFAULT_ERROR,
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// ==============================
-// PATCH /api/users/:id/role
-// Body: { role: 'admin' | 'user' }
-// ==============================
+/* ==============================
+   PATCH /api/users/:id/role
+   Body: { role: 'admin' | 'user' }
+   ============================== */
 export const updateUserRole = async (req, res) => {
   try {
-    if (!['admin', 'user'].includes(req.body.role)) {
+    const { role } = req.body;
+    if (!['admin', 'user'].includes(role)) {
       return res.status(400).json({ success: false, message: 'Rol no válido' });
     }
 
     const user = await User.findByIdAndUpdate(
       req.params.id,
-      { role: req.body.role },
+      { role },
       { new: true, runValidators: true }
     ).select('-password');
 
@@ -168,21 +199,21 @@ export const updateUserRole = async (req, res) => {
     return res.json({
       success: true,
       message: 'Rol actualizado',
-      user
+      user,
     });
   } catch (error) {
     console.error('Error actualizando rol:', error);
     return res.status(500).json({
       success: false,
       message: ERROR_MESSAGES.DEFAULT_ERROR,
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// ==============================
-// PATCH /api/users/:id/lock
-// ==============================
+/* ==============================
+   PATCH /api/users/:id/lock
+   ============================== */
 export const toggleUserLock = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
@@ -199,23 +230,23 @@ export const toggleUserLock = async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
-        isActive: user.isActive
-      }
+        isActive: user.isActive,
+      },
     });
   } catch (error) {
     console.error('Error cambiando estado usuario:', error);
     return res.status(500).json({
       success: false,
       message: ERROR_MESSAGES.DEFAULT_ERROR,
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// ==============================
-// PATCH /api/users/:id/password
-// Body: { newPassword }
-// ==============================
+/* ==============================
+   PATCH /api/users/:id/password
+   Body: { newPassword }
+   ============================== */
 export const updateUserPassword = async (req, res) => {
   try {
     const { newPassword } = req.body;
@@ -223,7 +254,7 @@ export const updateUserPassword = async (req, res) => {
     if (!newPassword || newPassword.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'La contraseña debe tener al menos 8 caracteres'
+        message: 'La contraseña debe tener al menos 8 caracteres',
       });
     }
 
@@ -237,36 +268,41 @@ export const updateUserPassword = async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'Contraseña actualizada'
+      message: 'Contraseña actualizada',
     });
   } catch (error) {
     console.error('Error actualizando contraseña:', error);
     return res.status(500).json({
       success: false,
       message: ERROR_MESSAGES.DEFAULT_ERROR,
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// ==============================
-// PATCH /api/users/:id/name   (Compat con updateUserData)
-// Body: { name, email }  → si usas wrapper en la ruta, este controller puede recibir ambos.
-// ==============================
-// PUT/PATCH /api/users/:id
+/* ==============================
+   PATCH /api/users/:id  ó  /api/users/:id/name
+   Body: { name?, email? }  → permite actualizar uno o ambos
+   ============================== */
 export const updateUserData = async (req, res) => {
   try {
     const { name, email } = req.body;
 
-    if (!name || !email) {
-      return res.status(400).json({ success: false, message: 'Nombre y email son requeridos' });
+    const update = {};
+    if (typeof name === 'string') update.name = name;
+    if (typeof email === 'string') update.email = email;
+
+    if (Object.keys(update).length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'No hay campos para actualizar' });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { name, email },
-      { new: true, runValidators: true, context: 'query' }
-    ).select('-password -refreshToken');
+    const user = await User.findByIdAndUpdate(req.params.id, update, {
+      new: true,
+      runValidators: true,
+      context: 'query',
+    }).select('-password -refreshToken');
 
     if (!user) {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
@@ -275,144 +311,173 @@ export const updateUserData = async (req, res) => {
     return res.json({
       success: true,
       message: 'Datos actualizados',
-      user
+      user,
     });
   } catch (error) {
     console.error('Error actualizando datos:', error);
-    const message = error.code === 11000
-      ? ERROR_MESSAGES.EMAIL_IN_USE
-      : ERROR_MESSAGES.DEFAULT_ERROR;
+    const message =
+      error.code === 11000 ? ERROR_MESSAGES.EMAIL_IN_USE : ERROR_MESSAGES.DEFAULT_ERROR;
 
     return res.status(500).json({
       success: false,
       message,
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// ==============================
-// VACACIONES
-// ==============================
+/* ==============================
+   VACACIONES
+   ============================== */
 
-// PATCH /api/users/:id/vacation/total
-// Establecer el número TOTAL de días (reemplaza el total actual)
+/** PATCH /api/users/:id/vacation/total  { total }
+ *  Establece el TOTAL exacto de días (reemplaza el total actual)
+ */
 export const setVacationTotal = async (req, res) => {
   try {
     const { id } = req.params;
-    const { total } = req.body;
+    const total = toNum(req.body.total, -1);
 
-    if (total == null || isNaN(total) || Number(total) < 0) {
+    if (total < 0) {
       return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' });
     }
 
     const user = await User.findById(id);
-    if (!user) return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
-
-    const used = user.vacationDays?.used ?? 0;
-    if (Number(total) < used) {
-      return res.status(400).json({ success: false, message: 'El total no puede ser menor que los usados' });
+    if (!user) {
+      return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
 
-    await user.setVacationDays(Math.floor(Number(total))); // dispara post-save (sync con VacationData)
+    const used = toNum(user.vacationDays?.used, 0);
+    if (total < used) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'El total no puede ser menor que los usados' });
+    }
+
+    await user.setVacationDays(Math.floor(total)); // dispara post-save → sincroniza VacationData
 
     return res.json({
       success: true,
       message: 'Días de vacaciones (total) actualizados',
-      data: user.vacationDays
+      data: user.vacationDays,
     });
   } catch (error) {
     console.error('setVacationTotal error:', error);
-    return res.status(500).json({ success: false, message: 'Error actualizando días', error: error.message });
+    return res
+      .status(500)
+      .json({ success: false, message: 'Error actualizando días', error: error.message });
   }
 };
 
-// POST /api/users/:id/vacation/add
-// Sumar N días al total actual (bonificación)
+/** POST /api/users/:id/vacation/add  { days }
+ *  Suma N días al total actual (bonificación)
+ */
 export const addVacationDays = async (req, res) => {
   try {
     const { id } = req.params;
-    const { days } = req.body;
+    const days = toNum(req.body.days, 0);
 
-    if (days == null || isNaN(days) || Number(days) <= 0) {
+    if (days <= 0) {
       return res.status(400).json({ success: false, message: 'days debe ser un entero > 0' });
     }
 
     const user = await User.findById(id);
-    if (!user) return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
+    if (!user) {
+      return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
+    }
 
-    await user.addVacationDays(Math.floor(Number(days))); // dispara post-save (sync con VacationData)
+    await user.addVacationDays(Math.floor(days)); // dispara post-save → sincroniza VacationData
 
     return res.json({
       success: true,
       message: 'Días añadidos',
-      data: user.vacationDays
+      data: user.vacationDays,
     });
   } catch (error) {
     console.error('addVacationDays error:', error);
-    return res.status(500).json({ success: false, message: 'Error añadiendo días', error: error.message });
+    return res
+      .status(500)
+      .json({ success: false, message: 'Error añadiendo días', error: error.message });
   }
 };
 
-// PATCH /api/users/:id/vacation/used
-// Establecer directamente los días USADOS
+/** PATCH /api/users/:id/vacation/used  { used }
+ *  Establece directamente los días USADOS
+ */
 export const setVacationUsed = async (req, res) => {
   try {
     const { id } = req.params;
-    const { used } = req.body;
+    const used = toNum(req.body.used, -1);
 
-    if (used == null || isNaN(used) || Number(used) < 0) {
+    if (used < 0) {
       return res.status(400).json({ success: false, message: 'used debe ser un número >= 0' });
     }
 
     const user = await User.findById(id);
-    if (!user) return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
-
-    const total = user.vacationDays?.total ?? 0;
-    if (Number(used) > total) {
-      return res.status(400).json({ success: false, message: 'Los días usados no pueden exceder el total' });
+    if (!user) {
+      return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
 
-    user.vacationDays.used = Math.floor(Number(used));
+    const total = toNum(user.vacationDays?.total, 0);
+    if (used > total) {
+      return res
+        .status(400)
+        .json({ success: false, message: 'Los días usados no pueden exceder el total' });
+    }
+
+    user.vacationDays.used = Math.floor(used);
     user.vacationDays.lastUpdate = new Date();
-    await user.save(); // dispara post-save (sync con VacationData)
+    await user.save(); // dispara post-save → sincroniza VacationData
 
     return res.json({
       success: true,
       message: 'Días usados actualizados',
-      data: user.vacationDays
+      data: user.vacationDays,
     });
   } catch (error) {
     console.error('setVacationUsed error:', error);
-    return res.status(500).json({ success: false, message: 'Error actualizando días usados', error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Error actualizando días usados',
+      error: error.message,
+    });
   }
 };
 
-// (OPCIONAL) PATCH /api/users/:id/vacation/available
-// Establecer directamente los días DISPONIBLES (remaining): total = used + available
+/** (OPCIONAL) PATCH /api/users/:id/vacation/available  { available }
+ *  Establece directamente los días DISPONIBLES (remaining):
+ *  total = used + available
+ */
 export const setVacationAvailable = async (req, res) => {
   try {
     const { id } = req.params;
-    const { available } = req.body;
+    const available = toNum(req.body.available, -1);
 
-    if (available == null || isNaN(available) || Number(available) < 0) {
+    if (available < 0) {
       return res.status(400).json({ success: false, message: 'available debe ser >= 0' });
     }
 
     const user = await User.findById(id);
-    if (!user) return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
+    if (!user) {
+      return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
+    }
 
-    const used = user.vacationDays?.used ?? 0;
-    const newTotal = Math.floor(used + Number(available));
+    const used = toNum(user.vacationDays?.used, 0);
+    const newTotal = Math.floor(used + available);
+
     await user.setVacationDays(newTotal); // dispara post-save
 
     return res.json({
       success: true,
       message: 'Días disponibles actualizados',
-      data: user.vacationDays
+      data: user.vacationDays,
     });
   } catch (error) {
     console.error('setVacationAvailable error:', error);
-    return res.status(500).json({ success: false, message: 'Error actualizando disponibles', error: error.message });
+    return res.status(500).json({
+      success: false,
+      message: 'Error actualizando disponibles',
+      error: error.message,
+    });
   }
 };

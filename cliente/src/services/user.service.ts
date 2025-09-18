@@ -22,7 +22,7 @@ export interface User {
 
 export interface UpdateNamePayload {
   name: string
-  /** algunos backends piden email también (tu controller updateUserData lo exige) */
+  /** Algunos backends también piden email; tu updateUserData lo acepta */
   email?: string
 }
 
@@ -89,7 +89,7 @@ function normalizeUser(raw: unknown): User | null {
     toStr(get(r, 'emailVerifiedAt')) ??
     undefined
 
-  // vacaciones (si vienen desde getUsers combinado con VacationData)
+  // Vacaciones
   let vacationDays: VacationDays | undefined
   if (isRecord(get(r, 'vacationDays'))) {
     const v = get(r, 'vacationDays') as Record<string, unknown>
@@ -110,19 +110,16 @@ function unwrapList(data: unknown): unknown[] {
   return Array.isArray(data) ? data : []
 }
 
-/* ========== AUTH (usa siempre api con baseURL correcto) ========== */
+/* ========== AUTH ========== */
 
-/** POST /auth/login */
 async function login(payload: LoginPayload): Promise<void> {
   await api.post('/auth/login', payload)
 }
 
-/** POST /auth/register */
 async function register(payload: RegisterPayload): Promise<void> {
   await api.post('/auth/register', payload)
 }
 
-/** GET /auth/profile -> User */
 async function getProfile(): Promise<User> {
   const { data } = await api.get('/auth/profile')
   const payload = isRecord(data) ? (get(data, 'user') ?? data) : data
@@ -131,30 +128,26 @@ async function getProfile(): Promise<User> {
   return user
 }
 
-/** POST /auth/logout */
 async function logout(): Promise<void> {
   await api.post('/auth/logout')
 }
 
 /* ========== USERS (admin) ========== */
 
-/** GET /users -> User[] (cache-bust con _t) */
 export async function getAllUsers(): Promise<User[]> {
   const { data } = await api.get('/users', { params: { _t: Date.now() } })
   return unwrapList(data).map(normalizeUser).filter((u): u is User => !!u)
 }
 
-/** PATCH /users/:id/name  (tu backend actual usa updateUserData y pide name+email) */
 export async function updateUserName(userId: string, payload: UpdateNamePayload): Promise<User> {
   const body: Record<string, unknown> = { name: payload.name }
-  if (payload.email) body.email = payload.email // por si tu controller lo exige
+  if (payload.email) body.email = payload.email
   const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/name`, body)
   const user = normalizeUser(data)
   if (!user) throw new Error('Respuesta inválida al actualizar nombre')
   return user
 }
 
-/** PATCH /users/:id/lock -> { success, user: { id, isActive } } */
 export async function toggleUserLock(
   userId: string
 ): Promise<{ id: string; isActive: boolean }> {
@@ -173,7 +166,6 @@ export async function toggleUserLock(
   return { id: userId, isActive: true }
 }
 
-/** PATCH /users/:id/password { newPassword } -> { success } */
 export async function updateUserPassword(
   userId: string,
   payload: UpdatePasswordPayload
@@ -185,7 +177,6 @@ export async function updateUserPassword(
   return { success }
 }
 
-/** DELETE /users/:id -> { success } */
 export async function deleteUser(userId: string): Promise<{ success: boolean }> {
   const { data } = await api.delete(`/users/${encodeURIComponent(userId)}`)
   const success = isRecord(data) ? (get<boolean>(data, 'success') ?? true) : true
@@ -194,35 +185,42 @@ export async function deleteUser(userId: string): Promise<{ success: boolean }> 
 
 /* ======= Vacaciones ======= */
 
-/** PATCH /users/:id/vacation/total { total } -> VacationDays (útil si lo quieres usar) */
 export async function setVacationTotal(
   userId: string,
-  payload: { total: number }
+  payload: SetVacationTotalPayload
 ): Promise<VacationDays> {
   const { data } = await api.patch(
     `/users/${encodeURIComponent(userId)}/vacation/total`,
     { total: Number(payload.total) }
-  );
+  )
 
   // data puede venir como { success, data: {...} } o directamente el objeto
-  const containerRaw: unknown = isRecord(data) ? (get<unknown>(data, 'data') ?? data) : data;
-  const container: Record<string, unknown> = isRecord(containerRaw) ? containerRaw : {};
+  const containerRaw: unknown = isRecord(data) ? (get<unknown>(data, 'data') ?? data) : data
+  const container: Record<string, unknown> = isRecord(containerRaw) ? containerRaw : {}
 
-  const total = toNum(get(container, 'total')) ?? 0;
-  const used  = toNum(get(container, 'used'))  ?? 0;
+  const total = toNum(get(container, 'total')) ?? 0
+  const used  = toNum(get(container, 'used'))  ?? 0
+  const remaining = Math.max(0, total - used)
 
-  return { total, used, remaining: Math.max(0, total - used) };
+  return { total, used, remaining }
 }
 
-
-/** (opc) POST /users/:id/vacation/add { days } */
-export async function addVacationDays(userId: string, payload: { days: number }): Promise<void> {
-  await api.post(`/users/${encodeURIComponent(userId)}/vacation/add`, { days: Number(payload.days) })
+export async function addVacationDays(
+  userId: string,
+  payload: { days: number }
+): Promise<void> {
+  await api.post(`/users/${encodeURIComponent(userId)}/vacation/add`, {
+    days: Number(payload.days)
+  })
 }
 
-/** (opc) PATCH /users/:id/vacation/used { used } */
-export async function setVacationUsed(userId: string, payload: { used: number }): Promise<void> {
-  await api.patch(`/users/${encodeURIComponent(userId)}/vacation/used`, { used: Number(payload.used) })
+export async function setVacationUsed(
+  userId: string,
+  payload: { used: number }
+): Promise<void> {
+  await api.patch(`/users/${encodeURIComponent(userId)}/vacation/used`, {
+    used: Number(payload.used)
+  })
 }
 
 /* ========== Export por defecto (compat con imports actuales) ========== */
