@@ -1,7 +1,7 @@
 // server/src/models/VacationData.js
-import mongoose from 'mongoose';
+import mongoose from 'mongoose'
 
-const clampInt = (v) => Math.max(0, Math.floor(Number(v ?? 0)));
+const clampInt = (v) => Math.max(0, Math.floor(Number(v ?? 0)))
 
 const VacationDataSchema = new mongoose.Schema(
   {
@@ -9,8 +9,8 @@ const VacationDataSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
-      // ⚠️ Importante: no poner "unique" ni "index" aquí para evitar el warning
-      // de índice duplicado. Definimos el índice explícito más abajo.
+      unique: true,        // un registro por usuario
+      // ❌ quitamos index:true para no duplicar definición del índice
     },
     total: {
       type: Number,
@@ -25,14 +25,11 @@ const VacationDataSchema = new mongoose.Schema(
       set: clampInt,
       validate: {
         validator: function (v) {
-          // Cuando se actualiza desde User/Controllers llega validado;
-          // Esta validación evita "used > total" en escrituras directas.
-          return typeof v !== 'number' || v <= this.total;
+          return typeof v !== 'number' || v <= this.total
         },
         message: 'used no puede exceder total',
       },
     },
-    // Guardado para consultas rápidas
     remaining: {
       type: Number,
       default: 0,
@@ -46,60 +43,45 @@ const VacationDataSchema = new mongoose.Schema(
   {
     timestamps: true,
     versionKey: false,
-    toJSON: {
-      transform: (_doc, ret) => ret,
-    },
+    toJSON: { transform: (_doc, ret) => ret },
   }
-);
+)
 
-/**
- * Índice único explícito.
- * Nota: evitamos "unique: true" e "index: true" en el campo "user"
- * para que Mongoose no emita el warning de índice duplicado.
- */
-VacationDataSchema.index({ user: 1 }, { unique: true });
+// Índice único explícito (solo aquí, sin duplicarlo en el campo)
+VacationDataSchema.index({ user: 1 }, { unique: true })
 
-// Recalcular remaining en guardado directo
+// Recalcular en save directo
 VacationDataSchema.pre('save', function (next) {
-  this.remaining = clampInt(this.total - this.used);
-  this.lastUpdate = new Date();
-  next();
-});
+  this.remaining = clampInt(this.total - this.used)
+  this.lastUpdate = new Date()
+  next()
+})
 
-// Asegurar validaciones y actualizar lastUpdate/remaining en updates por query
-VacationDataSchema.pre(['findOneAndUpdate', 'updateOne'], function (next) {
-  this.setOptions({ runValidators: true });
+// Hook de actualización: SIEMPRE escribir en $set de forma plana
+VacationDataSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function (next) {
+  this.setOptions({ runValidators: true })
 
-  const update = this.getUpdate() || {};
-  // Puede venir con $set o plano
-  const $set = update.$set ?? update;
+  const update = this.getUpdate() || {}
+  if (!update.$set) update.$set = {}
+  const set = update.$set
 
-  if ($set) {
-    const hasTotal = Object.prototype.hasOwnProperty.call($set, 'total');
-    const hasUsed  = Object.prototype.hasOwnProperty.call($set, 'used');
-    const hasRem   = Object.prototype.hasOwnProperty.call($set, 'remaining');
+  const touchesTotal = Object.prototype.hasOwnProperty.call(set, 'total')
+  const touchesUsed  = Object.prototype.hasOwnProperty.call(set, 'used')
 
-    // Si no nos enviaron remaining explícito, intenta calcularlo con lo que llegue.
-    // (En nuestros controllers normalmente mandamos total, used y remaining juntos.)
-    if (!hasRem && (hasTotal || hasUsed)) {
-      const t = clampInt($set.total ?? 0);
-      const u = clampInt($set.used  ?? 0);
-      ($set.$set ?? $set).remaining = clampInt(t - u);
+  if (touchesTotal || touchesUsed) {
+    const total = clampInt(set.total ?? 0)
+    const used  = clampInt(set.used  ?? 0)
+    if (!Object.prototype.hasOwnProperty.call(set, 'remaining')) {
+      set.remaining = clampInt(total - used)
     }
-
-    // Actualiza lastUpdate si tocamos algo relevante
-    if (hasTotal || hasUsed || hasRem) {
-      ($set.$set ?? $set).lastUpdate = new Date();
-    }
-
-    // Reinyecta en el update original
-    if (update.$set) update.$set = $set.$set ?? $set;
-    else Object.assign(update, $set);
-    this.setUpdate(update);
   }
 
-  next();
-});
+  // marca tiempo siempre que tocamos el doc
+  set.lastUpdate = new Date()
+
+  this.setUpdate(update)
+  next()
+})
 
 export default mongoose.models.VacationData ||
-  mongoose.model('VacationData', VacationDataSchema);
+  mongoose.model('VacationData', VacationDataSchema)

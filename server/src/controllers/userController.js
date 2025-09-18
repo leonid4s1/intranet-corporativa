@@ -26,6 +26,16 @@ const toInt = (v, def = 0) => {
   return Number.isFinite(n) ? Math.max(0, n) : def;
 };
 
+// Asegura que el subdocumento exista
+const ensureVacSubdoc = (user) => {
+  if (!user.vacationDays) {
+    user.vacationDays = { total: 0, used: 0, lastUpdate: new Date() };
+  } else {
+    if (typeof user.vacationDays.total !== 'number') user.vacationDays.total = 0;
+    if (typeof user.vacationDays.used !== 'number') user.vacationDays.used = 0;
+  }
+};
+
 // Sincroniza VacationData para un usuario, tolerando upserts concurrentes (E11000).
 const upsertVacationData = async (userDoc) => {
   const total = toInt(userDoc?.vacationDays?.total, 0);
@@ -35,12 +45,11 @@ const upsertVacationData = async (userDoc) => {
   const $set = { total, used, remaining, lastUpdate: new Date() };
 
   try {
-    // updateOne con upsert minimiza carreras; si igualmente choca, reintenta sin upsert.
     await VacationData.updateOne(filter, { $set }, { upsert: true, runValidators: true, setDefaultsOnInsert: true });
   } catch (err) {
     if (err?.code === 11000) {
-      // Ya existe el doc (o carrera): solo actualiza.
-      await VacationData.updateOne(filter, { $set });
+      // Ya existe el doc (o carrera): solo actualiza sin upsert.
+      await VacationData.updateOne(filter, { $set }, { runValidators: true });
     } else {
       throw err;
     }
@@ -160,11 +169,12 @@ export const createUser = async (req, res) => {
       email_verified_at: isVerified ? new Date() : undefined,
     });
 
+    ensureVacSubdoc(user);
     if (typeof availableDays === 'number' && availableDays >= 0) {
       user.vacationDays.total = Math.floor(availableDays);
       user.vacationDays.used = 0;
-      user.vacationDays.lastUpdate = new Date();
     }
+    user.vacationDays.lastUpdate = new Date();
 
     await user.save();
     await upsertVacationData(user);
@@ -206,12 +216,12 @@ export const deleteUser = async (req, res) => {
 
 /* ==============================
    PATCH /api/users/:id/role
-   Body: { role: 'admin' | 'user' }
+   Body: { role: 'admin' | 'user' | 'moderator' }
    ============================== */
 export const updateUserRole = async (req, res) => {
   try {
     const { role } = req.body;
-    if (!['admin', 'user'].includes(role)) {
+    if (!['admin', 'user', 'moderator'].includes(role)) {
       return res.status(400).json({ success: false, message: 'Rol no válido' });
     }
 
@@ -376,6 +386,8 @@ export const setVacationTotal = async (req, res) => {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
 
+    ensureVacSubdoc(user);
+
     const used = toInt(user.vacationDays?.used, 0);
     if (total < used) {
       return res
@@ -418,6 +430,8 @@ export const addVacationDays = async (req, res) => {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
 
+    ensureVacSubdoc(user);
+
     user.vacationDays.total = toInt(user.vacationDays?.total, 0) + add;
     user.vacationDays.lastUpdate = new Date();
     await user.save();
@@ -452,6 +466,8 @@ export const setVacationUsed = async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
+
+    ensureVacSubdoc(user);
 
     const total = toInt(user.vacationDays?.total, 0);
     if (used > total) {
@@ -498,6 +514,8 @@ export const setVacationAvailable = async (req, res) => {
     if (!user) {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND });
     }
+
+    ensureVacSubdoc(user);
 
     const used = toInt(user.vacationDays?.used, 0);
     const newTotal = Math.max(0, used + available);
