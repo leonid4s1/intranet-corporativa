@@ -9,8 +9,7 @@ const VacationDataSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
-      unique: true,        // un registro por usuario
-      // ❌ quitamos index:true para no duplicar definición del índice
+      // unique: true, // ❌ no aquí, para evitar índice duplicado
     },
     total: {
       type: Number,
@@ -47,8 +46,8 @@ const VacationDataSchema = new mongoose.Schema(
   }
 )
 
-// Índice único explícito (solo aquí, sin duplicarlo en el campo)
-VacationDataSchema.index({ user: 1 }, { unique: true })
+// Índice único explícito alineado con Atlas
+VacationDataSchema.index({ user: 1 }, { unique: true, name: 'uniq_user' })
 
 // Recalcular en save directo
 VacationDataSchema.pre('save', function (next) {
@@ -57,7 +56,7 @@ VacationDataSchema.pre('save', function (next) {
   next()
 })
 
-// Hook de actualización: SIEMPRE escribir en $set de forma plana
+// Validaciones + lastUpdate en updates
 VacationDataSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function (next) {
   this.setOptions({ runValidators: true })
 
@@ -66,19 +65,17 @@ VacationDataSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function
   const set = update.$set
 
   const touchesTotal = Object.prototype.hasOwnProperty.call(set, 'total')
-  const touchesUsed  = Object.prototype.hasOwnProperty.call(set, 'used')
+  const touchesUsed = Object.prototype.hasOwnProperty.call(set, 'used')
 
   if (touchesTotal || touchesUsed) {
     const total = clampInt(set.total ?? 0)
-    const used  = clampInt(set.used  ?? 0)
+    const used = clampInt(set.used ?? 0)
     if (!Object.prototype.hasOwnProperty.call(set, 'remaining')) {
       set.remaining = clampInt(total - used)
     }
   }
 
-  // marca tiempo siempre que tocamos el doc
   set.lastUpdate = new Date()
-
   this.setUpdate(update)
   next()
 })
