@@ -10,6 +10,7 @@
           id="email"
           v-model="email"
           required
+          autocomplete="email"
           placeholder="tu@email.com"
         />
       </div>
@@ -21,6 +22,7 @@
           id="password"
           v-model="password"
           required
+          autocomplete="current-password"
           placeholder="Tu contraseña"
         />
       </div>
@@ -36,7 +38,10 @@
 
     <div class="auth-footer">
       <p>¿No tienes una cuenta?</p>
-      <router-link to="/register" class="register-button">
+      <router-link
+        :to="{ name: 'register', query: route.query.redirect ? { redirect: String(route.query.redirect) } : undefined }"
+        class="register-button"
+      >
         Regístrate aquí
       </router-link>
     </div>
@@ -95,17 +100,21 @@ const handleSubmit = async () => {
 
   try {
     await authStore.login({
-      email: email.value,
-      password: password.value,
+      email: email.value.trim(),
+      password: password.value.trim(),
     });
 
-    const dest =
-      safeDecodeRedirect(route.query.redirect) ??
-      (authStore.isAdmin ? '/admin' : '/home');
+    const redirectPath = safeDecodeRedirect(route.query.redirect);
+    if (redirectPath) {
+      // si venías de una ruta protegida, vuelve ahí
+      return router.replace(redirectPath);
+    }
 
-    router.replace(dest);
+    // si no hay redirect, decide por rol
+    return router.replace({ name: authStore.isAdmin ? 'admin-dashboard' : 'home' });
   } catch (err: unknown) {
     error.value = extractErrorMessage(err);
+    // consola útil para depurar sin romper UX
     console.error('Error detallado en login:', err);
   } finally {
     isLoading.value = false;
@@ -114,7 +123,7 @@ const handleSubmit = async () => {
 
 // Usuario ya autenticado no debe quedarse en /login
 if (authStore.isAuthenticated) {
-  router.replace(authStore.isAdmin ? '/admin' : '/home');
+  router.replace({ name: authStore.isAdmin ? 'admin-dashboard' : 'home' });
 }
 </script>
 

@@ -2,11 +2,19 @@
 import { useAuthStore } from '@/stores/auth.store';
 import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router';
 
-type AuthStore = ReturnType<typeof useAuthStore>;
-
-// --- util ---
+// --- utils ---
 const isSafePath = (p?: string): p is string =>
   !!p && p.startsWith('/') && !p.startsWith('//') && p !== '/login';
+
+const goLogin = (
+  to: RouteLocationNormalized,
+  next: NavigationGuardNext,
+  setReturn?: (p: string) => void
+) => {
+  const target = isSafePath(to.fullPath) ? to.fullPath : '/';
+  setReturn?.(target);
+  return next({ name: 'login', query: { redirect: encodeURIComponent(target) } });
+};
 
 // --- guard principal ---
 export const authGuard = async (
@@ -18,94 +26,81 @@ export const authGuard = async (
 
   const meta = to.meta as {
     public?: boolean;
+    guestOnly?: boolean;
     requiresAuth?: boolean;
     requiresAdmin?: boolean;
-    requiresVerifiedEmail?: boolean;
+    requiresVerifiedEmail?: boolean; // ahora SOLO si se pone explícito en la ruta
+    verificationFlowOnly?: boolean;  // para /verify-email
   };
 
-  const requiresAuth = !!meta.requiresAuth;
-  const requiresAdmin = !!meta.requiresAdmin;
   const isPublic = !!meta.public;
-  const requiresVerifiedEmail = meta.requiresVerifiedEmail ?? true;
+  const guestOnly = !!meta.guestOnly;
+  const requiresAuth = !!meta.requiresAuth || !!meta.requiresAdmin;
+  const requiresAdmin = !!meta.requiresAdmin;
+  const requiresVerifiedEmail = meta.requiresVerifiedEmail === true; // por defecto NO se exige
+  const verificationFlowOnly = !!meta.verificationFlowOnly;
 
-  // Hidratar estado de auth si la ruta lo requiere y aún no se ha hecho
+  // 1) Inicialización (intenta refresh + me) SOLO si la ruta lo requiere
   if (!auth.isInitialized && (requiresAuth || requiresAdmin)) {
     try {
       await auth.initialize();
     } catch {
       auth.clearAuth();
-      return redirectToLogin(auth, to, next);
+      return goLogin(to, next, auth.setReturnUrl);
     }
   }
 
-  // Si ya está autenticado y viene a /login o /register, redirigir a su home
+  // 2) Si ya está autenticado y viene a /login o /register -> a home/admin
   if (auth.isAuthenticated && (to.name === 'login' || to.name === 'register')) {
-    return next(auth.isAdmin ? '/admin' : '/');
+    return next(auth.isAdmin ? '/admin' : '/home');
   }
 
-  // Rutas públicas pasan tal cual
-  if (isPublic) {
+  // 3) Rutas públicas
+  if (isPublic && !requiresAuth) {
+    if (guestOnly && auth.isAuthenticated) {
+      return next(auth.isAdmin ? '/admin' : '/home');
+    }
     return next();
   }
 
-  // Requiere autenticación
+  // 4) Requiere autenticación
   if (requiresAuth && !auth.isAuthenticated) {
-    return redirectToLogin(auth, to, next);
+    try {
+      if (!auth.isInitialized) await auth.initialize();
+    } catch {
+      auth.clearAuth();
+    }
+    if (!auth.isAuthenticated) {
+      return goLogin(to, next, auth.setReturnUrl);
+    }
   }
 
-  // Verificación de email (no bloquear tu propia página de verificación)
-  if (
-    requiresVerifiedEmail &&
-    !auth.isEmailVerified &&
-    to.name !== 'email-verification'
-  ) {
-    return redirectToEmailVerification(auth, to, next);
+  // 5) Verificación de email (opcional, solo si la ruta lo pide explícito)
+  if (requiresVerifiedEmail && !auth.isEmailVerified && to.name !== 'email-verification') {
+    // Aquí podrías bloquear si alguna ruta lo requiere realmente.
+    // return next({ name: 'forbidden' });
   }
 
-  // Requiere admin
+  // 6) Acceso a /verify-email: solo flujo post-registro
+  if (to.name === 'email-verification') {
+    const fromRegister = to.query.from === 'register';
+    if (!auth.isAuthenticated) {
+      return goLogin(to, next, auth.setReturnUrl);
+    }
+    if (auth.isEmailVerified && to.query.force !== 'true') {
+      return next(auth.isAdmin ? '/admin' : '/home');
+    }
+    if (verificationFlowOnly && !fromRegister) {
+      return next(auth.isAdmin ? '/admin' : '/home');
+    }
+  }
+
+  // 7) Admin
   if (requiresAdmin && !auth.isAdmin) {
     return next({ name: 'forbidden' });
   }
 
-  // Si ya está verificado, no mostrar la página de verificación (a menos que force=true)
-  if (to.name === 'email-verification' && auth.isEmailVerified && to.query.force !== 'true') {
-    return next(auth.isAdmin ? '/admin' : '/');
-  }
-
   return next();
-};
-
-// === Helpers ===
-const redirectToLogin = (
-  auth: AuthStore,
-  to: RouteLocationNormalized,
-  next: NavigationGuardNext
-) => {
-  // Guardar a dónde querías ir, pero sólo si es una ruta interna segura
-  const target = isSafePath(to.fullPath) ? to.fullPath : '/';
-
-  auth.setReturnUrl(target);
-
-  // Pasar redirect codificado; evita open-redirects y loops hacia /login
-  return next({
-    name: 'login',
-    query: { redirect: encodeURIComponent(target) },
-  });
-};
-
-const redirectToEmailVerification = (
-  auth: AuthStore,
-  to: RouteLocationNormalized,
-  next: NavigationGuardNext
-) => {
-  const safe = isSafePath(to.fullPath) ? to.fullPath : '/';
-  return next({
-    name: 'email-verification',
-    query: {
-      email: auth.userData?.email,
-      redirect: encodeURIComponent(safe),
-    },
-  });
 };
 
 // Guard específico para rutas admin (si quieres aplicarlo en rutas sueltas)
@@ -121,12 +116,12 @@ export const adminGuard = async (
       await auth.initialize();
     } catch {
       auth.clearAuth();
-      return redirectToLogin(auth, to, next);
+      return goLogin(to, next, auth.setReturnUrl);
     }
   }
 
   if (!auth.isAuthenticated) {
-    return redirectToLogin(auth, to, next);
+    return goLogin(to, next, auth.setReturnUrl);
   }
   if (!auth.isAdmin) {
     return next({ name: 'forbidden' });

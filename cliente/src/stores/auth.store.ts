@@ -1,9 +1,6 @@
-// src/stores/auth.store.ts
 import { defineStore } from 'pinia';
 import { isAxiosError } from 'axios';
 import router from '@/router';
-import Cookies from 'js-cookie';
-
 import { AuthService } from '@/services/auth.service';
 import type {
   AuthState,
@@ -13,6 +10,8 @@ import type {
   VerificationResponse,
   ResendVerificationResponse,
 } from '@/types/auth';
+
+const ACCESS_KEY = 'app:access_token';
 
 type ApiErrorData = { message?: string };
 type AxiosLikeError = {
@@ -30,11 +29,24 @@ function extractErrorMessage(err: unknown, fallback = 'Ocurrió un error'): stri
   return fallback;
 }
 
+// Helpers locales
+const readAccess = () => localStorage.getItem(ACCESS_KEY);
+const writeAccess = (t: string | null) => {
+  if (t) localStorage.setItem(ACCESS_KEY, t);
+  else localStorage.removeItem(ACCESS_KEY);
+};
+
+// Calcula “verificado” solo con los campos existentes en tu tipo User
+function isUserVerified(u?: User | null): boolean {
+  if (!u) return false;
+  return Boolean(u.email_verified_at || u.isVerified);
+}
+
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
     user: null,
-    token: Cookies.get('token') || null,
-    refreshToken: Cookies.get('refreshToken') || null,
+    token: readAccess(),        // solo access token
+    refreshToken: null,         // mantenido por compatibilidad de tipo, no se usa
     returnUrl: undefined,
     isInitialized: false,
     isLoading: false,
@@ -47,8 +59,14 @@ export const useAuthStore = defineStore('auth', {
       try {
         if (this.token) {
           await this.fetchUser();
+        } else {
+          // Sin token -> intenta refresh con cookie HttpOnly
+          const refreshed = await this.refreshAuth();
+          if (!refreshed) {
+            // sin sesión; el guard decidirá si redirige a login
+          }
         }
-      } catch (err: unknown) {
+      } catch (err) {
         console.error('[Auth] initialize error:', err);
         this.clearAuth();
       } finally {
@@ -57,27 +75,29 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async refreshAuth(): Promise<boolean> {
-      if (!this.refreshToken) {
-        console.error('[Auth] No hay refreshToken disponible');
-        return false;
-      }
       try {
         const res = await AuthService.refreshToken();
-        if (!res.success || !res.token) {
-          throw new Error(res.message || 'Error al refrescar token');
-        }
-        // Mantén el usuario actual; si no lo hay, intenta obtenerlo
-        if (!this.user) {
+        // backend devuelve { accessToken, user } (compat con { token })
+        const access = (res as { accessToken?: string; token?: string }).accessToken ?? (res as { token?: string }).token ?? null;
+        if (!access) throw new Error((res as { message?: string })?.message || 'Error al refrescar token');
+
+        this.token = access;
+        writeAccess(access);
+
+        if (res.user) {
+          // `res.user` ya es de tipo User en tu capa de servicio
+          this.user = res.user as User;
+        } else if (!this.user) {
+          // si no vino el user, lo pedimos
           try {
-            const me = await AuthService.getProfile(res.token);
-            this.user = me;
+            const me = await AuthService.getProfile(this.token!);
+            this.user = me as User;
           } catch {
             /* ignore */
           }
         }
-        this.setAuthData(this.user!, res.token, res.refreshToken ?? this.refreshToken);
         return true;
-      } catch (err: unknown) {
+      } catch (err) {
         console.error('[Auth] refreshAuth error:', err);
         this.clearAuth();
         return false;
@@ -107,12 +127,12 @@ export const useAuthStore = defineStore('auth', {
           throw new Error(res.message || 'Error en el registro');
         }
 
-        // Si requiere verificación, NO navegamos aquí. Devolvemos el user para que la vista decida.
-        if (res.token) {
-          this.setAuthData(res.user, res.token, res.refreshToken ?? undefined);
+        const access = (res as { accessToken?: string; token?: string }).accessToken ?? (res as { token?: string }).token ?? null;
+        if (access) {
+          this.setAuthData(res.user as User, access);
         }
 
-        return res.user;
+        return res.user as User;
       } catch (err: unknown) {
         console.error('[AuthStore] Error en registro:', err);
         if (isAxiosError(err)) {
@@ -165,10 +185,11 @@ export const useAuthStore = defineStore('auth', {
         if (res.success && res.verified) {
           try {
             const me = await AuthService.getProfile(this.token ?? undefined);
+            // forzamos una marca de tiempo si el backend aún no la pone
             this.user = {
               ...me,
               email_verified_at: me.email_verified_at ?? new Date().toISOString(),
-            };
+            } as User;
           } catch {
             /* ignore */
           }
@@ -187,20 +208,18 @@ export const useAuthStore = defineStore('auth', {
       if (!this.token) return;
       try {
         const me = await AuthService.getProfile(this.token);
-        this.user = {
-          ...me,
-          // Si el backend a veces manda isVerified, normalizamos a email_verified_at presente
-          email_verified_at:
-            me.email_verified_at ||
-            ((me as unknown as { isVerified?: boolean }).isVerified ? new Date().toISOString() : null),
-        };
+        this.user = me as User;
       } catch (err: unknown) {
         console.error('[Auth] fetchUser error:', err);
         if (isAxiosError(err) && err.response?.status === 401) {
-          this.clearAuth();
-          await router.replace({ name: 'login' });
+          const ok = await this.refreshAuth();
+          if (!ok) {
+            this.clearAuth();
+            await router.replace({ name: 'login' });
+          }
+        } else {
+          throw err;
         }
-        throw err;
       }
     },
 
@@ -212,14 +231,12 @@ export const useAuthStore = defineStore('auth', {
         const res = await AuthService.login(loginData);
         if (!res.success) throw new Error(res.message || 'Error en el login');
 
-        if (!res.token || !res.refreshToken) {
-          throw new Error('No se recibieron tokens válidos');
-        }
+        const access = (res as { accessToken?: string; token?: string }).accessToken ?? (res as { token?: string }).token ?? null;
+        if (!access) throw new Error('No se recibió access token');
 
-        // Persistimos y devolvemos; la vista decide a dónde ir (y el guard refuerza)
-        this.setAuthData(res.user, res.token, res.refreshToken);
+        this.setAuthData(res.user as User, access);
 
-        // Opcionalmente refrescamos el perfil para normalizar flags
+        // normaliza perfil por si hay cambios
         try {
           await this.fetchUser();
         } catch {
@@ -244,42 +261,22 @@ export const useAuthStore = defineStore('auth', {
         console.error('[Auth] logout error:', err);
       } finally {
         this.clearAuth();
-        await router.replace({ name: 'login' }); // sin query redirect
+        await router.replace({ name: 'login' });
       }
     },
 
-    setAuthData(user: User, token: string | null, refreshToken: string | null = null): void {
-      const cookieToken = token ?? undefined;
-      const cookieRefreshToken = refreshToken ?? undefined;
-
+    setAuthData(user: User, token: string | null): void {
       this.user = user;
       this.token = token;
-      this.refreshToken = refreshToken;
-
-      const cookieOptions = {
-        secure: import.meta.env.PROD,
-        sameSite: 'strict' as const,
-        expires: token ? 1 : 0, // 1 día token
-      };
-
-      if (cookieToken !== undefined) Cookies.set('token', cookieToken, cookieOptions);
-      else Cookies.remove('token');
-
-      if (cookieRefreshToken !== undefined) {
-        Cookies.set('refreshToken', cookieRefreshToken, { ...cookieOptions, expires: 7 });
-      } else {
-        Cookies.remove('refreshToken');
-      }
+      writeAccess(token);
     },
 
     clearAuth(): void {
       this.user = null;
       this.token = null;
-      this.refreshToken = null;
-      this.isInitialized = false;
+      this.refreshToken = null; // compat con tipo
       this.error = null;
-      Cookies.remove('token');
-      Cookies.remove('refreshToken');
+      writeAccess(null);
     },
 
     setReturnUrl(url: string | null): void {
@@ -290,15 +287,15 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isAuthenticated: (state) => !!state.user && !!state.token,
     isAdmin: (state) => state.user?.role === 'admin',
-    isEmailVerified: (state) => !!state.user?.email_verified_at || !!state.user?.isVerified,
-    needsEmailVerification: (state) => !!state.user && !state.user.email_verified_at,
+    isEmailVerified: (state) => isUserVerified(state.user),
+    needsEmailVerification: (state) => !!state.user && !isUserVerified(state.user),
     currentRole: (state) => state.user?.role || 'guest',
     userData: (state) => ({
       name: state.user?.name,
       email: state.user?.email,
-      avatar: (state.user as unknown as { avatar_url?: string })?.avatar_url,
+      avatar: (state.user as { avatar_url?: string } | undefined)?.avatar_url,
       role: state.user?.role,
-      isVerified: !!state.user?.email_verified_at,
+      isVerified: isUserVerified(state.user),
     }),
     loadingState: (state) => state.isLoading,
     lastError: (state) => state.error,

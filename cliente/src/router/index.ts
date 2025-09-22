@@ -19,14 +19,10 @@ const ForbiddenView          = () => import('@/views/errors/ForbiddenView.vue');
 const NotFoundView           = () => import('@/views/errors/NotFoundView.vue');
 
 const routes: Array<RouteRecordRaw> = [
-  // Raíz: no consultamos el store aquí para evitar condiciones de inicialización.
-  // Dejamos que el guard decida a dónde va el usuario.
-  {
-    path: '/',
-    redirect: { name: 'home' }
-  },
+  // Raíz -> el guard decidirá según sesión
+  { path: '/', redirect: { name: 'home' } },
 
-  // Públicas
+  // Públicas (solo invitados)
   {
     path: '/login',
     name: 'login',
@@ -39,12 +35,19 @@ const routes: Array<RouteRecordRaw> = [
     component: RegisterView,
     meta: { public: true, guestOnly: true, title: 'Registro', requiresVerifiedEmail: false }
   },
-  // token opcional: /verify-email o /verify-email/:token
+
+  // Verificación de email: requiere sesión y solo desde el flujo post-registro
+  // Usar en registro: router.replace({ name:'email-verification', query:{ from:'register' } })
   {
     path: '/verify-email/:token?',
     name: 'email-verification',
     component: EmailVerificationView,
-    meta: { public: true, title: 'Verificación de Email', requiresVerifiedEmail: false }
+    meta: {
+      requiresAuth: true,
+      verificationFlowOnly: true, // el guard debe validar query.from === 'register' y user.emailVerified === false
+      title: 'Verificación de Email',
+      requiresVerifiedEmail: false
+    }
   },
 
   // Admin
@@ -110,16 +113,13 @@ const router = createRouter({
   }
 });
 
-// Usa el guard centralizado (maneja auth, admin, verificación y redirect seguro)
+// Guard centralizado (auth/admin/verificación/redirect)
 router.beforeEach(authGuard);
 
-// Título de página (lo mantenemos separado para no mezclar con auth)
+// Título de página
 router.afterEach((to) => {
   const title = typeof to.meta.title === 'string' ? to.meta.title : 'Intranet Corporativa';
-  // Evita excepciones en SSR/herramientas
-  if (typeof document !== 'undefined') {
-    document.title = title;
-  }
+  if (typeof document !== 'undefined') document.title = title;
 });
 
 export default router;
