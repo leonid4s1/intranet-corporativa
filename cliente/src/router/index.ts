@@ -1,6 +1,6 @@
 // src/router/index.ts
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
-import { useAuthStore } from '@/stores/auth.store';
+import { authGuard } from './guards';
 
 // Vistas (lazy)
 const LoginView              = () => import('@/views/auth/LoginView.vue');
@@ -19,24 +19,11 @@ const ForbiddenView          = () => import('@/views/errors/ForbiddenView.vue');
 const NotFoundView           = () => import('@/views/errors/NotFoundView.vue');
 
 const routes: Array<RouteRecordRaw> = [
-  // Raíz: decide a dónde ir según sesión/rol/estado de verificación
+  // Raíz: no consultamos el store aquí para evitar condiciones de inicialización.
+  // Dejamos que el guard decida a dónde va el usuario.
   {
     path: '/',
-    redirect: (to) => {
-      const authStore = useAuthStore();
-      if (!authStore.isInitialized) return { name: 'login' };
-
-      if (authStore.isAuthenticated) {
-        if (!authStore.isEmailVerified) {
-          return {
-            name: 'email-verification',
-            query: { email: authStore.user?.email, redirect: to.fullPath }
-          };
-        }
-        return authStore.isAdmin ? { name: 'admin-dashboard' } : { name: 'home' };
-      }
-      return { name: 'login' };
-    }
+    redirect: { name: 'home' }
   },
 
   // Públicas
@@ -123,55 +110,16 @@ const router = createRouter({
   }
 });
 
-// Rutas que SIEMPRE deben poder abrirse aunque el usuario no esté verificado
-const BYPASS_VERIFICATION = new Set(['login', 'register', 'email-verification', 'forbidden', 'not-found']);
+// Usa el guard centralizado (maneja auth, admin, verificación y redirect seguro)
+router.beforeEach(authGuard);
 
-router.beforeEach(async (to) => {
-  const authStore = useAuthStore();
-
-  // Inicializa auth una sola vez
-  if (!authStore.isInitialized) {
-    try { await authStore.initialize(); } catch (e) { console.error('Auth init failed:', e); }
+// Título de página (lo mantenemos separado para no mezclar con auth)
+router.afterEach((to) => {
+  const title = typeof to.meta.title === 'string' ? to.meta.title : 'Intranet Corporativa';
+  // Evita excepciones en SSR/herramientas
+  if (typeof document !== 'undefined') {
+    document.title = title;
   }
-
-  // Título
-  document.title = typeof to.meta.title === 'string' ? to.meta.title : 'Intranet Corporativa';
-
-  const isPublic      = !!to.meta.public;
-  const guestOnly     = !!to.meta.guestOnly;
-  const requiresAuth  = !!to.meta.requiresAuth;
-  const requiresAdmin = !!to.meta.requiresAdmin;
-  const name          = String(to.name || '');
-
-  // 1) Rutas públicas
-  if (isPublic) {
-    // si es solo-guest y ya hay sesión, manda al dashboard correspondiente
-    if (guestOnly && authStore.isAuthenticated) {
-      return authStore.isAdmin ? { name: 'admin-dashboard' } : { name: 'home' };
-    }
-    return true;
-  }
-
-  // 2) Requiere autenticación
-  if (requiresAuth && !authStore.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } };
-  }
-
-  // 3) Verificación de email (omite si la ruta pertenece al bypass)
-  const shouldBypass = BYPASS_VERIFICATION.has(name);
-  if (!shouldBypass && authStore.isAuthenticated && !authStore.isEmailVerified) {
-    return {
-      name: 'email-verification',
-      query: { email: authStore.user?.email, redirect: to.fullPath }
-    };
-  }
-
-  // 4) Admin
-  if (requiresAdmin && !authStore.isAdmin) {
-    return { name: 'forbidden' };
-  }
-
-  return true;
 });
 
 export default router;

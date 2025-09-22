@@ -88,7 +88,7 @@ export const AuthService = {
         token: data.token,
         refreshToken: data.refreshToken,
       };
-    } catch (error) {
+    } catch (error: unknown) {
       throw new Error(handleApiError(error).message);
     }
   },
@@ -98,7 +98,7 @@ export const AuthService = {
     try {
       await api.post('/auth/send-verification-email', { email });
       return { success: true, message: 'Correo de verificación enviado' };
-    } catch (error) {
+    } catch (error: unknown) {
       return handleApiError(error);
     }
   },
@@ -115,7 +115,7 @@ export const AuthService = {
         verified: true,
         message: data?.message ?? 'Email verificado exitosamente',
       };
-    } catch (error) {
+    } catch (error: unknown) {
       const { message } = handleApiError(error);
       return { success: false, verified: false, message };
     }
@@ -130,7 +130,7 @@ export const AuthService = {
         sent: true,
         message: data?.message ?? 'Correo de verificación reenviado',
       };
-    } catch (error) {
+    } catch (error: unknown) {
       const { message } = handleApiError(error);
       return { success: false, sent: false, message };
     }
@@ -141,10 +141,10 @@ export const AuthService = {
     try {
       const { data } = await api.get<User>('/auth/profile', {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        params: { _t: Date.now() }, // anti-cache
+        params: { _t: Date.now() }, // anti-cache simple
       });
       return data;
-    } catch (error) {
+    } catch (error: unknown) {
       throw new Error(handleApiError(error).message);
     }
   },
@@ -160,7 +160,7 @@ export const AuthService = {
         refreshToken: data.refreshToken ?? null,
         message: data.message ?? 'Token actualizado correctamente',
       };
-    } catch (error) {
+    } catch (error: unknown) {
       return {
         success: false,
         token: null,
@@ -173,9 +173,9 @@ export const AuthService = {
   /* POST /api/auth/logout */
   async logout(): Promise<{ success: boolean; message?: string }> {
     try {
-      await api.post('/auth/logout', null);
+      await api.post('/auth/logout', {}); // mejor {} que null
       return { success: true, message: 'Sesión cerrada correctamente' };
-    } catch (error) {
+    } catch (error: unknown) {
       return handleApiError(error);
     }
   },
@@ -195,7 +195,7 @@ export const AuthService = {
         refreshToken: res.refreshToken,
         requiresEmailVerification: res.requiresEmailVerification,
       };
-    } catch (error) {
+    } catch (error: unknown) {
       throw new Error(handleApiError(error).message);
     }
   },
@@ -205,7 +205,7 @@ export const AuthService = {
     try {
       await api.post('/auth/forgot-password', { email });
       return { success: true, message: 'Correo de recuperación enviado' };
-    } catch (error) {
+    } catch (error: unknown) {
       return handleApiError(error);
     }
   },
@@ -215,22 +215,27 @@ export const AuthService = {
     try {
       await api.post('/auth/reset-password', { token, password: newPassword });
       return { success: true, message: 'Contraseña actualizada correctamente' };
-    } catch (error) {
+    } catch (error: unknown) {
       return handleApiError(error);
     }
   },
 
   /* PATCH /api/auth/profile */
-  async updateProfile(token: string, updateData: Partial<User>): Promise<User> {
+  async updateProfile(token: string, updateData: Partial<User> | FormData): Promise<User> {
     try {
+      const isFormData =
+        typeof FormData !== 'undefined' && updateData instanceof FormData;
+
       const { data } = await api.patch<User>('/auth/profile', updateData, {
+        // Si envías FormData (avatar, etc.), usa multipart. Si no, deja que axios ponga JSON.
         headers: {
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data',
+          ...(isFormData ? { 'Content-Type': 'multipart/form-data' } : {}),
         },
       });
+
       return data;
-    } catch (error) {
+    } catch (error: unknown) {
       throw new Error(handleApiError(error).message);
     }
   },

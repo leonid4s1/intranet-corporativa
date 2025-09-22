@@ -4,6 +4,11 @@ import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router';
 
 type AuthStore = ReturnType<typeof useAuthStore>;
 
+// --- util ---
+const isSafePath = (p?: string): p is string =>
+  !!p && p.startsWith('/') && !p.startsWith('//') && p !== '/login';
+
+// --- guard principal ---
 export const authGuard = async (
   to: RouteLocationNormalized,
   _from: RouteLocationNormalized,
@@ -23,7 +28,7 @@ export const authGuard = async (
   const isPublic = !!meta.public;
   const requiresVerifiedEmail = meta.requiresVerifiedEmail ?? true;
 
-  // Inicializa si la ruta lo requiere
+  // Hidratar estado de auth si la ruta lo requiere y aún no se ha hecho
   if (!auth.isInitialized && (requiresAuth || requiresAdmin)) {
     try {
       await auth.initialize();
@@ -33,9 +38,14 @@ export const authGuard = async (
     }
   }
 
-  // Rutas públicas
+  // Si ya está autenticado y viene a /login o /register, redirigir a su home
+  if (auth.isAuthenticated && (to.name === 'login' || to.name === 'register')) {
+    return next(auth.isAdmin ? '/admin' : '/');
+  }
+
+  // Rutas públicas pasan tal cual
   if (isPublic) {
-    return handlePublicRoute(auth, to, next);
+    return next();
   }
 
   // Requiere autenticación
@@ -66,26 +76,36 @@ export const authGuard = async (
 };
 
 // === Helpers ===
-const redirectToLogin = (auth: AuthStore, to: RouteLocationNormalized, next: NavigationGuardNext) => {
-  // guarda hacia dónde querías ir (solo si no vienes ya de login)
-  auth.setReturnUrl(to.fullPath);
-  return next({ name: 'login', query: { redirect: to.fullPath } });
-};
+const redirectToLogin = (
+  auth: AuthStore,
+  to: RouteLocationNormalized,
+  next: NavigationGuardNext
+) => {
+  // Guardar a dónde querías ir, pero sólo si es una ruta interna segura
+  const target = isSafePath(to.fullPath) ? to.fullPath : '/';
 
-const redirectToEmailVerification = (auth: AuthStore, to: RouteLocationNormalized, next: NavigationGuardNext) => {
+  auth.setReturnUrl(target);
+
+  // Pasar redirect codificado; evita open-redirects y loops hacia /login
   return next({
-    name: 'email-verification',
-    query: { email: auth.userData?.email, redirect: to.fullPath },
+    name: 'login',
+    query: { redirect: encodeURIComponent(target) },
   });
 };
 
-const handlePublicRoute = (auth: AuthStore, to: RouteLocationNormalized, next: NavigationGuardNext) => {
-  // Evitar que usuarios autenticados visiten login/registro
-  const isAuthPage = ['login', 'register'].includes(String(to.name));
-  if (auth.isAuthenticated && isAuthPage) {
-    return next(auth.isAdmin ? '/admin' : '/');
-  }
-  return next();
+const redirectToEmailVerification = (
+  auth: AuthStore,
+  to: RouteLocationNormalized,
+  next: NavigationGuardNext
+) => {
+  const safe = isSafePath(to.fullPath) ? to.fullPath : '/';
+  return next({
+    name: 'email-verification',
+    query: {
+      email: auth.userData?.email,
+      redirect: encodeURIComponent(safe),
+    },
+  });
 };
 
 // Guard específico para rutas admin (si quieres aplicarlo en rutas sueltas)

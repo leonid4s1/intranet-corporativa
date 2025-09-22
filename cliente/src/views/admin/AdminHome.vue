@@ -2,7 +2,9 @@
   <div class="admin-home">
     <header class="admin-header">
       <h1>Panel de Administración</h1>
-      <button @click="handleLogout" class="logout-btn">Cerrar sesión</button>
+      <button @click="handleLogout" class="logout-btn" :disabled="loggingOut">
+        {{ loggingOut ? 'Saliendo…' : 'Cerrar sesión' }}
+      </button>
     </header>
 
     <div class="admin-options">
@@ -22,45 +24,54 @@
         </div>
       </router-link>
 
-      <!-- Boton que redirige a Administracion de Vacaciones -->
-      <button @click="goToVacations" class="admin-card" style="cursor: pointer; border: none; background: none; padding: 0;">
+      <!-- Botón que redirige a Administración de Vacaciones -->
+      <button
+        @click="goToVacations"
+        class="admin-card"
+        style="cursor: pointer; border: none; background: none; padding: 0;"
+      >
         <i class="fas fa-calendar-alt"></i>
         <div class="card-content">
-          <h3>Administracion de Vacaciones</h3>
-          <p>Gestiona solicitudes y dias de vacaciones</p>
+          <h3>Administración de Vacaciones</h3>
+          <p>Gestiona solicitudes y días de vacaciones</p>
         </div>
       </button>
     </div>
   </div>
 </template>
 
-<script>
+<script setup lang="ts">
+import { ref, onMounted, defineOptions } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
 import { useRouter } from 'vue-router';
 
-export default {
-  name: 'AdminHome',
-  setup() {
-    const auth = useAuthStore();
-    const router = useRouter();
+defineOptions({ name: 'AdminHome' });
 
-    const handleLogout = async () => {
-      await auth.logout();
-    };
+const auth = useAuthStore();
+const router = useRouter();
+const loggingOut = ref(false);
 
-    const goToVacations = () => {
-      router.push('/admin/vacations');
-    }
+const handleLogout = async () => {
+  if (loggingOut.value) return;
+  loggingOut.value = true;
+  try {
+    await auth.logout(); // el store hace router.replace('/login')
+  } catch {
+  } finally {
+    loggingOut.value = false;
+  }
+};
 
-    return {
-      handleLogout,
-      goToVacations
-    };
-  },
-  mounted() {
+
+const goToVacations = () => {
+  router.push('/admin/vacations');
+};
+
+onMounted(() => {
+  if (typeof document !== 'undefined') {
     document.title = 'Panel de Administración | Intranet';
   }
-}
+});
 </script>
 
 <style scoped>
@@ -94,6 +105,12 @@ export default {
 
 .logout-btn:hover {
   background-color: #cc1f1a;
+}
+
+.logout-btn:disabled {
+  background-color: #e5e7eb;
+  color: #6b7280;
+  cursor: not-allowed;
 }
 
 .admin-options {

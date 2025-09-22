@@ -57,6 +57,38 @@ const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 
+// --- Tipos auxiliares para errores ---
+type ApiErrorData = { message?: string };
+type AxiosLikeError = {
+  message?: string;
+  response?: { data?: ApiErrorData };
+};
+
+// --- Utils ---
+function safeDecodeRedirect(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    const dec = decodeURIComponent(raw);
+    if (dec.startsWith('/') && !dec.startsWith('//') && dec !== '/login') {
+      return dec;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function extractErrorMessage(err: unknown): string {
+  if (typeof err === 'object' && err !== null) {
+    const e = err as AxiosLikeError;
+    const apiMsg = e.response?.data?.message;
+    if (typeof apiMsg === 'string' && apiMsg.trim().length > 0) return apiMsg;
+    if (typeof e.message === 'string' && e.message.trim().length > 0) return e.message;
+  }
+  return 'Error al iniciar sesión. Intente nuevamente';
+}
+
+// --- Submit ---
 const handleSubmit = async () => {
   isLoading.value = true;
   error.value = '';
@@ -64,18 +96,26 @@ const handleSubmit = async () => {
   try {
     await authStore.login({
       email: email.value,
-      password: password.value
+      password: password.value,
     });
 
-  } catch (err) {
-    error.value = err instanceof Error ? err.message :
-                 'Error al iniciar sesion. Por favor intente nuevamente';
+    const dest =
+      safeDecodeRedirect(route.query.redirect) ??
+      (authStore.isAdmin ? '/admin' : '/home');
+
+    router.replace(dest);
+  } catch (err: unknown) {
+    error.value = extractErrorMessage(err);
     console.error('Error detallado en login:', err);
   } finally {
     isLoading.value = false;
   }
 };
 
+// Usuario ya autenticado no debe quedarse en /login
+if (authStore.isAuthenticated) {
+  router.replace(authStore.isAdmin ? '/admin' : '/home');
+}
 </script>
 
 <style scoped>

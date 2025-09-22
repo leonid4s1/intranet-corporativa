@@ -14,6 +14,22 @@ import type {
   ResendVerificationResponse,
 } from '@/types/auth';
 
+type ApiErrorData = { message?: string };
+type AxiosLikeError = {
+  message?: string;
+  response?: { data?: ApiErrorData; status?: number };
+};
+
+function extractErrorMessage(err: unknown, fallback = 'Ocurrió un error'): string {
+  if (typeof err === 'object' && err !== null) {
+    const e = err as AxiosLikeError;
+    const apiMsg = e.response?.data?.message;
+    if (typeof apiMsg === 'string' && apiMsg.trim()) return apiMsg;
+    if (typeof e.message === 'string' && e.message.trim()) return e.message;
+  }
+  return fallback;
+}
+
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
     user: null,
@@ -32,7 +48,7 @@ export const useAuthStore = defineStore('auth', {
         if (this.token) {
           await this.fetchUser();
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[Auth] initialize error:', err);
         this.clearAuth();
       } finally {
@@ -61,7 +77,7 @@ export const useAuthStore = defineStore('auth', {
         }
         this.setAuthData(this.user!, res.token, res.refreshToken ?? this.refreshToken);
         return true;
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[Auth] refreshAuth error:', err);
         this.clearAuth();
         return false;
@@ -91,20 +107,13 @@ export const useAuthStore = defineStore('auth', {
           throw new Error(res.message || 'Error en el registro');
         }
 
-        if (res.requiresEmailVerification) {
-          await router.push({
-            name: 'email-verification',
-            query: { email: res.user.email },
-          });
-          return res.user;
-        }
-
+        // Si requiere verificación, NO navegamos aquí. Devolvemos el user para que la vista decida.
         if (res.token) {
           this.setAuthData(res.user, res.token, res.refreshToken ?? undefined);
         }
 
         return res.user;
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[AuthStore] Error en registro:', err);
         if (isAxiosError(err)) {
           const status = err.response?.status;
@@ -116,7 +125,7 @@ export const useAuthStore = defineStore('auth', {
               ? 'El email ya está registrado'
               : 'Error durante el registro');
         } else {
-          this.error = err instanceof Error ? err.message : 'Error desconocido';
+          this.error = extractErrorMessage(err, 'Error durante el registro');
         }
         throw err;
       } finally {
@@ -132,15 +141,13 @@ export const useAuthStore = defineStore('auth', {
         const res = await AuthService.resendVerificationEmail(email);
         if (!res.success) throw new Error(res.message || 'Error al reenviar el correo');
         return res;
-      } catch (err) {
+      } catch (err: unknown) {
         if (isAxiosError(err)) {
           this.error =
             (err.response?.data as Record<string, unknown> | undefined)?.['message'] as string ||
             'Error al reenviar el correo';
-        } else if (err instanceof Error) {
-          this.error = err.message;
         } else {
-          this.error = 'Error desconocido al reenviar el correo';
+          this.error = extractErrorMessage(err, 'Error al reenviar el correo');
         }
         throw err;
       } finally {
@@ -168,16 +175,8 @@ export const useAuthStore = defineStore('auth', {
         }
 
         return { success: res.success, verified: res.verified, message: res.message || '' };
-      } catch (err) {
-        if (isAxiosError(err)) {
-          this.error =
-            (err.response?.data as Record<string, unknown> | undefined)?.['message'] as string ||
-            'Error al verificar el email';
-        } else if (err instanceof Error) {
-          this.error = err.message;
-        } else {
-          this.error = 'Error desconocido al verificar el email';
-        }
+      } catch (err: unknown) {
+        this.error = extractErrorMessage(err, 'Error al verificar el email');
         return { success: false, verified: false, message: this.error || 'Error desconocido' };
       } finally {
         this.isLoading = false;
@@ -190,16 +189,16 @@ export const useAuthStore = defineStore('auth', {
         const me = await AuthService.getProfile(this.token);
         this.user = {
           ...me,
+          // Si el backend a veces manda isVerified, normalizamos a email_verified_at presente
           email_verified_at:
-            me.email_verified_at || (me as unknown as { isVerified?: boolean }).isVerified
-              ? new Date().toISOString()
-              : me.email_verified_at ?? null,
+            me.email_verified_at ||
+            ((me as unknown as { isVerified?: boolean }).isVerified ? new Date().toISOString() : null),
         };
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[Auth] fetchUser error:', err);
         if (isAxiosError(err) && err.response?.status === 401) {
           this.clearAuth();
-          await router.push({ name: 'login' });
+          await router.replace({ name: 'login' });
         }
         throw err;
       }
@@ -217,29 +216,21 @@ export const useAuthStore = defineStore('auth', {
           throw new Error('No se recibieron tokens válidos');
         }
 
+        // Persistimos y devolvemos; la vista decide a dónde ir (y el guard refuerza)
         this.setAuthData(res.user, res.token, res.refreshToken);
 
-        const isVerified =
-          res.user?.isVerified ||
-          !!res.user?.email_verified_at ||
-          (this.user ? this.user.isVerified || !!this.user.email_verified_at : false);
-
-        if (!isVerified) {
-          await router.push({
-            name: 'email-verification',
-            query: { email: res.user?.email },
-          });
-        } else {
-          const redirectTo =
-            this.returnUrl ?? (this.isAdmin ? { name: 'admin-dashboard' } : { name: 'home' });
-          await router.push(redirectTo);
+        // Opcionalmente refrescamos el perfil para normalizar flags
+        try {
+          await this.fetchUser();
+        } catch {
+          /* ignore */
         }
 
         return this.user!;
-      } catch (err) {
+      } catch (err: unknown) {
         this.clearAuth();
         console.error('[Auth] login error:', err);
-        this.error = err instanceof Error ? err.message : 'Error desconocido';
+        this.error = extractErrorMessage(err, 'Error en el login');
         throw err;
       } finally {
         this.isLoading = false;
@@ -249,11 +240,11 @@ export const useAuthStore = defineStore('auth', {
     async logout(): Promise<void> {
       try {
         await AuthService.logout();
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('[Auth] logout error:', err);
       } finally {
         this.clearAuth();
-        await router.push({ name: 'login' });
+        await router.replace({ name: 'login' }); // sin query redirect
       }
     },
 
