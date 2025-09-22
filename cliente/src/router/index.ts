@@ -37,17 +37,28 @@ const routes: Array<RouteRecordRaw> = [
   },
 
   // Verificación de email: requiere sesión y solo desde el flujo post-registro
-  // Usar en registro: router.replace({ name:'email-verification', query:{ from:'register' } })
+  // Desde RegisterView: router.replace({ name:'email-verification', query:{ from:'register' } })
   {
     path: '/verify-email/:token?',
     name: 'email-verification',
     component: EmailVerificationView,
+    props: true,
     meta: {
       requiresAuth: true,
-      verificationFlowOnly: true, // el guard debe validar query.from === 'register' y user.emailVerified === false
+      verificationFlowOnly: true, // el guard valida query.from === 'register' y !isEmailVerified
       title: 'Verificación de Email',
       requiresVerifiedEmail: false
     }
+  },
+  // Alias interno (hash): #/email-verification -> #/verify-email
+  {
+    path: '/email-verification/:token?',
+    redirect: (to) => ({
+      name: 'email-verification',
+      params: to.params,
+      query: to.query
+    }),
+    meta: { public: true }
   },
 
   // Admin

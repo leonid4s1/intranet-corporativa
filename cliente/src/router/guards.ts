@@ -29,18 +29,19 @@ export const authGuard = async (
     guestOnly?: boolean;
     requiresAuth?: boolean;
     requiresAdmin?: boolean;
-    requiresVerifiedEmail?: boolean; // ahora SOLO si se pone explícito en la ruta
-    verificationFlowOnly?: boolean;  // para /verify-email
+    requiresVerifiedEmail?: boolean; // se exige SOLO si está en true explícitamente
+    verificationFlowOnly?: boolean;  // para /verify-email (opcional)
   };
 
   const isPublic = !!meta.public;
   const guestOnly = !!meta.guestOnly;
-  const requiresAuth = !!meta.requiresAuth || !!meta.requiresAdmin;
   const requiresAdmin = !!meta.requiresAdmin;
-  const requiresVerifiedEmail = meta.requiresVerifiedEmail === true; // por defecto NO se exige
+  const requiresAuth = !!meta.requiresAuth || requiresAdmin;
+  // 👇 default = false (ya no fuerza verificación global)
+  const requiresVerifiedEmail = meta.requiresVerifiedEmail === true;
   const verificationFlowOnly = !!meta.verificationFlowOnly;
 
-  // 1) Inicialización (intenta refresh + me) SOLO si la ruta lo requiere
+  // 1) Inicialización solo si la ruta lo requiere
   if (!auth.isInitialized && (requiresAuth || requiresAdmin)) {
     try {
       await auth.initialize();
@@ -75,22 +76,28 @@ export const authGuard = async (
     }
   }
 
-  // 5) Verificación de email (opcional, solo si la ruta lo pide explícito)
+  // 5) Verificación de email SOLO si la ruta lo pide explícitamente
   if (requiresVerifiedEmail && !auth.isEmailVerified && to.name !== 'email-verification') {
-    // Aquí podrías bloquear si alguna ruta lo requiere realmente.
-    // return next({ name: 'forbidden' });
+    const target = isSafePath(to.fullPath) ? to.fullPath : '/';
+    return next({
+      name: 'email-verification',
+      query: { redirect: encodeURIComponent(target) }
+    });
   }
 
-  // 6) Acceso a /verify-email: solo flujo post-registro
+  // 6) /verify-email: flujo post-registro o desde enlace con token
   if (to.name === 'email-verification') {
-    const fromRegister = to.query.from === 'register';
-    if (!auth.isAuthenticated) {
-      return goLogin(to, next, auth.setReturnUrl);
-    }
-    if (auth.isEmailVerified && to.query.force !== 'true') {
+    const fromParam = typeof to.query.from === 'string' ? to.query.from : '';
+    const fromRegister = fromParam === 'register';
+    const force = typeof to.query.force === 'string' ? to.query.force === 'true' : false;
+
+    // Si esta vista está marcada como "solo flujo" y no vienes del registro, redirige
+    if (verificationFlowOnly && !fromRegister && auth.isEmailVerified && !force) {
       return next(auth.isAdmin ? '/admin' : '/home');
     }
-    if (verificationFlowOnly && !fromRegister) {
+
+    // Si ya está verificado, no quedarse aquí salvo force=true
+    if (auth.isEmailVerified && !force) {
       return next(auth.isAdmin ? '/admin' : '/home');
     }
   }

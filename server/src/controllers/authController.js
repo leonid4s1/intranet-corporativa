@@ -23,7 +23,6 @@ const cookieOptions = {
   sameSite: isProd ? "None" : "Lax",
   maxAge: REFRESH_MAX_AGE_MS,
   path: "/api/auth", // limita a rutas de auth
-  // Si tienes subdominio propio, puedes habilitar domain:
   // domain: isProd ? ".odesconstruction.com" : undefined,
 };
 
@@ -62,8 +61,20 @@ const publicUser = (u) => ({
 });
 
 const generateTokens = async (user) => {
-  const accessToken = user.generateAuthToken?.() || jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: ACCESS_TTL });
-  const refreshToken = user.generateRefreshToken?.() || jwt.sign({ userId: user._id }, process.env.REFRESH_TOKEN_SECRET, { expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000) });
+  const accessToken =
+    user.generateAuthToken?.() ||
+    jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: ACCESS_TTL,
+    });
+
+  const refreshToken =
+    user.generateRefreshToken?.() ||
+    jwt.sign(
+      { userId: user._id },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000) }
+    );
+
   user.refreshToken = refreshToken;
   await user.save();
   return { accessToken, refreshToken };
@@ -91,9 +102,14 @@ export const register = async (req, res) => {
     if (!emailRegex.test(email)) return res.status(400).json(formatError("Formato de email invalido", "email"));
     if (password.length < 8) return res.status(400).json(formatError("La contraseña debe tener al menos 8 caracteres", "password"));
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_])/.test(password)) {
-      return res.status(400).json(formatError("La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial", "password"));
+      return res.status(400).json(formatError(
+        "La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial",
+        "password"
+      ));
     }
-    if (password !== password_confirmation) return res.status(400).json(formatError("Las contraseñas no coinciden", "password_confirmation"));
+    if (password !== password_confirmation) {
+      return res.status(400).json(formatError("Las contraseñas no coinciden", "password_confirmation"));
+    }
 
     const existingUser = await User.findOne({ email });
     if (existingUser) return res.status(409).json(formatError("El usuario ya existe", "email"));
@@ -135,8 +151,11 @@ export const register = async (req, res) => {
       success: true,
       message: "Registro exitoso",
       user: publicUser(user),
+      // compat con front
       accessToken,
-      token: accessToken, // compat
+      token: accessToken,
+      refreshToken,
+      requiresEmailVerification: true,
     });
   } catch (error) {
     console.error("🔥 Error en registro:", error);
@@ -227,19 +246,25 @@ export const login = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email }).select("+password +refreshToken +loginAttempts +lockUntil +isActive +isVerified +emailVerified");
+    const user = await User.findOne({ email }).select(
+      "+password +refreshToken +loginAttempts +lockUntil +isActive +isVerified +emailVerified"
+    );
     if (!user) return res.status(401).json(formatError("Credenciales invalidas"));
 
     if (user.isLocked) {
       const remainingTime = Math.ceil((user.lockUntil - Date.now()) / (60 * 1000));
-      return res.status(403).json(formatError(`Cuenta bloqueada temporalmente. Intente nuevamente en ${remainingTime} minutos`));
+      return res
+        .status(403)
+        .json(formatError(`Cuenta bloqueada temporalmente. Intente nuevamente en ${remainingTime} minutos`));
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       await user.incrementLoginAttempts();
       const attemptsLeft = Math.max(0, 5 - (user.loginAttempts + 1));
-      return res.status(401).json(formatError(`Credenciales inválidas. ${attemptsLeft ? `Intentos restantes: ${attemptsLeft}` : "Cuenta bloqueada"}`));
+      return res
+        .status(401)
+        .json(formatError(`Credenciales inválidas. ${attemptsLeft ? `Intentos restantes: ${attemptsLeft}` : "Cuenta bloqueada"}`));
     }
 
     if (user.loginAttempts > 0 || user.lockUntil) await user.resetLoginAttempts();
@@ -252,8 +277,10 @@ export const login = async (req, res) => {
       success: true,
       message: "Inicio de sesión exitoso",
       user: publicUser(user),
+      // compat con front
       accessToken,
-      token: accessToken, // compat
+      token: accessToken,
+      refreshToken,
     });
   } catch (error) {
     console.error("Error en login:", error);
@@ -302,19 +329,30 @@ export const refreshToken = async (req, res) => {
       return res.status(403).json({ message: "Token inválido" });
     }
 
-    // Rotación simple (opcional)
-    const newAccessToken = user.generateAuthToken?.() || jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: ACCESS_TTL });
-    const newRefreshToken = user.generateRefreshToken?.() || jwt.sign({ userId: user._id }, process.env.REFRESH_TOKEN_SECRET, { expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000) });
+    // Rotación simple
+    const newAccessToken =
+      user.generateAuthToken?.() ||
+      jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: ACCESS_TTL });
+
+    const newRefreshToken =
+      user.generateRefreshToken?.() ||
+      jwt.sign(
+        { userId: user._id },
+        process.env.REFRESH_TOKEN_SECRET,
+        { expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000) }
+      );
 
     user.refreshToken = newRefreshToken;
     await user.save();
-
     setRefreshCookie(res, newRefreshToken);
 
-    // Devuelve también el usuario para que el cliente se restablezca en frío
+    // 👇 compat exacta con AuthService.refreshToken()
     return res.json({
-      accessToken: newAccessToken,
-      user: publicUser(user),
+      success: true,
+      token: newAccessToken,
+      refreshToken: newRefreshToken,
+      message: "Token actualizado correctamente",
+      user: publicUser(user), // útil para rehidratar el store en frío
     });
   } catch (error) {
     console.error("Error en refreshToken:", error);
@@ -329,7 +367,6 @@ export const getProfile = async (req, res) => {
   try {
     const user = req.user;
     if (!user) return res.status(404).json({ success: false, message: "Usuario no encontrado" });
-
     res.json({ success: true, user: publicUser(user) });
   } catch (error) {
     console.error("Error obteniendo perfil:", error);
