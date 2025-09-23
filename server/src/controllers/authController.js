@@ -30,6 +30,7 @@ const setRefreshCookie = (res, token) => {
   res.cookie(COOKIE_NAME, token, cookieOptions);
 };
 const clearRefreshCookie = (res) => {
+  // limpia cookie en el mismo path que fue seteada
   res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: 0 });
 };
 
