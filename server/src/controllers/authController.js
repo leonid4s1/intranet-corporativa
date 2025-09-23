@@ -15,6 +15,15 @@ const ACCESS_TTL = "15m";
 const REFRESH_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000; // 2 días
 const COOKIE_NAME = "refreshToken";
 
+// Helper para leer envs y avisar si faltan
+const getEnv = (name) => {
+  const v = process.env[name];
+  if (!v) {
+    console.error(`[AUTH] ENV faltante: ${name}`);
+  }
+  return v;
+};
+
 // en prod (Render) y front en Vercel -> cross-site => SameSite=None + Secure
 const isProd = process.env.NODE_ENV === "production";
 const cookieOptions = {
@@ -34,7 +43,7 @@ const clearRefreshCookie = (res) => {
   res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: 0 });
 };
 
-// Nodemailer
+// Nodemailer (si faltan credenciales, avisamos en logs)
 const transporter = nodemailer.createTransport({
   service: "Gmail",
   auth: {
@@ -61,20 +70,28 @@ const publicUser = (u) => ({
   vacationDays: u.vacationDays,
 });
 
+// Generación de tokens con validación de secrets
 const generateTokens = async (user) => {
-  const accessToken =
-    user.generateAuthToken?.() ||
-    jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: ACCESS_TTL,
-    });
+  // Si el modelo define métodos propios, úsalos
+  if (typeof user.generateAuthToken === "function" && typeof user.generateRefreshToken === "function") {
+    const accessToken = user.generateAuthToken();
+    const refreshToken = user.generateRefreshToken();
+    user.refreshToken = refreshToken;
+    await user.save();
+    return { accessToken, refreshToken };
+  }
 
-  const refreshToken =
-    user.generateRefreshToken?.() ||
-    jwt.sign(
-      { userId: user._id },
-      process.env.REFRESH_TOKEN_SECRET,
-      { expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000) }
-    );
+  // Fallback: firmar aquí y validar secrets
+  const JWT_SECRET = getEnv("JWT_SECRET");
+  const REFRESH_SECRET = getEnv("REFRESH_TOKEN_SECRET");
+  if (!JWT_SECRET || !REFRESH_SECRET) {
+    throw new Error("Configuración JWT faltante: define JWT_SECRET y REFRESH_TOKEN_SECRET en el servidor.");
+  }
+
+  const accessToken = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: ACCESS_TTL });
+  const refreshToken = jwt.sign({ userId: user._id }, REFRESH_SECRET, {
+    expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000),
+  });
 
   user.refreshToken = refreshToken;
   await user.save();
@@ -103,10 +120,12 @@ export const register = async (req, res) => {
     if (!emailRegex.test(email)) return res.status(400).json(formatError("Formato de email invalido", "email"));
     if (password.length < 8) return res.status(400).json(formatError("La contraseña debe tener al menos 8 caracteres", "password"));
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_])/.test(password)) {
-      return res.status(400).json(formatError(
-        "La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial",
-        "password"
-      ));
+      return res.status(400).json(
+        formatError(
+          "La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial",
+          "password"
+        )
+      );
     }
     if (password !== password_confirmation) {
       return res.status(400).json(formatError("Las contraseñas no coinciden", "password_confirmation"));
@@ -164,7 +183,7 @@ export const register = async (req, res) => {
       const errors = Object.entries(error.errors).map(([field, err]) => ({ msg: err.message, param: field }));
       return res.status(400).json({ errors });
     }
-    return res.status(500).json(formatError("Error en el servidor"));
+    return res.status(500).json({ success: false, message: error?.message || "Error en el servidor" });
   }
 };
 
@@ -228,7 +247,7 @@ export const resendVerificationEmail = async (req, res) => {
     return res.json({ success: true, message: "Correo de verificación reenviado" });
   } catch (error) {
     console.error("Error en resendVerificationEmail:", error);
-    return res.status(500).json({ success: false, message: "Error al reenviar el correo" });
+    return res.status(500).json({ success: false, message: error?.message || "Error al reenviar el correo" });
   }
 };
 
@@ -285,7 +304,8 @@ export const login = async (req, res) => {
     });
   } catch (error) {
     console.error("Error en login:", error);
-    return res.status(500).json(formatError(error.message || "Error en login"));
+    // ⬇️ devolver siempre { message } para que el front lo muestre
+    return res.status(500).json({ success: false, message: error?.message || "Error en login" });
   }
 };
 
@@ -318,9 +338,14 @@ export const refreshToken = async (req, res) => {
     const token = req.cookies?.[COOKIE_NAME];
     if (!token) return res.status(401).json({ message: "Refresh token no proporcionado" });
 
+    const REFRESH_SECRET = getEnv("REFRESH_TOKEN_SECRET");
+    if (!REFRESH_SECRET) {
+      return res.status(500).json({ message: "Configuración JWT faltante (REFRESH_TOKEN_SECRET)" });
+    }
+
     let payload;
     try {
-      payload = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+      payload = jwt.verify(token, REFRESH_SECRET);
     } catch {
       return res.status(403).json({ message: "Token inválido o expirado" });
     }
@@ -331,17 +356,7 @@ export const refreshToken = async (req, res) => {
     }
 
     // Rotación simple
-    const newAccessToken =
-      user.generateAuthToken?.() ||
-      jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: ACCESS_TTL });
-
-    const newRefreshToken =
-      user.generateRefreshToken?.() ||
-      jwt.sign(
-        { userId: user._id },
-        process.env.REFRESH_TOKEN_SECRET,
-        { expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000) }
-      );
+    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await generateTokens(user);
 
     user.refreshToken = newRefreshToken;
     await user.save();
@@ -357,7 +372,7 @@ export const refreshToken = async (req, res) => {
     });
   } catch (error) {
     console.error("Error en refreshToken:", error);
-    return res.status(403).json({ message: "Token inválido o expirado" });
+    return res.status(403).json({ message: error?.message || "Token inválido o expirado" });
   }
 };
 
