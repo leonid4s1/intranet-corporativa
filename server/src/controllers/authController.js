@@ -18,9 +18,7 @@ const COOKIE_NAME = "refreshToken";
 // Helper para leer envs y avisar si faltan
 const getEnv = (name) => {
   const v = process.env[name];
-  if (!v) {
-    console.error(`[AUTH] ENV faltante: ${name}`);
-  }
+  if (!v) console.error(`[AUTH] ENV faltante: ${name}`);
   return v;
 };
 
@@ -43,7 +41,7 @@ const clearRefreshCookie = (res) => {
   res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: 0 });
 };
 
-// Nodemailer (si faltan credenciales, avisamos en logs)
+// Nodemailer
 const transporter = nodemailer.createTransport({
   service: "Gmail",
   auth: {
@@ -73,7 +71,10 @@ const publicUser = (u) => ({
 // Generación de tokens con validación de secrets
 const generateTokens = async (user) => {
   // Si el modelo define métodos propios, úsalos
-  if (typeof user.generateAuthToken === "function" && typeof user.generateRefreshToken === "function") {
+  if (
+    typeof user.generateAuthToken === "function" &&
+    typeof user.generateRefreshToken === "function"
+  ) {
     const accessToken = user.generateAuthToken();
     const refreshToken = user.generateRefreshToken();
     user.refreshToken = refreshToken;
@@ -85,10 +86,14 @@ const generateTokens = async (user) => {
   const JWT_SECRET = getEnv("JWT_SECRET");
   const REFRESH_SECRET = getEnv("REFRESH_TOKEN_SECRET");
   if (!JWT_SECRET || !REFRESH_SECRET) {
-    throw new Error("Configuración JWT faltante: define JWT_SECRET y REFRESH_TOKEN_SECRET en el servidor.");
+    throw new Error(
+      "Configuración JWT faltante: define JWT_SECRET y REFRESH_TOKEN_SECRET en el servidor."
+    );
   }
 
-  const accessToken = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: ACCESS_TTL });
+  const accessToken = jwt.sign({ userId: user._id }, JWT_SECRET, {
+    expiresIn: ACCESS_TTL,
+  });
   const refreshToken = jwt.sign({ userId: user._id }, REFRESH_SECRET, {
     expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000),
   });
@@ -117,18 +122,28 @@ export const register = async (req, res) => {
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) return res.status(400).json(formatError("Formato de email invalido", "email"));
-    if (password.length < 8) return res.status(400).json(formatError("La contraseña debe tener al menos 8 caracteres", "password"));
+    if (!emailRegex.test(email))
+      return res.status(400).json(formatError("Formato de email invalido", "email"));
+    if (password.length < 8)
+      return res
+        .status(400)
+        .json(
+          formatError("La contraseña debe tener al menos 8 caracteres", "password")
+        );
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_])/.test(password)) {
-      return res.status(400).json(
-        formatError(
-          "La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial",
-          "password"
-        )
-      );
+      return res
+        .status(400)
+        .json(
+          formatError(
+            "La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial",
+            "password"
+          )
+        );
     }
     if (password !== password_confirmation) {
-      return res.status(400).json(formatError("Las contraseñas no coinciden", "password_confirmation"));
+      return res
+        .status(400)
+        .json(formatError("Las contraseñas no coinciden", "password_confirmation"));
     }
 
     const existingUser = await User.findOne({ email });
@@ -152,7 +167,12 @@ export const register = async (req, res) => {
     await user.save();
 
     // crea doc de VacationData
-    await new VacationData({ user: user._id, total: 0, used: 0, remaining: 0 }).save();
+    await new VacationData({
+      user: user._id,
+      total: 0,
+      used: 0,
+      remaining: 0,
+    }).save();
 
     const { accessToken, refreshToken } = await generateTokens(user);
     setRefreshCookie(res, refreshToken);
@@ -180,10 +200,15 @@ export const register = async (req, res) => {
   } catch (error) {
     console.error("🔥 Error en registro:", error);
     if (error.name === "ValidationError") {
-      const errors = Object.entries(error.errors).map(([field, err]) => ({ msg: err.message, param: field }));
+      const errors = Object.entries(error.errors).map(([field, err]) => ({
+        msg: err.message,
+        param: field,
+      }));
       return res.status(400).json({ errors });
     }
-    return res.status(500).json({ success: false, message: error?.message || "Error en el servidor" });
+    return res
+      .status(500)
+      .json({ success: false, message: error?.message || "Error en el servidor" });
   }
 };
 
@@ -198,10 +223,13 @@ export const verifyEmail = async (req, res) => {
       emailVerificationExpires: { $gt: Date.now() },
     });
 
-    const front = process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:5173";
+    const front =
+      process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:5173";
 
     if (!user) {
-      return res.redirect(`${front}/#/verify-email?success=false&message=Token_invalido`);
+      return res.redirect(
+        `${front}/#/verify-email?success=false&message=Token_invalido`
+      );
     }
 
     user.isVerified = true;
@@ -214,8 +242,11 @@ export const verifyEmail = async (req, res) => {
     return res.redirect(`${front}/#/verify-email?success=true`);
   } catch (error) {
     console.error("Error en verifyEmail:", error);
-    const front = process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:5173";
-    return res.redirect(`${front}/#/verify-email?success=false&message=Error_interno`);
+    const front =
+      process.env.FRONTEND_URL || process.env.CLIENT_URL || "http://localhost:5173";
+    return res.redirect(
+      `${front}/#/verify-email?success=false&message=Error_interno`
+    );
   }
 };
 
@@ -226,8 +257,14 @@ export const resendVerificationEmail = async (req, res) => {
   try {
     const { email } = req.body;
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ success: false, message: "Usuario no encontrado" });
-    if (user.isVerified || user.emailVerified) return res.status(400).json({ success: false, message: "El email ya está verificado" });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "Usuario no encontrado" });
+    if (user.isVerified || user.emailVerified)
+      return res
+        .status(400)
+        .json({ success: false, message: "El email ya está verificado" });
 
     const verificationToken = crypto.randomBytes(32).toString("hex");
     user.emailVerificationToken = verificationToken;
@@ -244,15 +281,20 @@ export const resendVerificationEmail = async (req, res) => {
       html: `<p>Hola ${user.name},</p><p>Haz click en este enlace para verificar tu correo electrónico:</p><a href="${verificationLink}">${verificationLink}</a>`,
     });
 
-    return res.json({ success: true, message: "Correo de verificación reenviado" });
+    return res.json({
+      success: true,
+      message: "Correo de verificación reenviado",
+    });
   } catch (error) {
     console.error("Error en resendVerificationEmail:", error);
-    return res.status(500).json({ success: false, message: error?.message || "Error al reenviar el correo" });
+    return res
+      .status(500)
+      .json({ success: false, message: error?.message || "Error al reenviar el correo" });
   }
 };
 
 /** ==========================
- *  Login
+ *  Login (robusto, sin 500)
  *  ========================== */
 export const login = async (req, res) => {
   try {
@@ -269,27 +311,78 @@ export const login = async (req, res) => {
     const user = await User.findOne({ email }).select(
       "+password +refreshToken +loginAttempts +lockUntil +isActive +isVerified +emailVerified"
     );
-    if (!user) return res.status(401).json(formatError("Credenciales invalidas"));
 
-    if (user.isLocked) {
+    // Usuario no existe
+    if (!user) {
+      return res.status(401).json(formatError("Credenciales invalidas"));
+    }
+
+    // Bloqueo temporal si aplica
+    const locked = Boolean(user.lockUntil && user.lockUntil > Date.now());
+    if (locked) {
       const remainingTime = Math.ceil((user.lockUntil - Date.now()) / (60 * 1000));
       return res
         .status(403)
-        .json(formatError(`Cuenta bloqueada temporalmente. Intente nuevamente en ${remainingTime} minutos`));
+        .json(
+          formatError(
+            `Cuenta bloqueada temporalmente. Intente nuevamente en ${remainingTime} minutos`
+          )
+        );
     }
 
-    const isMatch = await user.comparePassword(password);
+    // Comparación segura de contraseña
+    let isMatch = false;
+    try {
+      if (typeof user.comparePassword === "function") {
+        isMatch = await user.comparePassword(password);
+      } else {
+        console.warn("[auth] comparePassword no definido en User; tratando como invalido");
+        isMatch = false;
+      }
+    } catch (cmpErr) {
+      console.error("[auth] Error en comparePassword:", cmpErr);
+      isMatch = false;
+    }
+
     if (!isMatch) {
-      await user.incrementLoginAttempts();
-      const attemptsLeft = Math.max(0, 5 - (user.loginAttempts + 1));
+      try {
+        if (typeof user.incrementLoginAttempts === "function") {
+          await user.incrementLoginAttempts();
+        } else {
+          user.loginAttempts = (user.loginAttempts || 0) + 1;
+          await user.save();
+        }
+      } catch (incErr) {
+        console.warn("[auth] No se pudo incrementar intentos de login:", incErr?.message || incErr);
+      }
+
+      const attemptsLeft = Math.max(0, 5 - ((user.loginAttempts ?? 0) + 1));
       return res
         .status(401)
-        .json(formatError(`Credenciales inválidas. ${attemptsLeft ? `Intentos restantes: ${attemptsLeft}` : "Cuenta bloqueada"}`));
+        .json(
+          formatError(
+            `Credenciales inválidas. ${
+              attemptsLeft ? `Intentos restantes: ${attemptsLeft}` : "Cuenta bloqueada"
+            }`
+          )
+        );
     }
 
-    if (user.loginAttempts > 0 || user.lockUntil) await user.resetLoginAttempts();
-    user.lastLogin = new Date();
+    // Reset de intentos si procede
+    try {
+      if (typeof user.resetLoginAttempts === "function") {
+        await user.resetLoginAttempts();
+      } else {
+        user.loginAttempts = 0;
+        user.lockUntil = undefined;
+        user.lastLogin = new Date();
+        await user.save();
+      }
+    } catch (rstErr) {
+      console.warn("[auth] No se pudo resetear intentos:", rstErr?.message || rstErr);
+    }
 
+    // Generar tokens y setear cookie refresh
     const { accessToken, refreshToken } = await generateTokens(user);
     setRefreshCookie(res, refreshToken);
 
@@ -303,9 +396,9 @@ export const login = async (req, res) => {
       refreshToken,
     });
   } catch (error) {
-    console.error("Error en login:", error);
-    // ⬇️ devolver siempre { message } para que el front lo muestre
-    return res.status(500).json({ success: false, message: error?.message || "Error en login" });
+    console.error("[auth] Error inesperado en login:", error);
+    // No exponemos detalles; el front siempre recibe un { message }
+    return res.status(500).json({ success: false, message: "Error interno del servidor" });
   }
 };
 
@@ -326,7 +419,9 @@ export const logout = async (req, res) => {
     return res.json({ success: true, message: "Sesión cerrada exitosamente" });
   } catch (error) {
     console.error("Error en logout:", error);
-    return res.status(500).json({ success: false, message: "Error al cerrar sesión" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Error al cerrar sesión" });
   }
 };
 
@@ -356,13 +451,14 @@ export const refreshToken = async (req, res) => {
     }
 
     // Rotación simple
-    const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await generateTokens(user);
+    const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
+      await generateTokens(user);
 
     user.refreshToken = newRefreshToken;
     await user.save();
     setRefreshCookie(res, newRefreshToken);
 
-    // 👇 compat exacta con AuthService.refreshToken()
+    // Compat exacta con AuthService.refreshToken()
     return res.json({
       success: true,
       token: newAccessToken,

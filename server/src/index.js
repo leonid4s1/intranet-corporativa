@@ -22,6 +22,7 @@ const app = express()
 
 /** Detrás de proxies (Render/Vercel) para que cookies `secure` funcionen */
 app.set('trust proxy', 1)
+app.disable('x-powered-by')
 
 /** Cookies NO firmadas (controlamos firma/validación con JWT en el valor) */
 app.use(cookieParser()) // ⬅️ sin secreto
@@ -79,7 +80,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  // ⬇️ Añadimos los headers que causaban el preflight bloqueado
+  // ⬇️ Incluye los headers que te bloqueaban el preflight (Cache-Control y amigos)
   allowedHeaders: [
     'Content-Type',
     'Authorization',
@@ -92,16 +93,15 @@ const corsOptions = {
   ],
   optionsSuccessStatus: 204,
   preflightContinue: false,
-  maxAge: 86400, // cachea el preflight 24h cuando sea posible
+  maxAge: 86400, // cachear preflight 24h
 }
 
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions)) // preflight global
 
-// Evita problemas de cache/CDN con CORS
+// Evita problemas de cache/CDN con CORS (asegura variación por origen y preflight)
 app.use((req, res, next) => {
-  res.header('V vary', 'Origin') // mantiene Vary: Origin para caches intermedios
-  res.header('Vary', 'Origin')   // (deja ambas líneas por si algún proxy es estricto)
+  res.header('Vary', 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers')
   next()
 })
 /* ==================================================================== */
@@ -124,8 +124,7 @@ app.use(express.json({ limit: '10kb' }))
 app.get('/api/health', async (_req, res) => {
   const status = {
     ok: true,
-    dbStatus:
-      mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    dbStatus: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     ts: Date.now(),
     env: process.env.NODE_ENV || 'development',
   }
