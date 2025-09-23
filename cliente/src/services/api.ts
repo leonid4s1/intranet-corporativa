@@ -10,7 +10,7 @@ import { useAuthStore } from '@/stores/auth.store';
 
 /**
  * Base URL:
- * - Dev: usamos el proxy de Vite => '/api'
+ * - Dev: proxy de Vite => '/api'
  * - Prod: VITE_API_BASE_URL (ej. https://tu-backend.onrender.com/api)
  */
 const RAW_BASE =
@@ -30,14 +30,14 @@ const api: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
-    'Cache-Control': 'no-cache',
+    // ❌ No enviar Cache-Control desde el cliente (evita preflight bloqueado)
   },
 });
 
 /** ===== Request interceptor =====
  * - Forzar URL absoluta si base es absoluta y config.url empieza con '/'
  * - Añadir Authorization si hay access token
- * - Cache-busting en GET/profile
+ * - Cache-busting de perfil vía query param (sin headers)
  */
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -51,9 +51,6 @@ api.interceptors.request.use(
 
     // Headers
     const headers = (config.headers ??= new AxiosHeaders());
-    if ((config.method ?? 'get').toLowerCase() === 'get') {
-      headers.set('Cache-Control', 'no-store');
-    }
 
     // Token
     try {
@@ -65,10 +62,9 @@ api.interceptors.request.use(
       // Pinia aún no montada
     }
 
-    // Cache-busting de perfil
+    // Cache-busting de perfil SIN tocar headers
     if (config.url?.includes('/auth/me') || config.url?.includes('/auth/profile')) {
       config.params = { ...(config.params ?? {}), _t: Date.now() };
-      headers.set('Cache-Control', 'no-store');
     }
 
     return config;
@@ -104,13 +100,12 @@ api.interceptors.response.use(
         } finally {
           window.location.assign('/login');
         }
-        // Devuelve un reject para cortar la cadena
         return Promise.reject(error);
       }
 
       const auth = useAuthStore();
 
-      // Si ya hay un refresh en curso, nos encolamos y repetimos cuando termine
+      // Si ya hay un refresh en curso, encola y reintenta cuando termine
       if (refreshing) {
         return new Promise((resolve) => {
           queue.push(() => {
