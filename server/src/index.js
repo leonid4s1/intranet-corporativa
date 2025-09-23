@@ -79,14 +79,20 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  // ⬇️ Añadimos los headers que causaban el preflight bloqueado
   allowedHeaders: [
     'Content-Type',
     'Authorization',
     'X-Requested-With',
     'Accept',
+    'Origin',
+    'Cache-Control',
+    'Pragma',
+    'Expires',
   ],
   optionsSuccessStatus: 204,
   preflightContinue: false,
+  maxAge: 86400, // cachea el preflight 24h cuando sea posible
 }
 
 app.use(cors(corsOptions))
@@ -94,7 +100,8 @@ app.options('*', cors(corsOptions)) // preflight global
 
 // Evita problemas de cache/CDN con CORS
 app.use((req, res, next) => {
-  res.header('Vary', 'Origin')
+  res.header('V vary', 'Origin') // mantiene Vary: Origin para caches intermedios
+  res.header('Vary', 'Origin')   // (deja ambas líneas por si algún proxy es estricto)
   next()
 })
 /* ==================================================================== */
