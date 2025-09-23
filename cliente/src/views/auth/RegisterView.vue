@@ -11,6 +11,7 @@
           v-model.trim="form.name"
           @blur="validateName"
           required
+          autocomplete="name"
           placeholder="Tu nombre completo"
           :class="{ 'input-error': errors.name }"
           :disabled="isLoading"
@@ -26,6 +27,7 @@
           v-model.trim="form.email"
           @blur="validateEmail"
           required
+          autocomplete="email"
           placeholder="tu@email.com"
           :class="{ 'input-error': errors.email }"
           :disabled="isLoading"
@@ -42,6 +44,7 @@
             v-model.trim="form.password"
             @input="validatePassword"
             required
+            autocomplete="new-password"
             placeholder="Mínimo 8 caracteres"
             minlength="8"
             :class="{ 'input-error': errors.password }"
@@ -72,6 +75,7 @@
             v-model.trim="form.password_confirmation"
             @blur="validatePasswordConfirmation"
             required
+            autocomplete="new-password"
             placeholder="Repite tu contraseña"
             minlength="8"
             :class="{ 'input-error': errors.password_confirmation }"
@@ -112,7 +116,7 @@
 
     <div class="auth-footer">
       <p>¿Ya tienes una cuenta?</p>
-      <router-link to="/login" class="auth-link">
+      <router-link :to="{ name: 'login' }" class="auth-link">
         Inicia sesión aquí
       </router-link>
     </div>
@@ -121,7 +125,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { isAxiosError } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
 import EyeIcon from '@/components/icons/EyeIcon.vue';
@@ -166,6 +170,7 @@ const isErrorMap = (v: unknown): v is ErrorMap =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 
 /* ------------------------- Estado ------------------------- */
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
@@ -201,9 +206,13 @@ const isFormValid = computed(() => {
   const nameOk = form.value.name.trim().length >= 3;
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.value.email);
   const passOk = form.value.password.length >= 8;
+  const strengthOk = passwordValidation.value.hasMinLength
+    && passwordValidation.value.hasNumber
+    && passwordValidation.value.hasSpecialChar
+    && passwordValidation.value.hasUppercase;
   const matchOk = form.value.password === form.value.password_confirmation;
   const noClientErrors = !Object.values(errors.value).some(Boolean);
-  return nameOk && emailOk && passOk && matchOk && noClientErrors;
+  return nameOk && emailOk && passOk && strengthOk && matchOk && noClientErrors;
 });
 
 const validateName = () => {
@@ -257,10 +266,19 @@ const handleSubmit = async () => {
     };
 
     await authStore.register(payload);
-    router.push({ name: 'email-verification', query: { force: 'true' } });
-  } catch (err: unknown) {
-    console.error('Error en registro:', err);
 
+    // Construimos la query para la vista de verificación:
+    const query: Record<string, string> = {
+      from: 'register',
+      email: payload.email,
+    };
+    const rawRedirect = typeof route.query.redirect === 'string' ? route.query.redirect : undefined;
+    if (rawRedirect && rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') && rawRedirect !== '/login') {
+      query.redirect = encodeURIComponent(rawRedirect);
+    }
+
+    router.push({ name: 'email-verification', query });
+  } catch (err: unknown) {
     // limpia errores previos
     (Object.keys(errors.value) as Array<keyof ErrorState>).forEach(k => (errors.value[k] = ''));
 
@@ -283,6 +301,12 @@ const handleSubmit = async () => {
       }
 
       serverError.value = data?.message || data?.error || err.message || 'Error de conexión';
+
+      // Marcar email también en el input si el mensaje indica duplicado
+      const msgLower = (serverError.value || '').toLowerCase();
+      if (msgLower.includes('ya está registrado') || msgLower.includes('ya existe')) {
+        errors.value.email = serverError.value;
+      }
     } else if (err instanceof Error) {
       serverError.value = err.message;
     } else {

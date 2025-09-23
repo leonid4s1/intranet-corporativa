@@ -1,6 +1,6 @@
 // src/router/index.ts
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
-import { useAuthStore } from '@/stores/auth.store';
+import { authGuard } from './guards';
 
 // Vistas (lazy)
 const LoginView              = () => import('@/views/auth/LoginView.vue');
@@ -19,27 +19,10 @@ const ForbiddenView          = () => import('@/views/errors/ForbiddenView.vue');
 const NotFoundView           = () => import('@/views/errors/NotFoundView.vue');
 
 const routes: Array<RouteRecordRaw> = [
-  // Raíz: decide a dónde ir según sesión/rol/estado de verificación
-  {
-    path: '/',
-    redirect: (to) => {
-      const authStore = useAuthStore();
-      if (!authStore.isInitialized) return { name: 'login' };
+  // Raíz -> el guard decidirá según sesión
+  { path: '/', redirect: { name: 'home' } },
 
-      if (authStore.isAuthenticated) {
-        if (!authStore.isEmailVerified) {
-          return {
-            name: 'email-verification',
-            query: { email: authStore.user?.email, redirect: to.fullPath }
-          };
-        }
-        return authStore.isAdmin ? { name: 'admin-dashboard' } : { name: 'home' };
-      }
-      return { name: 'login' };
-    }
-  },
-
-  // Públicas
+  // Públicas (solo invitados)
   {
     path: '/login',
     name: 'login',
@@ -52,12 +35,30 @@ const routes: Array<RouteRecordRaw> = [
     component: RegisterView,
     meta: { public: true, guestOnly: true, title: 'Registro', requiresVerifiedEmail: false }
   },
-  // token opcional: /verify-email o /verify-email/:token
+
+  // Verificación de email: requiere sesión y solo desde el flujo post-registro
+  // Desde RegisterView: router.replace({ name:'email-verification', query:{ from:'register' } })
   {
     path: '/verify-email/:token?',
     name: 'email-verification',
     component: EmailVerificationView,
-    meta: { public: true, title: 'Verificación de Email', requiresVerifiedEmail: false }
+    props: true,
+    meta: {
+      requiresAuth: true,
+      verificationFlowOnly: true, // el guard valida query.from === 'register' y !isEmailVerified
+      title: 'Verificación de Email',
+      requiresVerifiedEmail: false
+    }
+  },
+  // Alias interno (hash): #/email-verification -> #/verify-email
+  {
+    path: '/email-verification/:token?',
+    redirect: (to) => ({
+      name: 'email-verification',
+      params: to.params,
+      query: to.query
+    }),
+    meta: { public: true }
   },
 
   // Admin
@@ -123,55 +124,13 @@ const router = createRouter({
   }
 });
 
-// Rutas que SIEMPRE deben poder abrirse aunque el usuario no esté verificado
-const BYPASS_VERIFICATION = new Set(['login', 'register', 'email-verification', 'forbidden', 'not-found']);
+// Guard centralizado (auth/admin/verificación/redirect)
+router.beforeEach(authGuard);
 
-router.beforeEach(async (to) => {
-  const authStore = useAuthStore();
-
-  // Inicializa auth una sola vez
-  if (!authStore.isInitialized) {
-    try { await authStore.initialize(); } catch (e) { console.error('Auth init failed:', e); }
-  }
-
-  // Título
-  document.title = typeof to.meta.title === 'string' ? to.meta.title : 'Intranet Corporativa';
-
-  const isPublic      = !!to.meta.public;
-  const guestOnly     = !!to.meta.guestOnly;
-  const requiresAuth  = !!to.meta.requiresAuth;
-  const requiresAdmin = !!to.meta.requiresAdmin;
-  const name          = String(to.name || '');
-
-  // 1) Rutas públicas
-  if (isPublic) {
-    // si es solo-guest y ya hay sesión, manda al dashboard correspondiente
-    if (guestOnly && authStore.isAuthenticated) {
-      return authStore.isAdmin ? { name: 'admin-dashboard' } : { name: 'home' };
-    }
-    return true;
-  }
-
-  // 2) Requiere autenticación
-  if (requiresAuth && !authStore.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } };
-  }
-
-  // 3) Verificación de email (omite si la ruta pertenece al bypass)
-  const shouldBypass = BYPASS_VERIFICATION.has(name);
-  if (!shouldBypass && authStore.isAuthenticated && !authStore.isEmailVerified) {
-    return {
-      name: 'email-verification',
-      query: { email: authStore.user?.email, redirect: to.fullPath }
-    };
-  }
-
-  // 4) Admin
-  if (requiresAdmin && !authStore.isAdmin) {
-    return { name: 'forbidden' };
-  }
-
-  return true;
+// Título de página
+router.afterEach((to) => {
+  const title = typeof to.meta.title === 'string' ? to.meta.title : 'Intranet Corporativa';
+  if (typeof document !== 'undefined') document.title = title;
 });
 
 export default router;

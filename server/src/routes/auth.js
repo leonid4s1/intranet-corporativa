@@ -1,102 +1,88 @@
 // server/src/routes/auth.js
 import express from 'express';
 import {
-    register,
-    login,
-    refreshToken,
-    logout,
-    resendVerificationEmail,
-    verifyEmail
+  register,
+  login,
+  refreshToken,
+  logout,
+  resendVerificationEmail,
+  verifyEmail
 } from '../controllers/authController.js';
 import { authenticate, authorize } from '../middleware/auth.js';
-import { 
-  validateRegister, 
+import {
+  validateRegister,
   validateLogin,
-  validateResendVerification,
-  validateRefreshToken
+  // ⬇️ quitamos validateRefreshToken porque el refresh usa cookie httpOnly
+  // validateRefreshToken
+  validateResendVerification
 } from '../middleware/validation.js';
 import mongoose from 'mongoose';
 
 const router = express.Router();
 
-// Ruta de registro con validaciones
-router.post('/register',
-  validateRegister, 
-  register
-);
+/* ===================== Auth públicas ===================== */
 
-// Ruta de login con validaciones
-router.post('/login',
-  validateLogin,
-  login
-);
+// Registro
+router.post('/register', validateRegister, register);
 
-// Ruta para verificación de email (GET para enlace en correo)
-router.get('/verify-email/:token',
-  verifyEmail
-);
+// Login
+router.post('/login', validateLogin, login);
 
-// Ruta para refrescar token
-router.post('/refresh-token',
-  validateRefreshToken,
-  refreshToken
-);
+// Verificación de email (GET para enlace en correo)
+router.get('/verify-email/:token', verifyEmail);
 
-// Ruta de logout (protegida)
-router.post('/logout',
-  authenticate,
-  logout
-);
+/**
+ * Refresh Token
+ * - Nuevo endpoint preferido:  POST /auth/refresh
+ * - Alias de compatibilidad:  POST /auth/refresh-token
+ *   (ambos leen la cookie httpOnly 'refreshToken'; no se requiere body)
+ */
+router.post('/refresh', refreshToken);
+router.post('/refresh-token', refreshToken);
 
-// Ruta protegida de ejemplo
-router.get('/profile',
-  authenticate,
-  (req, res) => {
-    res.json({
-      success: true,
-      user: {
-        id: req.user._id,
-        name: req.user.name,
-        email: req.user.email,
-        role: req.user.role,
-        isActive: req.user.isActive,
-        isVerified: req.user.isVerified
-      }
-    });
-  }
-);
+// Logout (protegido)
+router.post('/logout', authenticate, logout);
 
-// Ruta solo para admin
-router.get('/admin',
-  authenticate,
-  authorize(['admin']),
-  (req, res) => {
-    res.json({
-      success: true,
-      message: 'Bienvenido administrador',
-      user: req.user.profile
-    });
-  }
-);
+// Reenviar verificación
+router.post('/resend-verification', validateResendVerification, resendVerificationEmail);
 
-// Health Check mejorado
-router.get('/healthcheck',
-  (req, res) => {
-    const health = {
-      status: 'OK',
-      message: 'El servicio de autenticacion esta funcionando',
-      timestamp: new Date(),
-      uptime: process.uptime(),
-      database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
-    };
-    res.status(200).json(health);
-  }
-);
+/* ===================== Rutas protegidas ===================== */
 
-//resend-verification
-router.post('/resend-verification',
-  validateResendVerification,
-  resendVerificationEmail
-);
+// Perfil simple de ejemplo (mantengo el shape actual)
+router.get('/profile', authenticate, (req, res) => {
+  res.json({
+    success: true,
+    user: {
+      id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role,
+      isActive: req.user.isActive,
+      isVerified: req.user.isVerified
+    }
+  });
+});
+
+// Solo admin
+router.get('/admin', authenticate, authorize(['admin']), (req, res) => {
+  res.json({
+    success: true,
+    message: 'Bienvenido administrador',
+    user: req.user.profile
+  });
+});
+
+/* ===================== Healthcheck ===================== */
+
+router.get('/healthcheck', (_req, res) => {
+  const health = {
+    status: 'OK',
+    message: 'El servicio de autenticacion esta funcionando',
+    timestamp: new Date(),
+    uptime: process.uptime(),
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+  };
+  res.status(200).json(health);
+});
 
 export default router;

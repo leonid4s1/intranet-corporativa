@@ -10,6 +10,7 @@
           id="email"
           v-model="email"
           required
+          autocomplete="email"
           placeholder="tu@email.com"
         />
       </div>
@@ -21,6 +22,7 @@
           id="password"
           v-model="password"
           required
+          autocomplete="current-password"
           placeholder="Tu contraseña"
         />
       </div>
@@ -36,7 +38,10 @@
 
     <div class="auth-footer">
       <p>¿No tienes una cuenta?</p>
-      <router-link to="/register" class="register-button">
+      <router-link
+        :to="{ name: 'register', query: route.query.redirect ? { redirect: String(route.query.redirect) } : undefined }"
+        class="register-button"
+      >
         Regístrate aquí
       </router-link>
     </div>
@@ -57,25 +62,69 @@ const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 
+// --- Tipos auxiliares para errores ---
+type ApiErrorData = { message?: string };
+type AxiosLikeError = {
+  message?: string;
+  response?: { data?: ApiErrorData };
+};
+
+// --- Utils ---
+function safeDecodeRedirect(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    const dec = decodeURIComponent(raw);
+    if (dec.startsWith('/') && !dec.startsWith('//') && dec !== '/login') {
+      return dec;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function extractErrorMessage(err: unknown): string {
+  if (typeof err === 'object' && err !== null) {
+    const e = err as AxiosLikeError;
+    const apiMsg = e.response?.data?.message;
+    if (typeof apiMsg === 'string' && apiMsg.trim().length > 0) return apiMsg;
+    if (typeof e.message === 'string' && e.message.trim().length > 0) return e.message;
+  }
+  return 'Error al iniciar sesión. Intente nuevamente';
+}
+
+// --- Submit ---
 const handleSubmit = async () => {
   isLoading.value = true;
   error.value = '';
 
   try {
     await authStore.login({
-      email: email.value,
-      password: password.value
+      email: email.value.trim(),
+      password: password.value.trim(),
     });
 
-  } catch (err) {
-    error.value = err instanceof Error ? err.message :
-                 'Error al iniciar sesion. Por favor intente nuevamente';
+    const redirectPath = safeDecodeRedirect(route.query.redirect);
+    if (redirectPath) {
+      // si venías de una ruta protegida, vuelve ahí
+      return router.replace(redirectPath);
+    }
+
+    // si no hay redirect, decide por rol
+    return router.replace({ name: authStore.isAdmin ? 'admin-dashboard' : 'home' });
+  } catch (err: unknown) {
+    error.value = extractErrorMessage(err);
+    // consola útil para depurar sin romper UX
     console.error('Error detallado en login:', err);
   } finally {
     isLoading.value = false;
   }
 };
 
+// Usuario ya autenticado no debe quedarse en /login
+if (authStore.isAuthenticated) {
+  router.replace({ name: authStore.isAdmin ? 'admin-dashboard' : 'home' });
+}
 </script>
 
 <style scoped>

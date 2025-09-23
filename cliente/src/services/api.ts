@@ -12,7 +12,6 @@ import { useAuthStore } from '@/stores/auth.store';
  * Base URL:
  * - Dev: usamos el proxy de Vite => '/api'
  * - Prod: VITE_API_BASE_URL (ej. https://tu-backend.onrender.com/api)
- *         o fallback a tu Render con '/api'
  */
 const RAW_BASE =
   import.meta.env.PROD
@@ -35,11 +34,10 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-/**
- * Request interceptor:
- * - Si la URL es relativa ('/...') y base es absoluta, la forzamos a absoluta (a prueba de balas).
- * - Añade Authorization si hay token.
- * - Evita caché en GET y añade bust para /auth/profile.
+/** ===== Request interceptor =====
+ * - Forzar URL absoluta si base es absoluta y config.url empieza con '/'
+ * - Añadir Authorization si hay access token
+ * - Cache-busting en GET/profile
  */
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -64,11 +62,11 @@ api.interceptors.request.use(
         headers.set('Authorization', `Bearer ${auth.token}`);
       }
     } catch {
-      // Pinia aún no montada: ignorar
+      // Pinia aún no montada
     }
 
     // Cache-busting de perfil
-    if (config.url?.includes('/auth/profile')) {
+    if (config.url?.includes('/auth/me') || config.url?.includes('/auth/profile')) {
       config.params = { ...(config.params ?? {}), _t: Date.now() };
       headers.set('Cache-Control', 'no-store');
     }
@@ -79,33 +77,71 @@ api.interceptors.request.use(
     Promise.reject(error instanceof Error ? error : new Error(String(error)))
 );
 
-/**
- * Response interceptor:
- * - En 401: limpia sesión y redirige a /login (evitando bucles en login/refresh).
- * - Propaga mensaje del servidor si existe.
- */
+/** ===== Response interceptor con refresh y cola ===== */
+let refreshing = false;
+const queue: Array<() => void> = [];
+
+type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const status = error?.response?.status as number | undefined;
-    const reqUrl: string | undefined = error?.config?.url;
+    const original = error?.config as RetriableConfig | undefined;
+    const reqUrl: string | undefined = original?.url;
 
-    if (status === 401) {
+    // Solo manejamos 401 con posibilidad de refresh
+    if (status === 401 && original && !original._retry) {
       const isAuthPath =
         !!reqUrl &&
-        (/\/auth\/login\b/.test(reqUrl) || /\/auth\/refresh-token\b/.test(reqUrl));
+        (/\/auth\/login\b/.test(reqUrl) || /\/auth\/refresh\b/.test(reqUrl) || /\/auth\/logout\b/.test(reqUrl));
 
+      // Si el 401 viene del propio login/refresh/logout, no reintentes: limpia y a login
+      if (isAuthPath) {
+        try {
+          const auth = useAuthStore();
+          auth.clearAuth();
+        } finally {
+          window.location.assign('/login');
+        }
+        // Devuelve un reject para cortar la cadena
+        return Promise.reject(error);
+      }
+
+      const auth = useAuthStore();
+
+      // Si ya hay un refresh en curso, nos encolamos y repetimos cuando termine
+      if (refreshing) {
+        return new Promise((resolve) => {
+          queue.push(() => {
+            const retried: RetriableConfig = { ...original, _retry: true };
+            resolve(api(retried));
+          });
+        });
+      }
+
+      // Primer hilo que entra: dispara refresh
+      refreshing = true;
       try {
-        const auth = useAuthStore();
-        // Evitar llamar logout contra el backend si ya estamos fallando en auth
-        if (!isAuthPath) await auth.logout();
-        else auth.clearAuth();
+        const ok = await auth.refreshAuth(); // usa cookie HttpOnly en /auth/refresh
+        // Despierta a los que esperaban
+        queue.splice(0).forEach((run) => run());
+
+        if (ok) {
+          const retried: RetriableConfig = { ...original, _retry: true };
+          return api(retried);
+        }
+
+        // Si no se pudo refrescar, limpia y manda a login
+        auth.clearAuth();
+        window.location.assign('/login');
+        return Promise.reject(error);
       } finally {
-        // Redirigir a login
-        window.location.href = '/login';
+        refreshing = false;
       }
     }
 
+    // Otros errores: propaga mensaje del servidor si existe
     const serverMsg: unknown = error?.response?.data?.message;
     const message =
       typeof serverMsg === 'string'

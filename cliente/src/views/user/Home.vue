@@ -1,64 +1,73 @@
-<!-- src/views/user/Home.vue -->
 <script setup lang="ts">
-import { useRouter, useRoute } from 'vue-router'
-import { ref, computed, onMounted, defineOptions } from 'vue'
-import '@/assets/styles/components/home.css'
-import api from '@/services/api'
-import { useAuthStore } from '@/stores/auth.store'
+import { useRouter, useRoute } from 'vue-router';
+import { ref, computed, onMounted, defineOptions } from 'vue';
+import '@/assets/styles/components/home.css';
+import api from '@/services/api';
+import { useAuthStore } from '@/stores/auth.store';
 
-defineOptions({ name: 'HomePage' })
+defineOptions({ name: 'HomePage' });
 
 interface Task {
-  _id: string
-  title: string
-  status: 'completed' | 'in-progress' | 'pending'
+  _id: string;
+  title: string;
+  status: 'completed' | 'in-progress' | 'pending';
 }
 
 interface User {
-  name: string
-  role?: string
-  department?: string
-  avatar?: string
+  name: string;
+  role?: string;
+  department?: string;
+  avatar?: string;
 }
 
-const router = useRouter()
-const route = useRoute()
+const router = useRouter();
+const route = useRoute();
 
-const user = ref<User>({ name: 'Usuario' }) // Valor por defecto
-const tasks = ref<Task[]>([])
-const loading = ref(true)
-const error = ref('')
+const user = ref<User>({ name: 'Usuario' }); // Valor por defecto
+const tasks = ref<Task[]>([]);
+const loading = ref(true);
+const error = ref('');
 
 const timeOfDay = computed(() => {
-  const hour = new Date().getHours()
-  if (hour < 12) return 'dias'
-  if (hour < 19) return 'tardes'
-  return 'noches'
-})
+  const hour = new Date().getHours();
+  if (hour < 12) return 'dias';
+  if (hour < 19) return 'tardes';
+  return 'noches';
+});
 
-const pendingTasksCount = computed(() => tasks.value.filter(t => t.status === 'pending').length)
+const pendingTasksCount = computed(() => tasks.value.filter((t) => t.status === 'pending').length);
 
 onMounted(async () => {
   try {
-    const response = await api.get('/auth/profile')
+    const response = await api.get('/auth/profile');
     if (response?.data?.user?.name) {
-      user.value = response.data.user
+      user.value = response.data.user;
     }
   } catch {
-    error.value = 'No se pudo cargar la información del usuario'
+    error.value = 'No se pudo cargar la información del usuario';
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
-const auth = useAuthStore()
+const auth = useAuthStore();
+const loggingOut = ref(false);
+
 const handleLogout = async () => {
-  await auth.logout()
-}
+  if (loggingOut.value) return;
+  loggingOut.value = true;
+  try {
+    await auth.logout(); // el store hace router.replace('/login')
+  } catch {
+    // opcional: toast o log
+  } finally {
+    loggingOut.value = false;
+  }
+};
 
 const navigateTo = (path: string) => {
-  router.push(`/${path}`)
-}
+  router.push(`/${path}`);
+};
 </script>
 
 <template>
@@ -70,13 +79,15 @@ const navigateTo = (path: string) => {
         <li><button @click="navigateTo('roles')">Roles y Funciones</button></li>
         <li><button @click="navigateTo('documentacion')">Documentación</button></li>
         <li><button @click="navigateTo('formatos')">Formatos</button></li>
-        <li><button @click="navigateTo('vacaciones')" class="vacation-link">
-          <i class="fas fa-calendar-alt"></i> Vacaciones
-        </button></li>
-        <li><button @click="navigateTo('noticias')">Noticias</button></li>
+        <li>
+          <button @click="navigateTo('vacaciones')" class="vacation-link">
+            <i class="fas fa-calendar-alt"></i> Vacaciones
+          </button>
+        </li>
         <li :class="{ active: route.path === '/tareas' }">
           <button @click="navigateTo('tareas')">
-            Tareas <span v-if="pendingTasksCount > 0" class="badge">{{ pendingTasksCount }}</span>
+            Tareas
+            <span v-if="pendingTasksCount > 0" class="badge">{{ pendingTasksCount }}</span>
           </button>
         </li>
       </ul>
@@ -89,7 +100,9 @@ const navigateTo = (path: string) => {
             <h2 class="user-header__greeting">Buenas {{ timeOfDay }}, {{ user.name }}</h2>
             <div class="user-header__info">
               <span class="user-header__company">CIM</span>
-              <button @click="handleLogout" class="logout-btn">Cerrar sesión</button>
+              <button @click="handleLogout" class="logout-btn" :disabled="loggingOut">
+                {{ loggingOut ? 'Saliendo…' : 'Cerrar sesión' }}
+              </button>
             </div>
           </template>
           <div v-else>Cargando información del usuario...</div>
@@ -117,8 +130,10 @@ const navigateTo = (path: string) => {
           <div class="access-card" :class="{ active: route.path === '/tareas' }" @click="navigateTo('tareas')">
             <i class="fas fa-tasks"></i>
             <h4>Tareas</h4>
-            <p>Visualiza tus pendientes <span v-if="pendingTasksCount > 0" class="badge">
-              {{ pendingTasksCount }}</span></p>
+            <p>
+              Visualiza tus pendientes
+              <span v-if="pendingTasksCount > 0" class="badge">{{ pendingTasksCount }}</span>
+            </p>
           </div>
         </div>
       </section>
@@ -127,8 +142,8 @@ const navigateTo = (path: string) => {
         <h3>Noticias y Comunicados</h3>
         <div class="news-list">
           <div class="new-item">
-            <h4 class="new-title">Nueva politica de vacaciones</h4>
-            <p class="new-excerpt">Actualizacion importante sobre los dias disponibles y el proceso de solicitudes</p>
+            <h4 class="new-title">Nueva política de vacaciones</h4>
+            <p class="new-excerpt">Actualización importante sobre los días disponibles y el proceso de solicitudes</p>
             <div class="news-footer">
               <span class="department">Recursos Humanos</span>
             </div>
@@ -140,7 +155,7 @@ const navigateTo = (path: string) => {
         <h3>Resumen de Tareas</h3>
         <div class="progress-container">
           <div class="progress-info">
-            <span>Progress General</span>
+            <span>Progreso General</span>
             <span> 42%</span>
           </div>
           <div class="progress-bar">
