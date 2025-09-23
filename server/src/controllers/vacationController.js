@@ -511,17 +511,19 @@ export const updateVacationRequestStatus = async (req, res, next) => {
       update.rejectReason = '';
     }
 
+    // 1) Actualiza y obtiene el doc con user (para responder al cliente)
     const doc = await VacationRequest
       .findByIdAndUpdate(req.params.id, update, { new: true })
       .populate('user', 'name email');
 
-    if (!doc) return res.status(404).json({ success: false, error: 'Solicitud no encontrada' });
+    if (!doc) {
+      return res.status(404).json({ success: false, error: 'Solicitud no encontrada' });
+    }
 
-    // 👇 Recalcula y sincroniza usados para el dueño de la solicitud
     const uid = String(doc.user?._id || doc.user);
-    await recomputeUserVacationUsed(uid);
 
-    return res.json({
+    // 2) RESPONDER PRIMERO (no bloqueamos por recálculos/efectos)
+    res.json({
       success: true,
       data: {
         id: String(doc._id),
@@ -535,10 +537,24 @@ export const updateVacationRequestStatus = async (req, res, next) => {
         processedAt: doc.processedAt?.toISOString?.() || null,
       }
     });
+
+    // 3) EFECTOS EN SEGUNDO PLANO (si fallan, solo se registran)
+    process.nextTick(async () => {
+      try {
+        await recomputeUserVacationUsed(uid);
+      } catch (err) {
+        console.error('[vacations] Error en recomputeUserVacationUsed:', err?.message || err);
+      }
+      // Si luego agregas email/calendario, colócalos aquí con try/catch
+      // try { await sendVacationApprovedEmail?.(doc); } catch (e) { console.error(e); }
+      // try { await syncApprovedVacation?.(doc); } catch (e) { console.error(e); }
+    });
+
   } catch (e) {
     next(e);
   }
 };
+
 
 // PATCH /vacations/requests/:id/cancel
 export const cancelVacationRequest = async (req, res) => {

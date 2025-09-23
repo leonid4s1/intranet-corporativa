@@ -40,12 +40,18 @@ const validateOptionalReason = (req, res, next) => {
   next();
 };
 
-// si se rechaza, exigir rejectReason 3–500
+// si se cambia estado, exigir consistencia. Para rejected: rejectReason 3–500
 const validateStatusChange = (req, res, next) => {
-  const { status, rejectReason } = req.body || {};
+  let { status, rejectReason } = req.body || {};
+  if (typeof status === 'string') status = status.trim();
+
   if (!status) {
     return res.status(400).json({ success: false, error: 'Debes indicar el estado' });
   }
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ success: false, error: 'Estado inválido' });
+  }
+
   if (status === 'rejected') {
     if (typeof rejectReason !== 'string') {
       return res.status(400).json({ success: false, error: 'Debes indicar un motivo de rechazo' });
@@ -59,6 +65,8 @@ const validateStatusChange = (req, res, next) => {
     }
     req.body.rejectReason = trimmed;
   }
+
+  req.body.status = status;
   next();
 };
 
@@ -145,25 +153,55 @@ router.delete(
 
 /* --------------------------------- Admin ---------------------------------- */
 
+// Gestionar días (legacy)
 router.route('/users/:userId/days')
   .put(authenticate, authorize('admin'), manageVacationDays);
 
+// Listado de días por usuario
 router.get('/users/days',
   authenticate,
   authorize('admin'),
   getAllUsersVacationDays
 );
 
+// Cambio de estado (aprobado/rechazado)
 router.patch('/requests/:id/status',
   authenticate,
-  authorize('admin'),
-  validateStatusChange,          // <- exige rejectReason si status = rejected
+  authorize(['admin', 'manager', 'hr']), // ← agrega roles que pueden aprobar
+  validateStatusChange,
   updateVacationRequestStatus
 );
 
+// Alias ergonómicos (opcionales):
+router.post(
+  '/requests/:id/approve',
+  authenticate,
+  authorize(['admin', 'manager', 'hr']),
+  (req, _res, next) => { req.body = { status: 'approved' }; next(); },
+  validateStatusChange,
+  updateVacationRequestStatus
+);
+
+router.post(
+  '/requests/:id/reject',
+  authenticate,
+  authorize(['admin', 'manager', 'hr']),
+  (req, _res, next) => {
+    // Mantener compatibilidad: aceptar rejectReason vía body o query ?reason=
+    const reason = typeof req.body?.rejectReason === 'string'
+      ? req.body.rejectReason
+      : (req.query?.reason ?? '');
+    req.body = { status: 'rejected', rejectReason: reason };
+    next();
+  },
+  validateStatusChange,
+  updateVacationRequestStatus
+);
+
+// Pendientes para revisión
 router.get('/requests/pending',
   authenticate,
-  authorize('admin'),
+  authorize(['admin', 'manager', 'hr']),
   getPendingVacationRequests
 );
 
