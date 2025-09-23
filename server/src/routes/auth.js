@@ -6,15 +6,15 @@ import {
   refreshToken,
   logout,
   resendVerificationEmail,
-  verifyEmail
+  verifyEmail,
+  getProfile, // ⬅️ importamos el controlador de perfil
 } from '../controllers/authController.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import {
   validateRegister,
   validateLogin,
-  // ⬇️ quitamos validateRefreshToken porque el refresh usa cookie httpOnly
-  // validateRefreshToken
-  validateResendVerification
+  // validateRefreshToken  // (no se usa, el refresh va por cookie HttpOnly)
+  validateResendVerification,
 } from '../middleware/validation.js';
 import mongoose from 'mongoose';
 
@@ -48,27 +48,16 @@ router.post('/resend-verification', validateResendVerification, resendVerificati
 
 /* ===================== Rutas protegidas ===================== */
 
-// Perfil simple de ejemplo (mantengo el shape actual)
-router.get('/profile', authenticate, (req, res) => {
-  res.json({
-    success: true,
-    user: {
-      id: req.user._id,
-      name: req.user.name,
-      email: req.user.email,
-      role: req.user.role,
-      isActive: req.user.isActive,
-      isVerified: req.user.isVerified
-    }
-  });
-});
+// Perfil (y alias /me para compatibilidad con el cliente)
+router.get('/profile', authenticate, getProfile);
+router.get('/me', authenticate, getProfile);
 
 // Solo admin
 router.get('/admin', authenticate, authorize(['admin']), (req, res) => {
   res.json({
     success: true,
     message: 'Bienvenido administrador',
-    user: req.user.profile
+    user: req.user.profile,
   });
 });
 
@@ -80,7 +69,7 @@ router.get('/healthcheck', (_req, res) => {
     message: 'El servicio de autenticacion esta funcionando',
     timestamp: new Date(),
     uptime: process.uptime(),
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
   };
   res.status(200).json(health);
 });
