@@ -1,6 +1,6 @@
 <template>
   <div class="vacations-page">
-    <!-- Toast informativo -->
+    <!-- Toast -->
     <div v-if="toastMsg" class="toast">{{ toastMsg }}</div>
 
     <!-- KPIs -->
@@ -69,26 +69,40 @@
             @click="onClickDay(day)"
             @mouseenter="onHoverDay(day)"
           >
+            <!-- Badges SIEMPRE visibles -->
+            <div class="badges">
+              <span
+                v-if="day.isHoliday"
+                class="badge badge--holiday"
+                :title="day.holidayName ? 'Festivo: ' + day.holidayName : 'Festivo'"
+              >Festivo</span>
+
+              <span
+                v-else-if="day.isWeekend"
+                class="badge badge--weekend"
+                title="Fin de semana"
+              >Fin de semana</span>
+
+              <span
+                v-if="day.teamCount > 0"
+                class="badge badge--count"
+                :class="{ 'is-full': day.isFull }"
+                :title="day.isFull ? `Cupo lleno (${day.teamCount}/${MAX_PER_DAY})` : `${day.teamCount} en vacaciones`"
+              >
+                {{ day.teamCount }}/{{ MAX_PER_DAY }}
+              </span>
+            </div>
+
             <div class="day-number">{{ day.day }}</div>
 
-            <div class="labels">
-              <span
-                v-if="day.isHoliday && day.holidayName"
-                class="chip chip--holiday"
-                :title="day.holidayName"
-              >
-                {{ day.holidayName }}
-              </span>
-
-              <span
-                v-if="day.hasTeamApproved"
-                class="chip chip--approved"
-                :title="day.approvedNamesFull"
-              >
+            <!-- Nombres (abreviado). Se muestran pero no son imprescindibles -->
+            <div class="labels" v-if="day.hasTeamApproved">
+              <span class="chip chip--approved" :title="day.approvedNamesFull">
                 {{ day.approvedNamesShort }}
               </span>
             </div>
 
+            <!-- Indicador inferior (estado) -->
             <span
               v-if="day.isFull || day.isHoliday || day.isWeekend || day.inSelection || day.isAvailable"
               class="dot"
@@ -116,9 +130,7 @@
 
         <section class="panel">
           <h3>Próximas solicitudes</h3>
-          <div v-if="pendingRequests.length === 0" class="muted">
-            No tienes solicitudes pendientes
-          </div>
+          <div v-if="pendingRequests.length === 0" class="muted">No tienes solicitudes pendientes</div>
           <div v-else class="requests">
             <div v-for="req in pendingRequests" :key="req._id" class="request-row">
               <div>
@@ -129,13 +141,7 @@
                 </template>
               </div>
               <div class="actions">
-                <button
-                  class="btn btn-danger"
-                  :disabled="!canCancel(req.startDate) || cancellingId === req._id"
-                  @click="cancel(req._id)"
-                >
-                  {{ cancellingId === req._id ? 'Cancelando…' : 'Cancelar' }}
-                </button>
+                <button class="btn btn-danger" :disabled="!canCancel(req.startDate)" @click="cancel(req._id)">Cancelar</button>
               </div>
             </div>
           </div>
@@ -143,9 +149,7 @@
 
         <section class="panel">
           <h3>Vacaciones aprobadas</h3>
-          <div v-if="approvedRequests.length === 0" class="muted">
-            No tienes vacaciones aprobadas
-          </div>
+          <div v-if="approvedRequests.length === 0" class="muted">No tienes vacaciones aprobadas</div>
           <div v-else class="requests">
             <div
               v-for="req in approvedRequests"
@@ -162,26 +166,21 @@
               </div>
               <div class="actions">
                 <span class="badge badge-success">Aprobada</span>
-                <!-- Oculto si ya pasó o si no es cancelable -->
                 <button
                   v-if="!isPast(req.endDate) && canCancel(req.startDate)"
                   class="btn btn-danger ml-2"
-                  :disabled="cancellingId === req._id"
                   @click="cancel(req._id)"
                 >
-                  {{ cancellingId === req._id ? 'Cancelando…' : 'Cancelar' }}
+                  Cancelar
                 </button>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- Solo MOSTRAR el último rechazo -->
         <section class="panel">
           <h3>Solicitudes rechazadas</h3>
-          <div v-if="latestRejected.length === 0" class="muted">
-            No tienes solicitudes rechazadas
-          </div>
+          <div v-if="latestRejected.length === 0" class="muted">No tienes solicitudes rechazadas</div>
           <div v-else class="requests">
             <div v-for="req in latestRejected" :key="req._id" class="request-row">
               <div>
@@ -190,8 +189,7 @@
                 <template v-if="req.rejectReason || req.reason">
                   <br />
                   <small class="muted">
-                    <strong>Motivo del rechazo:</strong>
-                    {{ req.rejectReason || req.reason }}
+                    <strong>Motivo del rechazo:</strong> {{ req.rejectReason || req.reason }}
                   </small>
                 </template>
               </div>
@@ -276,7 +274,7 @@ function notify(msg: string) {
   setTimeout(() => (toastMsg.value = null), 3500)
 }
 
-/** Conteo equipo por fecha (cupo) */
+/** Conteo equipo por fecha */
 const teamCountByDate = computed<Record<string, number>>(() => {
   const map: Record<string, number> = {}
   for (const tv of teamVacations.value) {
@@ -299,7 +297,6 @@ const isUnavailable = (dateStr: string) => unavailable.value.includes(dateStr)
 const pluralizeDays = (n: number) => `${n} ${n === 1 ? 'día' : 'días'}`
 const formatDate = (iso: string) => dayjs(iso).format('DD/MM/YYYY')
 
-// ¿ya pasó la fecha (considerando fin del día)?
 const today = computed(() => dayjs().startOf('day'))
 const isPast = (iso: string) => dayjs(iso).endOf('day').isBefore(today.value)
 
@@ -315,19 +312,15 @@ function countBusinessDays(startISO: string, endISO: string): number {
   return count
 }
 
-/** Reglas de selección por día (permitiendo festivos/fines) */
+/** Reglas de selección (festivos/fines se permiten) */
 function canPickDay(d: Dayjs): boolean {
   const key = d.format('YYYY-MM-DD')
-  // Pasado u hoy -> NO
   if (!d.isAfter(today.value, 'day')) return false
 
   const weekend = isWeekend(d)
   const holiday = isHoliday(key)
-
-  // Festivo / fin de semana siempre seleccionables
   if (weekend || holiday) return true
 
-  // Días hábiles: bloqueos normales
   if (isFull(key)) return false
   if (isUnavailable(key)) return false
   return true
@@ -338,13 +331,12 @@ function getSingleDayBlockReason(d: Dayjs): string {
   if (!d.isAfter(today.value, 'day')) return 'No puedes seleccionar fechas pasadas ni el día de hoy.'
   const weekend = isWeekend(d)
   const holiday = isHoliday(key)
-  if (weekend || holiday) return '' // no debería bloquear
+  if (weekend || holiday) return ''
   if (isFull(key)) return `No disponible: cupo lleno el ${formatDate(key)} (máximo ${MAX_PER_DAY} personas).`
   if (isUnavailable(key)) return `Día no disponible: ${formatDate(key)}.`
   return 'No se puede seleccionar este día.'
 }
 
-/** Validación del rango: permite festivos/fines, bloquea pasados y llenos/unavailable solo en laborables */
 function validateRangeSelection(startISO: string, endISO: string): { ok: boolean; reason?: string } {
   let d = dayjs(startISO)
   const end = dayjs(endISO)
@@ -358,12 +350,8 @@ function validateRangeSelection(startISO: string, endISO: string): { ok: boolean
       return { ok: false, reason: `No puedes seleccionar fechas pasadas (incluye ${formatDate(key)}).` }
     }
     if (!(weekend || holiday)) {
-      if (isFull(key)) {
-        return { ok: false, reason: `Cupo lleno el ${formatDate(key)} (máximo ${MAX_PER_DAY} personas).` }
-      }
-      if (isUnavailable(key)) {
-        return { ok: false, reason: `Día no disponible: ${formatDate(key)}.` }
-      }
+      if (isFull(key)) return { ok: false, reason: `Cupo lleno el ${formatDate(key)} (máximo ${MAX_PER_DAY} personas).` }
+      if (isUnavailable(key)) return { ok: false, reason: `Día no disponible: ${formatDate(key)}.` }
     }
     d = d.add(1, 'day')
   }
@@ -407,6 +395,7 @@ type CalendarDay = {
   hasTeamApproved: boolean
   approvedNamesShort: string
   approvedNamesFull: string
+  teamCount: number
 }
 
 const calendarDays = computed<CalendarDay[]>(() => {
@@ -437,7 +426,8 @@ const calendarDays = computed<CalendarDay[]>(() => {
       .filter((n): n is string => !!n)
 
     const uniqueNames = Array.from(new Set(teamApprovedNames))
-    const hasTeamApproved = uniqueNames.length > 0
+    const teamCount = uniqueNames.length
+    const hasTeamApproved = teamCount > 0
     const approvedNamesFull = uniqueNames.join(', ')
     const approvedNamesShort =
       uniqueNames.length <= 2
@@ -467,7 +457,8 @@ const calendarDays = computed<CalendarDay[]>(() => {
       holidayName,
       hasTeamApproved,
       approvedNamesShort,
-      approvedNamesFull
+      approvedNamesFull,
+      teamCount
     })
     d = d.add(1, 'day')
   }
@@ -476,18 +467,22 @@ const calendarDays = computed<CalendarDay[]>(() => {
 
 function getDayTooltip(day: CalendarDay): string {
   const parts: string[] = [formatDate(day.date)]
+  if (day.teamCount > 0) {
+    parts.push(`• ${day.teamCount}/${MAX_PER_DAY} en vacaciones${day.isFull ? ' (cupo lleno)' : ''}`)
+    if (day.hasTeamApproved) parts.push(`• Aprobado: ${day.approvedNamesFull}`)
+  }
+  if (day.isHoliday) parts.push(`• Día festivo${day.holidayName ? `: ${day.holidayName}` : ''}`)
+  if (day.isWeekend) parts.push('• Fin de semana')
+
   if (!day.isAvailable) {
-    const d = dayjs(day.date)
-    if (!d.isAfter(today.value, 'day')) parts.push('• No disponible (hoy o pasado)')
+    const djs = dayjs(day.date)
+    if (!djs.isAfter(today.value, 'day')) parts.push('• No disponible (hoy o pasado)')
     if (day.isFull) parts.push('• Cupo lleno')
     if (isUnavailable(day.date)) parts.push('• No disponible')
   } else {
     parts.push('• Clicable')
   }
-  if (day.isHoliday) parts.push(`• Día festivo${day.holidayName ? `: ${day.holidayName}` : ''}`)
-  if (day.isWeekend) parts.push('• Fin de semana')
   if (day.inSelection) parts.push('• Selección')
-  if (day.hasTeamApproved) parts.push(`• Aprobado: ${day.approvedNamesFull}`)
   return parts.join(' | ')
 }
 
@@ -495,29 +490,19 @@ function getDayTooltip(day: CalendarDay): string {
 function onClickDay(day: CalendarDay) {
   const d = dayjs(day.date)
 
-  // Si no hay inicio (o ya estaba cerrado), validamos el clic como inicio
   if (!selectedStart.value || selectedEnd.value) {
-    if (!canPickDay(d)) {
-      notify(getSingleDayBlockReason(d))
-      return
-    }
+    if (!canPickDay(d)) { notify(getSingleDayBlockReason(d)); return }
     selectedStart.value = day.date
     selectedEnd.value = null
     previewEnd.value = day.date
     return
   }
 
-  // Tenemos inicio y queremos cerrar rango
   const { start, end } = normalizeRange(selectedStart.value, day.date)
-
   const check = validateRangeSelection(start, end)
-  if (!check.ok) {
-    notify(check.reason || 'No se puede seleccionar ese rango.')
-    return
-  }
+  if (!check.ok) { notify(check.reason || 'No se puede seleccionar ese rango.'); return }
 
-  const business = countBusinessDays(start, end) // festivos/fines no cuentan
-  // Permitimos business === 0 (rango solo festivos/fines)
+  const business = countBusinessDays(start, end)
   if (business > availableDays.value) {
     notify(`No tienes suficientes días disponibles. Selección requerida: ${business}, disponibles: ${availableDays.value}.`)
     return
@@ -550,7 +535,6 @@ const pendingRequests = ref<VacationRequest[]>([])
 const approvedRequests = ref<VacationRequest[]>([])
 const rejectedRequests = ref<VacationRequest[]>([])
 
-// Computado: solo el último rechazo
 const latestRejected = computed<VacationRequest[]>(() => {
   if (!rejectedRequests.value.length) return []
   const sorted = [...rejectedRequests.value].sort((a, b) => {
@@ -588,7 +572,6 @@ async function loadCalendarData() {
   holidays.value = h
   teamVacations.value = tv
 
-  // Evitar que 'unavailable' bloquee festivos (permitidos)
   const holidaySet = new Set(h.map(x => x.date))
   unavailable.value = (un || []).filter(d => !holidaySet.has(d))
 }
@@ -596,7 +579,6 @@ async function loadCalendarData() {
 async function loadUserRequests() {
   const data = await getUserVacations()
 
-  // soporta tanto {approved, pending, rejected} como solo {approved, pending}
   type WithStatus = { status?: VacationRequest['status'] }
   const byStatus = (s: VacationRequest['status']) => (r: WithStatus): r is Required<WithStatus> => r.status === s
 
@@ -623,42 +605,11 @@ function handleDialogCancel() {
   requestOpen.value = false
   resetSelection()
 }
-
-/* ===== Cancelación OPTIMISTA ===== */
-const cancellingId = ref<string | null>(null)
-const removeById = (arr: ReadonlyArray<VacationRequest>, id: string): VacationRequest[] =>
-  arr.filter(r => r._id !== id);
-
 async function cancel(id: string) {
-  if (!id || cancellingId.value) return
-
-  cancellingId.value = id
-
-  // Snapshot para revertir en caso de error
-  const prev = {
-    pending:  [...pendingRequests.value],
-    approved: [...approvedRequests.value],
-  }
-
-  // 1) UI optimista: quitar de inmediato
-  pendingRequests.value  = removeById(pendingRequests.value, id)
-  approvedRequests.value = removeById(approvedRequests.value, id)
-
   try {
     await cancelVacationRequest(id)
-
-    // 2) Refrescar datos “oficiales”
     await Promise.all([loadUserRequests(), loadBalance(), loadCalendarData()])
-    notify('Solicitud cancelada')
-  } catch (e) {
-    // 3) Revertir si falla
-    pendingRequests.value  = prev.pending
-    approvedRequests.value = prev.approved
-    notify('No se pudo cancelar la solicitud')
-    console.error('Cancelación falló', e)
-  } finally {
-    cancellingId.value = null
-  }
+  } catch {}
 }
 
 /** Init */
@@ -670,66 +621,32 @@ onMounted(async () => {
 <style scoped>
 /* ===== Paleta ===== */
 :root{
-  --bg: #f6f8fb;
-  --card: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --line: #e5e7eb;
-  --brand: #2563eb;
-  --brand-weak: #eff6ff;
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --danger: #ef4444;
-  --info: #3b82f6;
-  --ring: rgba(37,99,235,.25);
+  --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e5e7eb;
+  --brand:#2563eb; --ring:rgba(37,99,235,.25);
+  --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#3b82f6;
 }
 
 /* Toast */
-.toast{
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  background:#111827;
-  color:#fff;
-  padding:.6rem .9rem;
-  border-radius:10px;
-  box-shadow:0 8px 20px rgba(0,0,0,.25);
-  z-index: 99;
-  max-width: 80vw;
-}
+.toast{ position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:.6rem .9rem; border-radius:10px; box-shadow:0 8px 20px rgba(0,0,0,.25); z-index:99; max-width:80vw; }
 
-/* ===== Página ===== */
+/* Página */
 .vacations-page{ display:flex; flex-direction:column; gap:1rem; color:var(--text); background:var(--bg); }
 
-/* ===== KPIs ===== */
+/* KPIs */
 .kpi-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; }
 .kpi-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
-.kpi-value{ font-size:2rem; font-weight:700; line-height:1; }
+.kpi-value{ font-size:2rem; font-weight:700; }
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
-
-/* Barra disponibles */
 .kpi-card:first-child .kpi-bar{ margin-top:.6rem; height:8px; width:100%; background:#f1f5f9; border-radius:999px; overflow:hidden; border:1px solid #eef2f7; }
-.kpi-card:first-child .kpi-bar-fill{ display:block; height:100%; background:linear-gradient(90deg,#16a34a,#22c55e,#86efac); transition:width .35s ease; }
+.kpi-card:first-child .kpi-bar-fill{ height:100%; background:linear-gradient(90deg,#16a34a,#22c55e,#86efac); transition:width .35s; }
+.kpi-card:nth-child(2) small{ display:inline-block; margin-top:.4rem; font-weight:700; padding:.2rem .55rem; border-radius:999px; color:#fff; background:linear-gradient(90deg,#3b82f6,#6366f1); box-shadow:0 6px 16px rgba(99,102,241,.18); }
+.kpi-card:nth-child(3) small{ display:inline-block; margin-top:.4rem; color:#065f46; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:999px; padding:.18rem .55rem; }
 
-/* Porcentaje “usados” */
-.kpi-card:nth-child(2) small{
-  display:inline-block; margin-top:.4rem; font-weight:700;
-  padding:.2rem .55rem; border-radius:999px; color:#fff;
-  background:linear-gradient(90deg,#3b82f6,#6366f1);
-  box-shadow:0 6px 16px rgba(99,102,241,.18);
-}
-
-/* Restantes */
-.kpi-card:nth-child(3) small{
-  display:inline-block; margin-top:.4rem; color:#065f46;
-  background:#ecfdf5; border:1px solid #a7f3d0; border-radius:999px; padding:.18rem .55rem;
-}
-
-/* ===== Layout principal ===== */
+/* Layout principal */
 .content-grid{ display:grid; grid-template-columns:1fr 320px; gap:1rem; }
 @media (max-width:1100px){ .content-grid{ grid-template-columns:1fr } }
 
-/* ===== Calendario ===== */
+/* Calendario */
 .calendar-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .calendar-header{ display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; }
 .month-title{ flex:1; text-align:center; text-transform:capitalize; font-weight:700; }
@@ -752,12 +669,26 @@ onMounted(async () => {
 .day-cell{
   position:relative; min-height:var(--cell);
   background:#fff; border:1px solid var(--line); border-radius:14px;
-  padding:.55rem .6rem; display:flex; flex-direction:column; justify-content:space-between;
+  padding:.55rem .6rem; display:flex; flex-direction:column; justify-content:flex-end;
   cursor:pointer; transition:box-shadow .15s ease, transform .05s ease;
 }
 .day-cell:hover{ outline:2px solid var(--ring) }
 .day-cell.is-other-month{ opacity:.45 }
 .day-cell.is-today{ box-shadow:inset 0 0 0 2px var(--brand) }
+
+/* Badges siempre visibles */
+.badges{
+  position:absolute; top:6px; left:6px; right:6px;
+  display:flex; gap:6px; flex-wrap:wrap; align-items:center; pointer-events:none;
+}
+.badge{
+  font-size:.68rem; line-height:1; padding:.12rem .38rem; border-radius:8px; border:1px solid;
+  background:#f8fafc; color:#334155; border-color:#e5e7eb; box-shadow:0 1px 0 rgba(0,0,0,.02);
+}
+.badge--holiday{ background:#eef6ff; color:#1d4ed8; border-color:#bfdbfe }
+.badge--weekend{ background:#f3f4f6; color:#475569; border-color:#e5e7eb }
+.badge--count{ margin-left:auto; background:#e7f9ef; color:#166534; border-color:#86efac; font-weight:700 }
+.badge--count.is-full{ background:#fff1f2; color:#991b1b; border-color:#fecaca }
 
 /* Selección */
 .day-cell.is-selected{
@@ -766,85 +697,34 @@ onMounted(async () => {
   box-shadow:inset 0 0 0 1.5px #93c5fd, 0 0 0 3px rgba(37,99,235,.10);
 }
 .day-cell.is-selected .day-number{ color:#1e3a8a }
-.day-cell.is-selected:not(.is-full):not(.is-holiday)::after{
-  content:'Selección'; position:absolute; top:6px; right:6px;
-  background:#eaf2ff; color:#1e40af; border:1px solid #c7d2fe;
-  padding:.05rem .35rem; font-size:.68rem; border-radius:8px;
-}
 
 /* Festivo / Finde / Lleno */
 .day-cell.is-full{ background:#fff7ed; border-color:#fed7aa }
-.day-cell.is-full::after{
-  content:'Cupo lleno'; position:absolute; top:6px; right:6px;
-  background:#fff1e6; color:#9a3412; border:1px solid #fed7aa;
-  padding:.05rem .35rem; font-size:.68rem; border-radius:8px;
-}
 .day-cell.is-holiday:not(.is-full){ background:#eff6ff; border-color:#bfdbfe }
-.day-cell.is-holiday:not(.is-full)::after{
-  content:'Festivo'; position:absolute; top:6px; right:6px;
-  background:#eef6ff; color:#1d4ed8; border:1px solid #bfdbfe;
-  padding:.05rem .35rem; font-size:.68rem; border-radius:8px;
-}
 .day-cell.is-weekend:not(.is-full):not(.is-holiday){ background:#fafafa }
-.day-cell.is-weekend:not(.is-holiday)::after{
-  content:'Fin de semana'; position:absolute; top:6px; right:6px;
-  background:#f9fafb; color:#475569; border:1px solid #e5e7eb;
-  padding:.05rem .35rem; font-size:.68rem; border-radius:8px;
-}
-
-/* Disponible */
 .day-number{ font-weight:600 }
 .dot{ position:absolute; right:8px; bottom:8px; width:9px; height:9px; border-radius:999px }
-.day-cell.is-available{ background:#f8fff9; border-color:#bbf7d0 }
-.day-cell.is-available::after{
-  content:'Disponible'; position:absolute; top:6px; right:6px;
-  background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0;
-  padding:.05rem .35rem; font-size:.68rem; border-radius:8px;
-}
 
-/* Chips */
+/* Chips con nombres (abreviados) */
 .labels{
-  position:absolute; top:6px; right:6px;
-  display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;
-  max-width:calc(100% - 12px); z-index:1;
+  position:absolute; top:28px; right:6px;
+  display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 12px);
 }
-.chip{
-  font-size:.68rem; line-height:1;
-  padding:.05rem .35rem; border-radius:8px; border:1px solid;
-  max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-.chip--holiday{ background:#eef6ff; color:#1d4ed8; border-color:#bfdbfe }
+.chip{ font-size:.68rem; line-height:1; padding:.05rem .35rem; border-radius:8px; border:1px solid; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .chip--approved{ background:#e7f9ef; color:#166534; border-color:#86efac }
 
-/* Ocultar etiqueta genérica cuando hay chip */
-.day-cell.has-holiday-name.is-holiday::after{ display:none !important }
-
-/* ===== Panel derecho ===== */
+/* Panel derecho */
 .side-panels{ display:flex; flex-direction:column; gap:1rem }
 .panel{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem }
 .panel h3{ margin:.25rem 0 .75rem; font-size:1rem }
 .instructions{ margin:0 0 0 1.1rem; color:var(--muted) }
 .muted{ color:var(--muted) }
 .requests{ display:flex; flex-direction:column; gap:.75rem }
-
-/* Filas de solicitudes */
-.request-row{
-  display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;
-  padding:.65rem .75rem; border:1px dashed var(--line); border-radius:12px; background:#fff
-}
+.request-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; padding:.65rem .75rem; border:1px dashed var(--line); border-radius:12px; background:#fff }
 .side-panels .panel:nth-of-type(2) .request-row{ border-left:4px solid var(--warn); background:#fff7ed }
 .side-panels .panel:nth-of-type(3) .request-row{ border-left:4px solid var(--ok); background:#ecfdf5 }
-
-/* Aprobadas que ya pasaron */
-.request-row.expired{
-  background:#f3f4f6;       /* gris claro */
-  border-color:#e5e7eb;
-  color:#6b7280;
-}
-.request-row.expired .badge-success{
-  background:#e5e7eb;
-  color:#6b7280;
-}
+.request-row.expired{ background:#f3f4f6; border-color:#e5e7eb; color:#6b7280; }
+.request-row.expired .badge-success{ background:#e5e7eb; color:#6b7280; }
 .request-row.expired .btn{ display:none; }
 
 .actions{ display:flex; align-items:center; gap:.5rem }
@@ -853,7 +733,6 @@ onMounted(async () => {
 .btn-danger{ background:#fee2e2; color:#991b1b; border-color:#fecaca }
 .btn-danger:hover{ background:#fecaca }
 .ml-2{ margin-left:.5rem }
-.badge{ display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.15rem .6rem; font-size:.8rem }
-.badge-success{ background:#ecfdf5; color:#065f46 }
+.badge-success{ display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.15rem .6rem; font-size:.8rem; background:#ecfdf5; color:#065f46 }
 .vacations-page ::selection{ background:rgba(37,99,235,.15) }
 </style>
