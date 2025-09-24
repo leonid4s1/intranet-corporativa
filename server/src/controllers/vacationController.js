@@ -555,7 +555,6 @@ export const updateVacationRequestStatus = async (req, res, next) => {
   }
 };
 
-
 // PATCH /vacations/requests/:id/cancel
 export const cancelVacationRequest = async (req, res) => {
   const session = await mongoose.startSession();
@@ -564,22 +563,27 @@ export const cancelVacationRequest = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id || !mongoose.isValidObjectId(id)) {
-      await session.abortTransaction();
+      await session.abortTransaction(); session.endSession();
       return res.status(400).json({ success: false, error: 'Parámetro id inválido' });
     }
+
     const userId = req.user?._id || req.user?.id;
 
-    const request = await VacationRequest.findOne({ _id: id, user: userId }).session(session);
+    const request = await VacationRequest
+      .findOne({ _id: id, user: userId })
+      .session(session);
+
     if (!request) {
-      await session.abortTransaction();
+      await session.abortTransaction(); session.endSession();
       return res.status(404).json({ success: false, error: 'Solicitud no encontrada' });
     }
 
     if (request.status === 'cancelled' || request.status === 'rejected') {
-      await session.abortTransaction();
+      await session.abortTransaction(); session.endSession();
       return res.status(400).json({ success: false, error: 'La solicitud ya no puede cancelarse' });
     }
 
+    // Regla: permitir cancelar aprobadas siempre que falte al menos 1 día (UTC)
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
@@ -590,14 +594,14 @@ export const cancelVacationRequest = async (req, res) => {
     );
 
     if (request.status === 'approved' && startUTC.getTime() <= today.getTime()) {
-      await session.abortTransaction();
+      await session.abortTransaction(); session.endSession();
       return res.status(400).json({
         success: false,
         error: 'Solo puedes cancelar aprobadas con al menos 1 día de anticipación',
       });
     }
 
-    // Cambia a cancelada
+    // Marcar como cancelada
     request.status = 'cancelled';
     request.updatedAt = new Date();
     await request.save({ session });
@@ -605,12 +609,25 @@ export const cancelVacationRequest = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    // 👇 Recalcula usados del usuario (quita el impacto de esta solicitud si estaba approved)
-    await recomputeUserVacationUsed(userId);
+    // 👉 Responder primero (no bloquear por efectos secundarios)
+    res.json({
+      success: true,
+      data: { id: String(request._id), status: request.status }
+    });
 
-    return res.json({ success: true, data: request });
+    // 👉 Efectos en background (no pueden romper la respuesta)
+    process.nextTick(async () => {
+      try {
+        await recomputeUserVacationUsed(userId);
+      } catch (err) {
+        console.error('[vacations] Error al recomputar usados tras cancelar:', err?.message || err);
+      }
+      // Aquí puedes agregar notificaciones/email si quieres, siempre con try/catch
+      // try { await sendCancellationEmail?.(request); } catch (e) { console.error(e); }
+    });
+
   } catch (e) {
-    await session.abortTransaction();
+    try { await session.abortTransaction(); } catch {}
     session.endSession();
     console.error('Error cancelVacationRequest:', e);
     return res.status(500).json({ success: false, error: 'Error al cancelar solicitud' });
