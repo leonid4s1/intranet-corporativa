@@ -95,11 +95,19 @@
 
             <div class="day-number">{{ day.day }}</div>
 
-            <!-- Nombres (abreviado). Se muestran pero no son imprescindibles -->
+            <!-- Nombres: hasta 2 chips y luego +N -->
             <div class="labels" v-if="day.hasTeamApproved">
-              <span class="chip chip--approved" :title="day.approvedNamesFull">
-                {{ day.approvedNamesShort }}
-              </span>
+              <span
+                v-for="(n, i) in day.topTwoNames"
+                :key="i"
+                class="chip chip--approved"
+                :title="day.approvedNamesFull"
+              >{{ n }}</span>
+              <span
+                v-if="day.extraCount > 0"
+                class="chip chip--approved more"
+                :title="day.approvedNamesFull"
+              >+{{ day.extraCount }}</span>
             </div>
 
             <!-- Indicador inferior (estado) -->
@@ -312,6 +320,15 @@ function countBusinessDays(startISO: string, endISO: string): number {
   return count
 }
 
+/** Abreviador de nombres: "Enrique Meneses Anguiano" => "Enrique A." */
+function abbrevName(full: string): string {
+  const parts = full.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return full
+  const first = parts[0]
+  const last = parts.length > 1 ? parts[parts.length - 1] : ''
+  return last && last !== first ? `${first} ${last[0]}.` : first
+}
+
 /** Reglas de selección (festivos/fines se permiten) */
 function canPickDay(d: Dayjs): boolean {
   const key = d.format('YYYY-MM-DD')
@@ -396,6 +413,8 @@ type CalendarDay = {
   approvedNamesShort: string
   approvedNamesFull: string
   teamCount: number
+  topTwoNames: string[]
+  extraCount: number
 }
 
 const calendarDays = computed<CalendarDay[]>(() => {
@@ -434,6 +453,10 @@ const calendarDays = computed<CalendarDay[]>(() => {
         ? approvedNamesFull
         : `${uniqueNames[0]}, ${uniqueNames[1]} +${uniqueNames.length - 2}`
 
+    // chips visibles
+    const topTwoNames = uniqueNames.slice(0, 2).map(abbrevName)
+    const extraCount = Math.max(uniqueNames.length - 2, 0)
+
     let inSelection = false
     const endRef = previewEnd.value ?? selectedEnd.value
     if (selectedStart.value && endRef) {
@@ -458,7 +481,9 @@ const calendarDays = computed<CalendarDay[]>(() => {
       hasTeamApproved,
       approvedNamesShort,
       approvedNamesFull,
-      teamCount
+      teamCount,
+      topTwoNames,
+      extraCount
     })
     d = d.add(1, 'day')
   }
@@ -621,7 +646,7 @@ onMounted(async () => {
 <style scoped>
 /* ===== Paleta ===== */
 :root{
-  --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e5e7eb;
+  --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0; /* más contraste */
   --brand:#2563eb; --ring:rgba(37,99,235,.25);
   --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#3b82f6;
 }
@@ -650,7 +675,7 @@ onMounted(async () => {
 .calendar-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .calendar-header{ display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; }
 .month-title{ flex:1; text-align:center; text-transform:capitalize; font-weight:700; }
-.nav-btn{ width:40px; height:40px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; background:#f8fafc; border:1px solid var(--line); cursor:pointer; }
+.nav-btn{ width:40px; height:40px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; background:#f8fafc; border:1.5px solid var(--line); cursor:pointer; }
 .nav-btn:hover{ outline:2px solid var(--ring); }
 
 /* Leyenda */
@@ -659,18 +684,19 @@ onMounted(async () => {
 .dot--green{ background:var(--ok) } .dot--yellow{ background:var(--warn) } .dot--red{ background:var(--danger) } .dot--blue{ background:var(--info) }
 
 /* Semanas */
-.weekday-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:.35rem; padding:0 .1rem; }
+.weekday-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; padding:0 .1rem; } /* más separación */
 .weekday-cell{ text-align:center; color:var(--muted); font-size:.9rem; }
 
 /* Grilla */
-.calendar-grid{ --cell:82px; display:grid; grid-template-columns:repeat(7,1fr); gap:.35rem; margin-top:.35rem; }
+.calendar-grid{ --cell:82px; display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; margin-top:.35rem; } /* más separación */
 
-/* Celdas */
+/* Celdas (borde más marcado) */
 .day-cell{
   position:relative; min-height:var(--cell);
-  background:#fff; border:1px solid var(--line); border-radius:14px;
+  background:#fff; border:1.5px solid var(--line); border-radius:12px;
   padding:.55rem .6rem; display:flex; flex-direction:column; justify-content:flex-end;
   cursor:pointer; transition:box-shadow .15s ease, transform .05s ease;
+  box-shadow:0 1px 0 rgba(15,23,42,.04);
 }
 .day-cell:hover{ outline:2px solid var(--ring) }
 .day-cell.is-other-month{ opacity:.45 }
@@ -683,10 +709,10 @@ onMounted(async () => {
 }
 .badge{
   font-size:.68rem; line-height:1; padding:.12rem .38rem; border-radius:8px; border:1px solid;
-  background:#f8fafc; color:#334155; border-color:#e5e7eb; box-shadow:0 1px 0 rgba(0,0,0,.02);
+  background:#f8fafc; color:#334155; border-color:var(--line); box-shadow:0 1px 0 rgba(0,0,0,.02);
 }
 .badge--holiday{ background:#eef6ff; color:#1d4ed8; border-color:#bfdbfe }
-.badge--weekend{ background:#f3f4f6; color:#475569; border-color:#e5e7eb }
+.badge--weekend{ background:#f3f4f6; color:#475569; border-color:var(--line) }
 .badge--count{ margin-left:auto; background:#e7f9ef; color:#166534; border-color:#86efac; font-weight:700 }
 .badge--count.is-full{ background:#fff1f2; color:#991b1b; border-color:#fecaca }
 
@@ -702,16 +728,21 @@ onMounted(async () => {
 .day-cell.is-full{ background:#fff7ed; border-color:#fed7aa }
 .day-cell.is-holiday:not(.is-full){ background:#eff6ff; border-color:#bfdbfe }
 .day-cell.is-weekend:not(.is-full):not(.is-holiday){ background:#fafafa }
+
+/* Numero del día */
 .day-number{ font-weight:600 }
+
+/* Punto de estado */
 .dot{ position:absolute; right:8px; bottom:8px; width:9px; height:9px; border-radius:999px }
 
-/* Chips con nombres (abreviados) */
+/* Chips con nombres (hasta 2 +N) */
 .labels{
   position:absolute; top:28px; right:6px;
   display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 12px);
 }
 .chip{ font-size:.68rem; line-height:1; padding:.05rem .35rem; border-radius:8px; border:1px solid; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .chip--approved{ background:#e7f9ef; color:#166534; border-color:#86efac }
+.chip.more{ font-weight:700 }
 
 /* Panel derecho */
 .side-panels{ display:flex; flex-direction:column; gap:1rem }
@@ -728,7 +759,7 @@ onMounted(async () => {
 .request-row.expired .btn{ display:none; }
 
 .actions{ display:flex; align-items:center; gap:.5rem }
-.btn{ padding:.45rem .7rem; border-radius:10px; border:1px solid var(--line); background:#f8fafc; color: var(--text); cursor:pointer; }
+.btn{ padding:.45rem .7rem; border-radius:10px; border:1.5px solid var(--line); background:#f8fafc; color: var(--text); cursor:pointer; }
 .btn:hover{ background:#eef2ff }
 .btn-danger{ background:#fee2e2; color:#991b1b; border-color:#fecaca }
 .btn-danger:hover{ background:#fecaca }
