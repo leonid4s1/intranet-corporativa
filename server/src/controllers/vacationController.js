@@ -295,9 +295,9 @@ export const getTeamVacationsForCalendar = async (req, res) => {
   try {
     const { startDate, endDate } = req.validDates || req.query;
     const startUTC = toDateUTC(startDate);
-    const endUTC = toDateUTC(endDate);
+    const endUTC   = toDateUTC(endDate);
 
-    if (isNaN(startUTC) || isNaN(endUTC) || startUTC > endUTC) {
+    if (Number.isNaN(startUTC.getTime()) || Number.isNaN(endUTC.getTime()) || startUTC > endUTC) {
       return res.status(400).json({ success: false, error: 'Rango de fechas inválido' });
     }
 
@@ -351,32 +351,50 @@ export const getHolidaysForCalendar = async (req, res, next) => {
   }
 };
 
-// Función pura para unavailable
+// Función pura para unavailable  ➜  SOLO días con cupo lleno (≥ MAX_CONCURRENT_VACATIONS)
 export const getUnavailableDates = async (startDate, endDate) => {
   const startUTC = toDateUTC(String(startDate));
-  const endUTC = toDateUTC(String(endDate));
-  if (isNaN(startUTC.getTime()) || isNaN(endUTC.getTime())) {
+  const endUTC   = toDateUTC(String(endDate));
+  if (Number.isNaN(startUTC.getTime()) || Number.isNaN(endUTC.getTime())) {
     throw new Error('Fechas inválidas');
   }
 
-  const approved = await VacationRequest.find({
-    status: 'approved',
+  // Solicitudes que traslapan (approved + pending)
+  const overlapping = await VacationRequest.find({
+    status: { $in: ['approved', 'pending'] },
     startDate: { $lte: endUTC },
-    endDate: { $gte: startUTC },
-  }).lean();
+    endDate:   { $gte: startUTC },
+  })
+    .select('startDate endDate user')
+    .lean();
 
-  const vacationDates = approved.flatMap(v =>
-    eachDayYMDUTC(toDateUTC(v.startDate), toDateUTC(v.endDate))
-  );
+  // ymd -> Set(userId) (evitar contar duplicado el mismo usuario en un día)
+  const perDay = new Map();
+  for (const r of overlapping) {
+    const s = new Date(Math.max(toDateUTC(r.startDate).getTime(), startUTC.getTime()));
+    const e = new Date(Math.min(toDateUTC(r.endDate).getTime(),   endUTC.getTime()));
+    for (const ymd of eachDayYMDUTC(s, e)) {
+      if (!perDay.has(ymd)) perDay.set(ymd, new Set());
+      perDay.get(ymd).add(String(r.user?._id || r.user));
+    }
+  }
 
+  // Festivos del rango (para no marcarlos como unavailable)
   const holidayDocs = await Holiday
     .find({ date: { $gte: startUTC, $lte: endUTC } })
     .select('date')
     .lean();
+  const holidaySet = new Set(holidayDocs.map(h => toYMDUTC(h.date)));
 
-  const holidayDates = holidayDocs.map(h => toYMDUTC(h.date));
+  // Días con cupo lleno (excluyendo festivos)
+  const fullDays = [];
+  for (const [ymd, users] of perDay.entries()) {
+    if (!holidaySet.has(ymd) && users.size >= MAX_CONCURRENT_VACATIONS) {
+      fullDays.push(ymd);
+    }
+  }
 
-  return Array.from(new Set([...vacationDates, ...holidayDates]));
+  return fullDays;
 };
 
 // GET /vacations/calendar/unavailable-dates
@@ -522,7 +540,7 @@ export const updateVacationRequestStatus = async (req, res, next) => {
 
     const uid = String(doc.user?._id || doc.user);
 
-    // 2) RESPONDER PRIMERO (no bloqueamos por recálculos/efectos)
+    // 2) RESPONDER PRIMERO
     res.json({
       success: true,
       data: {
@@ -538,16 +556,13 @@ export const updateVacationRequestStatus = async (req, res, next) => {
       }
     });
 
-    // 3) EFECTOS EN SEGUNDO PLANO (si fallan, solo se registran)
+    // 3) EFECTOS EN SEGUNDO PLANO
     process.nextTick(async () => {
       try {
         await recomputeUserVacationUsed(uid);
       } catch (err) {
         console.error('[vacations] Error en recomputeUserVacationUsed:', err?.message || err);
       }
-      // Si luego agregas email/calendario, colócalos aquí con try/catch
-      // try { await sendVacationApprovedEmail?.(doc); } catch (e) { console.error(e); }
-      // try { await syncApprovedVacation?.(doc); } catch (e) { console.error(e); }
     });
 
   } catch (e) {
@@ -609,21 +624,19 @@ export const cancelVacationRequest = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    // 👉 Responder primero (no bloquear por efectos secundarios)
+    // 👉 Responder primero
     res.json({
       success: true,
       data: { id: String(request._id), status: request.status }
     });
 
-    // 👉 Efectos en background (no pueden romper la respuesta)
+    // 👉 Efectos en background
     process.nextTick(async () => {
       try {
         await recomputeUserVacationUsed(userId);
       } catch (err) {
         console.error('[vacations] Error al recomputar usados tras cancelar:', err?.message || err);
       }
-      // Aquí puedes agregar notificaciones/email si quieres, siempre con try/catch
-      // try { await sendCancellationEmail?.(request); } catch (e) { console.error(e); }
     });
 
   } catch (e) {
