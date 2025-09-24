@@ -131,10 +131,10 @@
               <div class="actions">
                 <button
                   class="btn btn-danger"
-                  :disabled="!canCancel(req.startDate)"
+                  :disabled="!canCancel(req.startDate) || cancellingId === req._id"
                   @click="cancel(req._id)"
                 >
-                  Cancelar
+                  {{ cancellingId === req._id ? 'Cancelando…' : 'Cancelar' }}
                 </button>
               </div>
             </div>
@@ -166,9 +166,10 @@
                 <button
                   v-if="!isPast(req.endDate) && canCancel(req.startDate)"
                   class="btn btn-danger ml-2"
+                  :disabled="cancellingId === req._id"
                   @click="cancel(req._id)"
                 >
-                  Cancelar
+                  {{ cancellingId === req._id ? 'Cancelando…' : 'Cancelar' }}
                 </button>
               </div>
             </div>
@@ -622,11 +623,42 @@ function handleDialogCancel() {
   requestOpen.value = false
   resetSelection()
 }
+
+/* ===== Cancelación OPTIMISTA ===== */
+const cancellingId = ref<string | null>(null)
+const removeById = (arr: ReadonlyArray<VacationRequest>, id: string): VacationRequest[] =>
+  arr.filter(r => r._id !== id);
+
 async function cancel(id: string) {
+  if (!id || cancellingId.value) return
+
+  cancellingId.value = id
+
+  // Snapshot para revertir en caso de error
+  const prev = {
+    pending:  [...pendingRequests.value],
+    approved: [...approvedRequests.value],
+  }
+
+  // 1) UI optimista: quitar de inmediato
+  pendingRequests.value  = removeById(pendingRequests.value, id)
+  approvedRequests.value = removeById(approvedRequests.value, id)
+
   try {
     await cancelVacationRequest(id)
+
+    // 2) Refrescar datos “oficiales”
     await Promise.all([loadUserRequests(), loadBalance(), loadCalendarData()])
-  } catch {}
+    notify('Solicitud cancelada')
+  } catch (e) {
+    // 3) Revertir si falla
+    pendingRequests.value  = prev.pending
+    approvedRequests.value = prev.approved
+    notify('No se pudo cancelar la solicitud')
+    console.error('Cancelación falló', e)
+  } finally {
+    cancellingId.value = null
+  }
 }
 
 /** Init */
