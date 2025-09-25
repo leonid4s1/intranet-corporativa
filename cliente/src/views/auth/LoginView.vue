@@ -10,21 +10,43 @@
           id="email"
           v-model="email"
           required
-          autocomplete="email"
+          autocomplete="username"
           placeholder="tu@email.com"
         />
       </div>
 
       <div class="form-group">
         <label for="password">Contraseña:</label>
-        <input
-          type="password"
-          id="password"
-          v-model="password"
-          required
-          autocomplete="current-password"
-          placeholder="Tu contraseña"
-        />
+
+        <!-- Wrapper con botón "ojito" -->
+        <div class="password-wrapper">
+          <input
+            :type="showPassword ? 'text' : 'password'"
+            id="password"
+            v-model="password"
+            required
+            autocomplete="current-password"
+            placeholder="Tu contraseña"
+            class="password-input"
+          />
+
+          <button
+            type="button"
+            class="toggle-btn"
+            :aria-label="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+            :title="showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+            @click="showPassword = !showPassword"
+          >
+            <!-- Ojo abierto -->
+            <svg v-if="!showPassword" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="icon">
+              <path d="M12 5c-5.5 0-9.5 4.5-10.7 6 .9 1.2 4.7 6 10.7 6s9.8-4.8 10.7-6C21.5 9.5 17.5 5 12 5Zm0 10a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-2.5A1.5 1.5 0 1 0 12 9a1.5 1.5 0 0 0 0 3.5Z"/>
+            </svg>
+            <!-- Ojo tachado -->
+            <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="icon">
+              <path d="M3.3 2.3 2 3.6l3 3C3.6 7.8 2.5 9.2 1.3 11c.9 1.2 4.7 6 10.7 6 2.1 0 3.9-.5 5.5-1.3l3.5 3.5 1.3-1.3L3.3 2.3ZM12 15c-1.7 0-3.1-1.1-3.7-2.6l1.1 1.1A2 2 0 0 0 14 12c0-.2 0-.4-.1-.6l1.7 1.7A4 4 0 0 1 12 15Zm0-10c5.5 0 9.5 4.5 10.7 6-.5.7-1.6 2.2-3.3 3.6l-1.4-1.4c1.2-1 2.1-2.2 2.7-3-1-1.2-4.8-5-8.7-5-1.7 0-3.2.4-4.5 1l-1.1-1.1C8.1 4.4 9.9 4 12 4Z"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div v-if="error" class="error-message">
@@ -53,6 +75,9 @@ const isLoading = ref(false);
 const email = ref('');
 const password = ref('');
 const error = ref('');
+
+// NUEVO: estado para mostrar/ocultar contraseña
+const showPassword = ref(false);
 
 const authStore = useAuthStore();
 const route = useRoute();
@@ -157,6 +182,38 @@ input {
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 1rem;
+}
+
+/* --- Estilos para el campo de contraseña con ojito --- */
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.password-input {
+  width: 100%;
+  padding-right: 2.6rem; /* espacio para el botón */
+}
+.toggle-btn {
+  position: absolute;
+  right: 0.4rem;
+  width: 2rem;
+  height: 2rem;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.toggle-btn:focus-visible {
+  outline: 2px solid #3498db;
+  outline-offset: 2px;
+}
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: #5b667b;
 }
 
 .error-message {
