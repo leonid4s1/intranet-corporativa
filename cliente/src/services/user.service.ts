@@ -30,9 +30,17 @@ export interface UpdatePasswordPayload {
   newPassword: string
 }
 
-/* Auth payloads */
+/* Auth payloads (solo para compat con funciones locales de este servicio) */
 export interface LoginPayload { email: string; password: string }
-export interface RegisterPayload { name: string; email: string; password: string }
+
+/** 🔐 Creación por admin */
+export interface CreateUserAsAdminPayload {
+  name: string
+  email: string
+  password: string
+  password_confirmation: string
+  role?: Role
+}
 
 /* Vacaciones */
 export interface SetVacationTotalPayload { total: number }
@@ -110,14 +118,10 @@ function unwrapList(data: unknown): unknown[] {
   return Array.isArray(data) ? data : []
 }
 
-/* ========== AUTH ========== */
+/* ========== AUTH mínimo (puedes usar AuthService para todo lo auth) ========== */
 
 async function login(payload: LoginPayload): Promise<void> {
   await api.post('/auth/login', payload)
-}
-
-async function register(payload: RegisterPayload): Promise<void> {
-  await api.post('/auth/register', payload)
 }
 
 async function getProfile(): Promise<User> {
@@ -183,6 +187,33 @@ export async function deleteUser(userId: string): Promise<{ success: boolean }> 
   return { success }
 }
 
+/** 🔐 Crear usuario desde el panel admin
+ *  - POST /auth/register (protegido por rol admin mediante el backend)
+ *  - El backend envía correo de verificación al nuevo usuario
+ */
+export async function createUserAsAdmin(
+  payload: CreateUserAsAdminPayload
+): Promise<{ user: User; requiresEmailVerification: boolean }> {
+  const body: Record<string, unknown> = {
+    name: payload.name?.trim(),
+    email: payload.email?.trim().toLowerCase(),
+    password: payload.password,
+    password_confirmation: payload.password_confirmation,
+  }
+  if (payload.role) body.role = payload.role
+
+  const { data } = await api.post('/auth/register', body)
+
+  const user = normalizeUser(isRecord(data) ? (get(data, 'user') ?? data) : data)
+  if (!user) throw new Error('Respuesta inválida al crear usuario')
+
+  // backend retorna requiresEmailVerification: true en este flujo
+  const requiresEmailVerification =
+    (isRecord(data) && (get<boolean>(data, 'requiresEmailVerification') ?? true)) || true
+
+  return { user, requiresEmailVerification }
+}
+
 /* ======= Vacaciones ======= */
 
 export async function setVacationTotal(
@@ -225,9 +256,8 @@ export async function setVacationUsed(
 
 /* ========== Export por defecto (compat con imports actuales) ========== */
 export default {
-  // auth
+  // auth mínimos (puedes migrar a AuthService donde convenga)
   login,
-  register,
   getProfile,
   logout,
   // admin users
@@ -236,6 +266,7 @@ export default {
   toggleUserLock,
   updateUserPassword,
   deleteUser,
+  createUserAsAdmin, // ✅ nuevo
   // vacaciones
   setVacationTotal,
   addVacationDays,

@@ -7,7 +7,7 @@ import {
   logout,
   resendVerificationEmail,
   verifyEmail,
-  getProfile, // ⬅️ importamos el controlador de perfil
+  getProfile, // ⬅️ controlador de perfil
 } from '../controllers/authController.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import {
@@ -22,8 +22,7 @@ const router = express.Router();
 
 /* ===================== Auth públicas ===================== */
 
-// Registro
-router.post('/register', validateRegister, register);
+// ⛔️ Ya NO público: /register pasa a requerir admin (ver sección protegidas)
 
 // Login
 router.post('/login', validateLogin, login);
@@ -48,11 +47,20 @@ router.post('/resend-verification', validateResendVerification, resendVerificati
 
 /* ===================== Rutas protegidas ===================== */
 
+// Registro ➜ SOLO ADMIN
+router.post(
+  '/register',
+  authenticate,
+  authorize(['admin']),
+  validateRegister,
+  register
+);
+
 // Perfil (y alias /me para compatibilidad con el cliente)
 router.get('/profile', authenticate, getProfile);
 router.get('/me', authenticate, getProfile);
 
-// Solo admin
+// Solo admin (ejemplo)
 router.get('/admin', authenticate, authorize(['admin']), (req, res) => {
   res.json({
     success: true,

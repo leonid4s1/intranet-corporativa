@@ -37,13 +37,9 @@
     </form>
 
     <div class="auth-footer">
-      <p>¿No tienes una cuenta?</p>
-      <router-link
-        :to="{ name: 'register', query: route.query.redirect ? { redirect: String(route.query.redirect) } : undefined }"
-        class="register-button"
-      >
-        Regístrate aquí
-      </router-link>
+      <p class="hint">
+        ¿Problemas para entrar? Contacta al administrador.
+      </p>
     </div>
   </div>
 </template>
@@ -106,15 +102,12 @@ const handleSubmit = async () => {
 
     const redirectPath = safeDecodeRedirect(route.query.redirect);
     if (redirectPath) {
-      // si venías de una ruta protegida, vuelve ahí
       return router.replace(redirectPath);
     }
 
-    // si no hay redirect, decide por rol
     return router.replace({ name: authStore.isAdmin ? 'admin-dashboard' : 'home' });
   } catch (err: unknown) {
     error.value = extractErrorMessage(err);
-    // consola útil para depurar sin romper UX
     console.error('Error detallado en login:', err);
   } finally {
     isLoading.value = false;
@@ -198,17 +191,8 @@ input {
   color: #7f8c8d;
 }
 
-.register-button {
-  display: inline-block;
+.hint {
   margin-top: 0.5rem;
-  color: #3498db;
-  text-decoration: none;
-  font-weight: 500;
-  transition: color 0.3s;
-}
-
-.register-button:hover {
-  color: #2980b9;
-  text-decoration: underline;
+  font-size: 0.95rem;
 }
 </style>

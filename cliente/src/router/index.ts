@@ -4,7 +4,8 @@ import { authGuard } from './guards';
 
 // Vistas (lazy)
 const LoginView              = () => import('@/views/auth/LoginView.vue');
-const RegisterView           = () => import('@/views/auth/RegisterView.vue');
+// ⛔️ Registro eliminado del router (solo admin crea usuarios)
+// const RegisterView           = () => import('@/views/auth/RegisterView.vue');
 const EmailVerificationView  = () => import('@/views/auth/EmailVerificationView.vue');
 
 const AdminDashboard         = () => import('@/views/admin/AdminHome.vue');
@@ -29,23 +30,21 @@ const routes: Array<RouteRecordRaw> = [
     component: LoginView,
     meta: { public: true, guestOnly: true, title: 'Iniciar Sesión', requiresVerifiedEmail: false }
   },
+  // 🔁 Redirect legado de /register -> /login
   {
     path: '/register',
-    name: 'register',
-    component: RegisterView,
-    meta: { public: true, guestOnly: true, title: 'Registro', requiresVerifiedEmail: false }
+    redirect: { name: 'login' },
+    meta: { public: true }
   },
 
-  // Verificación de email: requiere sesión y solo desde el flujo post-registro
-  // Desde RegisterView: router.replace({ name:'email-verification', query:{ from:'register' } })
+  // Verificación de email (pública para soportar el enlace desde el correo)
   {
     path: '/verify-email/:token?',
     name: 'email-verification',
     component: EmailVerificationView,
     props: true,
     meta: {
-      requiresAuth: true,
-      verificationFlowOnly: true, // el guard valida query.from === 'register' y !isEmailVerified
+      public: true,
       title: 'Verificación de Email',
       requiresVerifiedEmail: false
     }

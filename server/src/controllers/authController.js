@@ -104,11 +104,17 @@ const generateTokens = async (user) => {
 };
 
 /** ==========================
- *  Registro
+ *  Registro (solo admin puede elegir rol; no auto-login si crea admin)
  *  ========================== */
 export const register = async (req, res) => {
   try {
-    const { name, email, password, password_confirmation } = req.body;
+    const {
+      name,
+      email,
+      password,
+      password_confirmation,
+      role: requestedRole, // <- opcional, solo admin puede usarlo
+    } = req.body;
 
     const missingFields = [];
     if (!name) missingFields.push("name");
@@ -127,18 +133,14 @@ export const register = async (req, res) => {
     if (password.length < 8)
       return res
         .status(400)
-        .json(
-          formatError("La contraseña debe tener al menos 8 caracteres", "password")
-        );
+        .json(formatError("La contraseña debe tener al menos 8 caracteres", "password"));
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_])/.test(password)) {
-      return res
-        .status(400)
-        .json(
-          formatError(
-            "La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial",
-            "password"
-          )
-        );
+      return res.status(400).json(
+        formatError(
+          "La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial",
+          "password"
+        )
+      );
     }
     if (password !== password_confirmation) {
       return res
@@ -147,20 +149,25 @@ export const register = async (req, res) => {
     }
 
     const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(409).json(formatError("El usuario ya existe", "email"));
+    if (existingUser)
+      return res.status(409).json(formatError("El usuario ya existe", "email"));
+
+    // Solo un admin autenticado puede elegir rol. Si no, siempre 'user'.
+    const isAdminCreator = Boolean(req.user && req.user.role === "admin");
+    const safeRole = isAdminCreator && requestedRole ? requestedRole : "user";
 
     const user = new User({
       name,
       email,
       password,
-      role: "user",
+      role: safeRole,
       isActive: true,
       isVerified: false,
       emailVerified: false,
       vacationDays: { total: 0, used: 0 },
     });
 
-    // token de verificación
+    // token de verificación (igual para ambos flujos)
     const verificationToken = crypto.randomBytes(32).toString("hex");
     user.emailVerificationToken = verificationToken;
     user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000); // 1h
@@ -174,9 +181,6 @@ export const register = async (req, res) => {
       remaining: 0,
     }).save();
 
-    const { accessToken, refreshToken } = await generateTokens(user);
-    setRefreshCookie(res, refreshToken);
-
     const backend = process.env.BACKEND_URL || "http://localhost:5000";
     const verificationLink = `${backend}/api/auth/verify-email/${verificationToken}`;
 
@@ -187,11 +191,25 @@ export const register = async (req, res) => {
       html: `<p>Hola ${user.name},</p><p>Haz click en este enlace para verificar tu correo electrónico:</p><a href="${verificationLink}">${verificationLink}</a>`,
     });
 
+    // Si lo crea un admin, NO lo autenticamos aquí (no seteamos cookie ni devolvemos tokens)
+    if (isAdminCreator) {
+      return res.status(201).json({
+        success: true,
+        message: "Usuario creado correctamente por un administrador",
+        user: publicUser(user),
+        createdBy: "admin",
+        requiresEmailVerification: true,
+      });
+    }
+
+    // (camino legado: auto-registro) — por si algún día se reabre el endpoint público
+    const { accessToken, refreshToken } = await generateTokens(user);
+    setRefreshCookie(res, refreshToken);
+
     return res.status(201).json({
       success: true,
       message: "Registro exitoso",
       user: publicUser(user),
-      // compat con front
       accessToken,
       token: accessToken,
       refreshToken,

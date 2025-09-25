@@ -4,7 +4,7 @@ import api from '@/services/api';
 import type {
   AuthResponse,
   LoginData,
-  RegisterData,
+  // RegisterData,  // ⛔️ ya no se usa (registro público deshabilitado)
   User,
   RefreshTokenResponse,
   VerificationResponse,
@@ -81,9 +81,7 @@ type LoginResponseWire = {
   token?: string;       // compat antiguo
 };
 
-type RegisterResponseWire = LoginResponseWire & {
-  requiresEmailVerification?: boolean;
-};
+// ⛔️ RegisterResponseWire eliminado (registro público deshabilitado)
 
 type RefreshResponseWire = {
   accessToken?: string;
@@ -131,8 +129,7 @@ export const AuthService = {
   },
 
   /* (Info) GET /api/auth/verify-email/:token
-     Tu backend redirige al frontend, por lo que llamar esto vía XHR no es útil.
-     Devolvemos un mensaje y marcamos el parámetro como usado para evitar warning. */
+     Tu backend redirige al frontend, por lo que llamar esto vía XHR no es útil. */
   async verifyEmail(token: string): Promise<VerificationResponse> {
     void token; // evita 'no-unused-vars' sin ejecutar nada
     return {
@@ -187,34 +184,10 @@ export const AuthService = {
     }
   },
 
-  /* POST /api/auth/register */
-  async register(dataIn: RegisterData): Promise<AuthResponse & { requiresEmailVerification: boolean }> {
-    try {
-      const { data } = await api.post<RegisterResponseWire>('/auth/register', dataIn);
-
-      const token = data.accessToken ?? data.token ?? null;
-
-      // ⚠️ Aquí antes mezclabas ?? y && → lo corregimos con paréntesis
-      const u = data.user as Partial<User>;
-      const requiresEmailVerification =
-        data.requiresEmailVerification ??
-        ( !u.email_verified_at && !u.isVerified );
-
-      return {
-        success: true,
-        message: data.message ?? 'Registro exitoso',
-        user: data.user,
-        token,
-        refreshToken: null,
-        requiresEmailVerification: !!requiresEmailVerification,
-      };
-    } catch (error: unknown) {
-      throw new Error(handleApiError(error).message);
-    }
-  },
+  // ⛔️ Registro público deshabilitado: usar createUserAsAdmin() en user.service.ts
+  // async register(...) { ... },
 
   /* Opcionales (si los implementas en backend) */
-
   async forgotPassword(email: string): Promise<{ success: boolean; message?: string }> {
     try {
       await api.post('/auth/forgot-password', { email });
