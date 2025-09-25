@@ -1,3 +1,4 @@
+// cliente/src/stores/auth.store.ts
 import { defineStore } from 'pinia';
 import { isAxiosError } from 'axios';
 import router from '@/router';
@@ -6,7 +7,6 @@ import type {
   AuthState,
   User,
   LoginData,
-  RegisterData,
   VerificationResponse,
   ResendVerificationResponse,
 } from '@/types/auth';
@@ -36,17 +36,23 @@ const writeAccess = (t: string | null) => {
   else localStorage.removeItem(ACCESS_KEY);
 };
 
+// Extensión local del tipo User con flags opcionales que a veces manda el backend
+type UserMaybeVerified = User & {
+  isVerified?: boolean;
+  emailVerified?: boolean;
+};
+
 // Calcula “verificado” solo con los campos existentes en tu tipo User
-function isUserVerified(u?: User | null): boolean {
+function isUserVerified(u?: UserMaybeVerified | null): boolean {
   if (!u) return false;
-  return Boolean(u.email_verified_at || u.isVerified);
+  return Boolean(u.email_verified_at || u.isVerified || u.emailVerified);
 }
 
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
     user: null,
     token: readAccess(),        // solo access token
-    refreshToken: null,         // mantenido por compatibilidad de tipo, no se usa
+    refreshToken: null,         // compat de tipo; no se usa
     returnUrl: undefined,
     isInitialized: false,
     isLoading: false,
@@ -77,15 +83,18 @@ export const useAuthStore = defineStore('auth', {
     async refreshAuth(): Promise<boolean> {
       try {
         const res = await AuthService.refreshToken();
-        // backend devuelve { accessToken, user } (compat con { token })
-        const access = (res as { accessToken?: string; token?: string }).accessToken ?? (res as { token?: string }).token ?? null;
+        // backend devuelve { token, user } (compat con { accessToken })
+        const access =
+          (res as { accessToken?: string; token?: string }).accessToken ??
+          (res as { token?: string }).token ??
+          null;
+
         if (!access) throw new Error((res as { message?: string })?.message || 'Error al refrescar token');
 
         this.token = access;
         writeAccess(access);
 
         if (res.user) {
-          // `res.user` ya es de tipo User en tu capa de servicio
           this.user = res.user as User;
         } else if (!this.user) {
           // si no vino el user, lo pedimos
@@ -101,55 +110,6 @@ export const useAuthStore = defineStore('auth', {
         console.error('[Auth] refreshAuth error:', err);
         this.clearAuth();
         return false;
-      }
-    },
-
-    async register(registerData: RegisterData): Promise<User> {
-      this.isLoading = true;
-      this.error = null;
-
-      try {
-        if (!registerData.name?.trim()) throw new Error('El nombre es requerido');
-        if (!registerData.email?.trim()) throw new Error('El email es requerido');
-        if (!registerData.password) throw new Error('La contraseña es requerida');
-        if (registerData.password !== registerData.password_confirmation) {
-          throw new Error('Las contraseñas no coinciden');
-        }
-
-        const res = await AuthService.register({
-          name: registerData.name.trim(),
-          email: registerData.email.trim().toLowerCase(),
-          password: registerData.password,
-          password_confirmation: registerData.password_confirmation,
-        });
-
-        if (!res.success || !res.user) {
-          throw new Error(res.message || 'Error en el registro');
-        }
-
-        const access = (res as { accessToken?: string; token?: string }).accessToken ?? (res as { token?: string }).token ?? null;
-        if (access) {
-          this.setAuthData(res.user as User, access);
-        }
-
-        return res.user as User;
-      } catch (err: unknown) {
-        console.error('[AuthStore] Error en registro:', err);
-        if (isAxiosError(err)) {
-          const status = err.response?.status;
-          this.error =
-            (err.response?.data as Record<string, unknown> | undefined)?.['message'] as string ||
-            (status === 400
-              ? 'Datos inválidos'
-              : status === 409
-              ? 'El email ya está registrado'
-              : 'Error durante el registro');
-        } else {
-          this.error = extractErrorMessage(err, 'Error durante el registro');
-        }
-        throw err;
-      } finally {
-        this.isLoading = false;
       }
     },
 
@@ -231,7 +191,11 @@ export const useAuthStore = defineStore('auth', {
         const res = await AuthService.login(loginData);
         if (!res.success) throw new Error(res.message || 'Error en el login');
 
-        const access = (res as { accessToken?: string; token?: string }).accessToken ?? (res as { token?: string }).token ?? null;
+        const access =
+          (res as { accessToken?: string; token?: string }).accessToken ??
+          (res as { token?: string }).token ??
+          null;
+
         if (!access) throw new Error('No se recibió access token');
 
         this.setAuthData(res.user as User, access);
