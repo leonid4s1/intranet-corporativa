@@ -22,7 +22,7 @@ function toStr(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 function toArr(v: unknown): unknown[] | undefined {
-  return Array.isArray(v) ? v : undefined;
+  return Array.isArray(v) ? Array.from(v) : undefined;
 }
 
 /* ========= Manejo de errores uniforme ========= */
@@ -109,6 +109,27 @@ export const AuthService = {
         refreshToken: null, // el refresh va por cookie HttpOnly; no lo exponemos en cliente
       };
     } catch (error: unknown) {
+      // ⬇️ Mapeo explícito para mostrar mensajes claros en el formulario
+      if (isAxiosError(error) && error.response) {
+        const status = error.response.status;
+        const serverMsg = isRecord(error.response.data)
+          ? toStr(get(error.response.data as Record<string, unknown>, 'message'))
+          : undefined;
+
+        if (status === 401) {
+          // Credenciales inválidas (usuario existe pero password incorrecta)
+          throw new Error(serverMsg || 'Contraseña incorrecta');
+        }
+        if (status === 404) {
+          // Usuario no encontrado
+          throw new Error(serverMsg || 'Usuario no encontrado');
+        }
+        if (status === 403) {
+          // Cuenta no verificada o bloqueada, según tu backend
+          throw new Error(serverMsg || 'No puedes iniciar sesión: verifica tu correo o contacta al administrador');
+        }
+      }
+      // Resto de errores: usa el manejador genérico
       throw new Error(handleApiError(error).message);
     }
   },

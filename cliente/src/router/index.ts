@@ -1,5 +1,5 @@
 // src/router/index.ts
-import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router';
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { authGuard } from './guards';
 
 // Vistas (lazy)
@@ -49,7 +49,7 @@ const routes: Array<RouteRecordRaw> = [
       requiresVerifiedEmail: false
     }
   },
-  // Alias interno (hash): #/email-verification -> #/verify-email
+  // Alias interno
   {
     path: '/email-verification/:token?',
     redirect: (to) => ({
@@ -116,7 +116,7 @@ const routes: Array<RouteRecordRaw> = [
 ];
 
 const router = createRouter({
-  history: createWebHashHistory(import.meta.env.BASE_URL),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
   scrollBehavior(_to, _from, saved) {
     return saved || { top: 0 };

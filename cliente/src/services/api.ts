@@ -79,6 +79,18 @@ const queue: Array<() => void> = [];
 
 type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 
+/** Redirección segura: solo si NO estamos ya en /login */
+function goToLoginIfNeeded() {
+  try {
+    const p = `${window.location.pathname}${window.location.hash || ''}`;
+    if (!/(^|\/|#)login(\/|$|\?|#)/.test(p)) {
+      window.location.assign('/login');
+    }
+  } catch {
+    // ignore
+  }
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -92,15 +104,13 @@ api.interceptors.response.use(
         !!reqUrl &&
         (/\/auth\/login\b/.test(reqUrl) || /\/auth\/refresh\b/.test(reqUrl) || /\/auth\/logout\b/.test(reqUrl));
 
-      // Si el 401 viene del propio login/refresh/logout, no reintentes: limpia y a login
+      /** ⬇️ CAMBIO CLAVE:
+       * Si el 401 viene del propio /auth/login (o refresh/logout),
+       * NO redirigimos. Devolvemos el error para que la vista (Login)
+       * muestre "usuario/contraseña incorrecta" en el mismo formulario.
+       */
       if (isAuthPath) {
-        try {
-          const auth = useAuthStore();
-          auth.clearAuth();
-        } finally {
-          window.location.assign('/login');
-        }
-        return Promise.reject(error);
+        return Promise.reject(error); // ← sin clearAuth, sin redirect
       }
 
       const auth = useAuthStore();
@@ -127,9 +137,9 @@ api.interceptors.response.use(
           return api(retried);
         }
 
-        // Si no se pudo refrescar, limpia y manda a login
+        // Si no se pudo refrescar, limpia y manda a login (solo si no estamos ya allí)
         auth.clearAuth();
-        window.location.assign('/login');
+        goToLoginIfNeeded(); // ⬅️ en vez de window.location a ciegas
         return Promise.reject(error);
       } finally {
         refreshing = false;
