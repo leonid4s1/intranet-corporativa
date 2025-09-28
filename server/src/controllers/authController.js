@@ -41,29 +41,17 @@ const clearRefreshCookie = (res) => {
   res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: 0 });
 };
 
-/* ==========================
- *  Email (Nodemailer)
- * ========================== */
+// Nodemailer
 const transporter = nodemailer.createTransport({
   service: "Gmail",
-  pool: true,
-  maxConnections: 1,
-  maxMessages: 100,
   auth: {
     user: process.env.EMAIL_USER || "intracorreo7@gmail.com",
-    pass: process.env.EMAIL_PASSWORD || "fgyx zfpl qlkc nsmt", // App Password
+    pass: process.env.EMAIL_PASSWORD || "fgyx zfpl qlkc nsmt",
   },
   tls: { rejectUnauthorized: false },
 });
 
-// From recomendado (coincidir dominio/cuenta del proveedor)
-const MAIL_FROM =
-  process.env.MAIL_FROM ||
-  `intraOdes <${process.env.EMAIL_USER || "intracorreo7@gmail.com"}>`;
-
-/* ==========================
- *  Helpers
- * ========================== */
+// helpers
 const formatError = (message, param = "") => ({
   errors: [{ msg: message, ...(param && { param }) }],
 });
@@ -101,7 +89,7 @@ const generateTokens = async (user) => {
     throw new Error(
       "Configuración JWT faltante: define JWT_SECRET y REFRESH_TOKEN_SECRET en el servidor."
     );
-  }
+    }
 
   const accessToken = jwt.sign({ userId: user._id }, JWT_SECRET, {
     expiresIn: ACCESS_TTL,
@@ -125,10 +113,9 @@ export const register = async (req, res) => {
       email,
       password,
       password_confirmation,
-      role: requestedRole, // opcional, solo admin puede usarlo
+      role: requestedRole, // <- opcional, solo admin puede usarlo
     } = req.body;
 
-    // -------- Validaciones básicas --------
     const missingFields = [];
     if (!name) missingFields.push("name");
     if (!email) missingFields.push("email");
@@ -140,9 +127,8 @@ export const register = async (req, res) => {
       });
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(normalizedEmail))
+    if (!emailRegex.test(email))
       return res.status(400).json(formatError("Formato de email invalido", "email"));
     if (password.length < 8)
       return res
@@ -162,19 +148,17 @@ export const register = async (req, res) => {
         .json(formatError("Las contraseñas no coinciden", "password_confirmation"));
     }
 
-    // -------- Duplicado (case-insensitive) --------
-    const existingUser = await User.findOne({ email: normalizedEmail });
+    const existingUser = await User.findOne({ email });
     if (existingUser)
       return res.status(409).json(formatError("El usuario ya existe", "email"));
 
-    // -------- Rol seguro --------
+    // Solo un admin autenticado puede elegir rol. Si no, siempre 'user'.
     const isAdminCreator = Boolean(req.user && req.user.role === "admin");
     const safeRole = isAdminCreator && requestedRole ? requestedRole : "user";
 
-    // -------- Crear usuario --------
     const user = new User({
       name,
-      email: normalizedEmail,
+      email,
       password,
       role: safeRole,
       isActive: true,
@@ -183,7 +167,7 @@ export const register = async (req, res) => {
       vacationDays: { total: 0, used: 0 },
     });
 
-    // token de verificación
+    // token de verificación (igual para ambos flujos)
     const verificationToken = crypto.randomBytes(32).toString("hex");
     user.emailVerificationToken = verificationToken;
     user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000); // 1h
@@ -200,55 +184,39 @@ export const register = async (req, res) => {
     const backend = process.env.BACKEND_URL || "http://localhost:5000";
     const verificationLink = `${backend}/api/auth/verify-email/${verificationToken}`;
 
-    // -------- RESPONDER PRIMERO (no bloquear por SMTP) --------
+    await transporter.sendMail({
+      to: user.email,
+      from: '"intraOdes" <no-reply@intraOdes.com>',
+      subject: "Verifica tu email",
+      html: `<p>Hola ${user.name},</p><p>Haz click en este enlace para verificar tu correo electrónico:</p><a href="${verificationLink}">${verificationLink}</a>`,
+    });
+
+    // Si lo crea un admin, NO lo autenticamos aquí (no seteamos cookie ni devolvemos tokens)
     if (isAdminCreator) {
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         message: "Usuario creado correctamente por un administrador",
         user: publicUser(user),
         createdBy: "admin",
         requiresEmailVerification: true,
-        emailQueued: true,
-      });
-    } else {
-      // (camino auto-registro legado)
-      const { accessToken, refreshToken } = await generateTokens(user);
-      setRefreshCookie(res, refreshToken);
-
-      res.status(201).json({
-        success: true,
-        message: "Registro exitoso",
-        user: publicUser(user),
-        accessToken,
-        token: accessToken,
-        refreshToken,
-        requiresEmailVerification: true,
-        emailQueued: true,
       });
     }
 
-    // -------- Enviar correo en background (sin await) --------
-    transporter
-      .sendMail({
-        to: user.email,
-        from: MAIL_FROM,
-        subject: "Verifica tu email",
-        html: `<p>Hola ${user.name},</p>
-               <p>Haz click en este enlace para verificar tu correo electrónico:</p>
-               <p><a href="${verificationLink}">${verificationLink}</a></p>`,
-      })
-      .then(() => {
-        console.log("[mail] Verificación enviada a", user.email);
-      })
-      .catch((mailErr) => {
-        console.error("[mail] Error enviando verificación:", mailErr?.message || mailErr);
-        // opcional: persistir un flag o auditlog para reintentar
-      });
+    // (camino legado: auto-registro) — por si algún día se reabre el endpoint público
+    const { accessToken, refreshToken } = await generateTokens(user);
+    setRefreshCookie(res, refreshToken);
+
+    return res.status(201).json({
+      success: true,
+      message: "Registro exitoso",
+      user: publicUser(user),
+      accessToken,
+      token: accessToken,
+      refreshToken,
+      requiresEmailVerification: true,
+    });
   } catch (error) {
     console.error("🔥 Error en registro:", error);
-    if (error?.code === 11000) {
-      return res.status(409).json(formatError("El usuario ya existe", "email"));
-    }
     if (error.name === "ValidationError") {
       const errors = Object.entries(error.errors).map(([field, err]) => ({
         msg: err.message,
@@ -305,8 +273,8 @@ export const verifyEmail = async (req, res) => {
  *  ========================== */
 export const resendVerificationEmail = async (req, res) => {
   try {
-    const normalizedEmail = String(req.body.email || "").trim().toLowerCase();
-    const user = await User.findOne({ email: normalizedEmail });
+    const { email } = req.body;
+    const user = await User.findOne({ email });
     if (!user)
       return res
         .status(404)
@@ -326,11 +294,9 @@ export const resendVerificationEmail = async (req, res) => {
 
     await transporter.sendMail({
       to: user.email,
-      from: MAIL_FROM,
+      from: '"intraOdes" <no-reply@intraOdes.com>',
       subject: "Verifica tu email",
-      html: `<p>Hola ${user.name},</p>
-             <p>Haz click en este enlace para verificar tu correo electrónico:</p>
-             <p><a href="${verificationLink}">${verificationLink}</a></p>`,
+      html: `<p>Hola ${user.name},</p><p>Haz click en este enlace para verificar tu correo electrónico:</p><a href="${verificationLink}">${verificationLink}</a>`,
     });
 
     return res.json({
@@ -360,8 +326,7 @@ export const login = async (req, res) => {
       });
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase();
-    const user = await User.findOne({ email: normalizedEmail }).select(
+    const user = await User.findOne({ email }).select(
       "+password +refreshToken +loginAttempts +lockUntil +isActive +isVerified +emailVerified"
     );
 
@@ -383,7 +348,7 @@ export const login = async (req, res) => {
         );
     }
 
-    // 🔒 Bloquear si está inactivo (antes de comparar contraseña)
+    // 🔒 NUEVO: bloquear si está inactivo (antes de comparar contraseña)
     if (!user.isActive) {
       return res
         .status(403)
@@ -457,6 +422,7 @@ export const login = async (req, res) => {
     });
   } catch (error) {
     console.error("[auth] Error inesperado en login:", error);
+    // No exponemos detalles; el front siempre recibe un { message }
     return res.status(500).json({ success: false, message: "Error interno del servidor" });
   }
 };
@@ -509,7 +475,7 @@ export const refreshToken = async (req, res) => {
       return res.status(403).json({ message: "Token inválido" });
     }
 
-    // 🔒 no refrescar si está inactivo
+    // 🔒 NUEVO: no refrescar si está inactivo
     if (!user.isActive) {
       return res.status(403).json({ message: "Cuenta inactiva" });
     }
@@ -522,12 +488,13 @@ export const refreshToken = async (req, res) => {
     await user.save();
     setRefreshCookie(res, newRefreshToken);
 
+    // Compat exacta con AuthService.refreshToken()
     return res.json({
       success: true,
       token: newAccessToken,
       refreshToken: newRefreshToken,
       message: "Token actualizado correctamente",
-      user: publicUser(user),
+      user: publicUser(user), // útil para rehidratar el store en frío
     });
   } catch (error) {
     console.error("Error en refreshToken:", error);

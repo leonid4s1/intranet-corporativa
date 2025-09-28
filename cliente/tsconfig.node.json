@@ -6,8 +6,7 @@
     "cypress.config.*",
     "nightwatch.conf.*",
     "playwright.config.*",
-    "eslint.config.*",
-    "src/types/**/*.d.ts"   // ← opcional: para que Node vea tus .d.ts (axios.d.ts)
+    "eslint.config.*"
   ],
   "compilerOptions": {
     "noEmit": true,
@@ -15,10 +14,6 @@
 
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["node"],
-
-    "strict": true,                    // ← activa modo estricto
-    "useUnknownInCatchVariables": true,
-    "noUncheckedIndexedAccess": true
+    "types": ["node"]
   }
 }

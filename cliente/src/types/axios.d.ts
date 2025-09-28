@@ -1,15 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+// src/types/axios.d.ts
 import 'axios';
 
 declare module 'axios' {
-  interface InternalAxiosRequestConfig<D = unknown> {
+  export interface AxiosRequestConfig {
     _retry?: boolean;
-  }
-  interface AxiosRequestConfig<D = unknown> {
-    _retry?: boolean;
-    timeoutErrorMessage?: string;
-  }
-  interface AxiosDefaults<D = unknown> {
-    timeoutErrorMessage?: string;
   }
 }
