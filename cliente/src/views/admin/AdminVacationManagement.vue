@@ -1,6 +1,14 @@
 <template>
   <div class="admin-vacations">
-    <h1>Administración de Vacaciones</h1>
+    <div class="page-head">
+      <h1>Administración de Vacaciones</h1>
+      <router-link
+        :to="{ name: 'vacations-approved-admin' }"
+        class="btn primary"
+      >
+        Ver aprobadas
+      </router-link>
+    </div>
 
     <!-- ========= DÍAS FESTIVOS ========= -->
     <section class="card">
@@ -483,8 +491,8 @@ async function saveHoliday() {
         description: holidayForm.value.description?.trim() || undefined,
         customId: holidayForm.value.customId?.trim() || undefined,
       };
-  await holidayService.updateHoliday(id, payload);
-  showAlert('success', 'Festivo actualizado');
+      await holidayService.updateHoliday(id, payload);
+      showAlert('success', 'Festivo actualizado');
     }
 
     closeHolidayModal();
@@ -529,7 +537,15 @@ onMounted(async () => {
   padding: 16px;
 }
 
-h1 { margin: 0 0 16px 0; }
+.page-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+}
+
+h1 { margin: 0; }
 
 .card {
   background: #fff;
