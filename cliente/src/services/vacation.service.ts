@@ -45,28 +45,65 @@ export type UIVacationRequest = {
 };
 
 export type TeamVacationApi = {
+  id?: string;
+  userId?: string;
   startDate: string;
   endDate: string;
-  user?: { id?: string; _id?: string; name?: string };
+  user?: { id?: string; _id?: string; name?: string; email?: string };
 };
 
 export type ApiHoliday = { date: string; name?: string };
 
+/** Filtros/filas para el reporte admin de aprobadas */
+export type UserStatusFilter = 'Activo' | 'Inactivo' | 'Eliminado';
+export type AdminApprovedRow = {
+  id: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  displayName: string;
+  displayEmail: string | null;
+  userStatus: UserStatusFilter;
+  createdAt: string | null;
+};
+
+/** Forma en la que llega cada fila desde el backend (parcial/relajada) */
+type AdminApprovedApiRow = {
+  id?: string;
+  _id?: string;
+  startDate?: string;
+  endDate?: string;
+  totalDays?: number;
+  displayName?: string;
+  displayEmail?: string | null;
+  userStatus?: UserStatusFilter | string;
+  createdAt?: string | null;
+};
+
 /* =========================
- * Helpers seguros
+ * Helpers seguros / type guards
  * ========================= */
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
 }
+function isString(x: unknown): x is string {
+  return typeof x === 'string';
+}
+function isNumber(x: unknown): x is number {
+  return typeof x === 'number' && Number.isFinite(x);
+}
+function isUserStatus(x: unknown): x is UserStatusFilter {
+  return x === 'Activo' || x === 'Inactivo' || x === 'Eliminado';
+}
 
 /** Algunos endpoints vienen como { data: ... } */
-function unwrapData<T>(data: unknown, fallback: T): T {
-  if (isRecord(data) && 'data' in data) {
-    const inner = (data as { data: unknown }).data;
+function unwrapData<T>(payload: unknown, fallback: T): T {
+  if (isRecord(payload) && 'data' in payload) {
+    const inner = (payload as { data: unknown }).data;
     return (inner as T) ?? fallback;
   }
-  return (data as T) ?? fallback;
+  return (payload as T) ?? fallback;
 }
 
 /* =========================
@@ -78,16 +115,27 @@ export async function getVacationBalance(): Promise<VacationBalance> {
     headers: { 'Cache-Control': 'no-store' },
   });
 
-  const root = (data?.data ?? data ?? {}) as Record<string, unknown>;
-  const current = (root.current ??
-    (isRecord(root.balance) ? root.balance : root)) as Record<string, unknown>;
+  const root = (data?.data ?? data ?? {}) as unknown;
+  const base = isRecord(root) ? root : {};
+
+  // current > balance > root
+  const nodeRaw =
+    (isRecord(base.current) ? base.current : undefined) ??
+    (isRecord(base.balance) ? base.balance : undefined) ??
+    base;
+
+  const current = isRecord(nodeRaw) ? nodeRaw : {};
 
   const availableDays = Number(
-    (current.availableDays ?? current.remaining ?? current.remainingDays ?? current.available ?? 0) as number
+    ((current.availableDays ??
+      current.remaining ??
+      current.remainingDays ??
+      current.available ??
+      0) as number)
   );
   const usedDays = Number((current.usedDays ?? current.used ?? 0) as number);
   const totalAnnualDays = Number(
-    (current.totalAnnualDays ?? current.total ?? current.annual ?? 0) as number
+    ((current.totalAnnualDays ?? current.total ?? current.annual ?? 0) as number)
   );
 
   return { availableDays, usedDays, totalAnnualDays };
@@ -107,10 +155,10 @@ export async function getHolidays(
 
   return arr
     .map((h: unknown): ApiHoliday | null => {
-      if (typeof h === 'string') return { date: h };
+      if (isString(h)) return { date: h };
       if (isRecord(h)) {
-        const date = typeof h.date === 'string' ? h.date : '';
-        const name = typeof h.name === 'string' ? h.name : undefined;
+        const date = isString(h.date) ? h.date : '';
+        const name = isString(h.name) ? h.name : undefined;
         return date ? { date, name } : null;
       }
       return null;
@@ -122,9 +170,9 @@ export async function getHolidays(
 function isVacationRequestApi(x: unknown): x is VacationRequestApi {
   return (
     isRecord(x) &&
-    typeof x.startDate === 'string' &&
-    typeof x.endDate === 'string' &&
-    typeof x.status === 'string'
+    isString(x.startDate) &&
+    isString(x.endDate) &&
+    isString(x.status)
   );
 }
 
@@ -136,7 +184,6 @@ export async function getUserVacations(): Promise<VacationsUserResponse> {
   // lector seguro sin any
   const readList = (key: 'approved' | 'pending' | 'rejected'): VacationRequestApi[] => {
     if (isRecord(wrapped) && Array.isArray(wrapped[key])) {
-      // filtramos por si vienen elementos raros
       return (wrapped[key] as unknown[]).filter(isVacationRequestApi);
     }
     return [];
@@ -164,20 +211,26 @@ export async function getTeamVacations(
     .map((v: unknown): TeamVacationApi | null => {
       if (!isRecord(v)) return null;
 
-      const start = typeof v.startDate === 'string' ? v.startDate : '';
-      const end = typeof v.endDate === 'string' ? v.endDate : '';
+      const id = isString(v.id) ? v.id : undefined;
+      const userId = isString(v.userId) ? v.userId : undefined;
+      const start = isString(v.startDate) ? v.startDate : '';
+      const end = isString(v.endDate) ? v.endDate : '';
 
       const userObj = isRecord(v.user) ? v.user : {};
       const user = {
-        id: typeof userObj.id === 'string' ? userObj.id : undefined,
-        _id: typeof userObj._id === 'string' ? userObj._id : undefined,
-        name: typeof userObj.name === 'string' ? userObj.name : undefined,
+        id: isString(userObj.id) ? userObj.id : undefined,
+        _id: isString(userObj._id) ? userObj._id : undefined,
+        name: isString(userObj.name) ? userObj.name : undefined,
+        email: isString(userObj.email) ? userObj.email : undefined,
       };
 
-      return start && end ? { startDate: start, endDate: end, user } : null;
+      return start && end ? { id, userId, startDate: start, endDate: end, user } : null;
     })
     .filter((x): x is TeamVacationApi => !!x);
 }
+
+/** Alias ergonómico si te late el nombre */
+export const getTeamCalendar = getTeamVacations;
 
 export async function getUnavailableDates(
   startDate: string,
@@ -189,7 +242,7 @@ export async function getUnavailableDates(
 
   const list = unwrapData<unknown>(data, []);
   const arr = Array.isArray(list) ? list : [];
-  return arr.filter((d: unknown): d is string => typeof d === 'string');
+  return arr.filter((d: unknown): d is string => isString(d));
 }
 
 export async function requestVacation(payload: {
@@ -198,12 +251,12 @@ export async function requestVacation(payload: {
   reason?: string;
 }) {
   const { data } = await api.post('/vacations/requests', payload);
-  return data;
+  return data as unknown;
 }
 
 export async function cancelVacationRequest(id: string) {
   const { data } = await api.patch(`/vacations/requests/${id}/cancel`);
-  return data;
+  return data as unknown;
 }
 
 /* =========================
@@ -219,30 +272,30 @@ export async function getPendingRequests(): Promise<UIVacationRequest[]> {
     const rec = isRecord(v) ? (v as Record<string, unknown>) : {};
 
     const id =
-      typeof rec._id === 'string'
+      isString(rec._id)
         ? rec._id
-        : typeof rec.id === 'string'
+        : isString(rec.id)
         ? rec.id
         : '';
 
-    const startDate = typeof rec.startDate === 'string' ? rec.startDate : '';
-    const endDate = typeof rec.endDate === 'string' ? rec.endDate : '';
-    const status = (typeof rec.status === 'string' ? rec.status : 'pending') as Status;
-    const reason = typeof rec.reason === 'string' ? rec.reason : undefined;
-    const rejectReason = typeof rec.rejectReason === 'string' ? rec.rejectReason : undefined;
+    const startDate = isString(rec.startDate) ? rec.startDate : '';
+    const endDate = isString(rec.endDate) ? rec.endDate : '';
+    const status = (isString(rec.status) ? rec.status : 'pending') as Status;
+    const reason = isString(rec.reason) ? rec.reason : undefined;
+    const rejectReason = isString(rec.rejectReason) ? rec.rejectReason : undefined;
     const daysRequested =
-      typeof rec.daysRequested === 'number' ? rec.daysRequested : undefined;
+      isNumber(rec.daysRequested) ? rec.daysRequested : undefined;
 
     const u = isRecord(rec.user) ? (rec.user as Record<string, unknown>) : {};
     const user = {
       id:
-        typeof u._id === 'string'
+        isString(u._id)
           ? u._id
-          : typeof u.id === 'string'
+          : isString(u.id)
           ? u.id
           : '',
-      name: typeof u.name === 'string' ? u.name : 'Usuario',
-      email: typeof u.email === 'string' ? u.email : undefined,
+      name: isString(u.name) ? u.name : 'Usuario',
+      email: isString(u.email) ? u.email : undefined,
     };
 
     return { id, user, startDate, endDate, status, reason, rejectReason, daysRequested };
@@ -261,7 +314,7 @@ type UpdateStatusPayload = {
 
 function isUpdatePayload(v: unknown): v is UpdateStatusPayload {
   if (!isRecord(v)) return false;
-  const idOk = typeof v.id === 'string' && v.id.length > 0;
+  const idOk = isString(v.id) && v.id.length > 0;
   const st = v.status;
   const statusOk = st === 'approved' || st === 'rejected';
   return idOk && statusOk;
@@ -288,7 +341,6 @@ export async function updateRequestStatus(
   if (isUpdatePayload(arg1)) {
     id = arg1.id;
     status = arg1.status;
-    // admitir reason o rejectReason desde el caller
     rejectReason = arg1.rejectReason ?? arg1.reason;
   } else {
     id = arg1;
@@ -297,13 +349,55 @@ export async function updateRequestStatus(
   }
 
   const body: Record<string, unknown> = { status };
-  // el backend espera rejectReason cuando es rechazado
   if (status === 'rejected') {
     body.rejectReason = rejectReason ?? '';
   }
 
   const { data } = await api.patch(`/vacations/requests/${id}/status`, body);
   return data as unknown;
+}
+
+/** Reporte admin de TODAS las vacaciones aprobadas (activos, inactivos o eliminados) */
+export async function getApprovedAdmin(params?: {
+  q?: string;
+  from?: string;
+  to?: string;
+  userStatus?: UserStatusFilter;
+}): Promise<AdminApprovedRow[]> {
+  const { data } = await api.get('/vacations/admin/approved', { params });
+
+  const list = unwrapData<unknown>(data, []);
+  const arr = Array.isArray(list) ? list : [];
+
+  return arr
+    .map((v: unknown): AdminApprovedRow | null => {
+      if (!isRecord(v)) return null;
+
+      const rec = v as Partial<AdminApprovedApiRow>;
+
+      const id =
+        isString(rec.id) ? rec.id :
+        isString(rec._id) ? rec._id : '';
+
+      const startDate = isString(rec.startDate) ? rec.startDate : '';
+      const endDate   = isString(rec.endDate)   ? rec.endDate   : '';
+      const totalDays = isNumber(rec.totalDays) ? rec.totalDays : 0;
+      const displayName  = isString(rec.displayName) ? rec.displayName : '';
+      const displayEmail = rec.displayEmail === null
+        ? null
+        : isString(rec.displayEmail) ? rec.displayEmail : null;
+
+      const userStatus: UserStatusFilter =
+        isUserStatus(rec.userStatus) ? rec.userStatus as UserStatusFilter : 'Activo';
+
+      const createdAt = rec.createdAt === null
+        ? null
+        : isString(rec.createdAt) ? rec.createdAt : null;
+
+      if (!id || !startDate || !endDate) return null;
+      return { id, startDate, endDate, totalDays, displayName, displayEmail, userStatus, createdAt };
+    })
+    .filter((x): x is AdminApprovedRow => !!x);
 }
 
 /* =========================
@@ -314,9 +408,11 @@ export default {
   getHolidays,
   getUserVacations,
   getTeamVacations,
+  getTeamCalendar,
   getUnavailableDates,
   requestVacation,
   cancelVacationRequest,
   getPendingRequests,
   updateRequestStatus,
+  getApprovedAdmin,
 };

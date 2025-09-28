@@ -7,6 +7,7 @@ const vacationRequestSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: [true, 'El usuario es requerido'],
+      index: true
     },
 
     startDate: {
@@ -27,6 +28,7 @@ const vacationRequestSchema = new mongoose.Schema(
         },
         message: 'La fecha de inicio debe ser hoy o en el futuro',
       },
+      index: true
     },
 
     endDate: {
@@ -54,6 +56,7 @@ const vacationRequestSchema = new mongoose.Schema(
           message: 'La fecha de fin debe ser posterior a la de inicio',
         },
       ],
+      index: true
     },
 
     daysRequested: {
@@ -83,6 +86,7 @@ const vacationRequestSchema = new mongoose.Schema(
         message: 'Estado no válido',
       },
       default: 'pending',
+      index: true
     },
 
     processedBy: {
@@ -96,6 +100,14 @@ const vacationRequestSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+
+    /* ========= SNAPSHOT DEL USUARIO =========
+       Se llena al aprobar para conservar nombre/email
+       aunque el usuario cambie, se desactive o se elimine. */
+    userSnapshot: {
+      name: { type: String, default: null },
+      email: { type: String, default: null }
+    }
   },
   {
     timestamps: true,
@@ -103,10 +115,13 @@ const vacationRequestSchema = new mongoose.Schema(
       virtuals: true,
       transform(doc, ret) {
         // Formato de fechas “YYYY-MM-DD”
-        ret.startDate = doc.startDate.toISOString().split('T')[0];
-        ret.endDate = doc.endDate.toISOString().split('T')[0];
+        ret.startDate = doc.startDate?.toISOString().split('T')[0];
+        ret.endDate = doc.endDate?.toISOString().split('T')[0];
         if (doc.processedAt) ret.processedAt = doc.processedAt.toISOString().split('T')[0];
         if (doc.requestedAt) ret.requestedAt = doc.requestedAt.toISOString().split('T')[0];
+
+        // Alias de totalDays (útil para front/controladores genéricos)
+        ret.totalDays = doc.daysRequested;
 
         // Asegurar presencia del campo (aunque sea vacío)
         ret.rejectReason = doc.rejectReason || '';
@@ -117,13 +132,21 @@ const vacationRequestSchema = new mongoose.Schema(
     toObject: {
       virtuals: true,
       transform(doc, ret) {
-        ret.startDate = doc.startDate.toISOString().split('T')[0];
-        ret.endDate = doc.endDate.toISOString().split('T')[0];
+        ret.startDate = doc.startDate?.toISOString().split('T')[0];
+        ret.endDate = doc.endDate?.toISOString().split('T')[0];
+        // También exponer totalDays en toObject
+        ret.totalDays = doc.daysRequested;
         return ret;
       },
     },
   }
 );
+
+/* ===================== Virtuals ===================== */
+// Alias para compatibilidad con código que usa "totalDays"
+vacationRequestSchema.virtual('totalDays').get(function () {
+  return this.daysRequested;
+});
 
 /* ===================== Middlewares ===================== */
 
@@ -142,27 +165,31 @@ vacationRequestSchema.pre('save', function (next) {
 
 // Evitar solapamiento con solicitudes APROBADAS existentes
 vacationRequestSchema.pre('save', async function (next) {
-  if (this.status === 'pending' || this.status === 'approved') {
-    const overlapping = await this.constructor.find({
-      user: this.user,
-      status: 'approved',
-      _id: { $ne: this._id },
-      $or: [{ startDate: { $lte: this.endDate }, endDate: { $gte: this.startDate } }],
-    });
+  try {
+    if (this.status === 'pending' || this.status === 'approved') {
+      const overlapping = await this.constructor.find({
+        user: this.user,
+        status: 'approved',
+        _id: { $ne: this._id },
+        // Solapamiento clásico: A empieza antes de que B termine Y A termina después de que B empiece
+        startDate: { $lte: this.endDate },
+        endDate:   { $gte: this.startDate }
+      }).lean();
 
-    if (overlapping.length > 0) {
-      return next(new Error('Ya tienes vacaciones aprobadas en este periodo'));
+      if (overlapping.length > 0) {
+        return next(new Error('Ya tienes vacaciones aprobadas en este periodo'));
+      }
     }
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 });
 
 /* ===================== Índices ===================== */
-vacationRequestSchema.index({ user: 1 });
-vacationRequestSchema.index({ startDate: 1 });
-vacationRequestSchema.index({ endDate: 1 });
-vacationRequestSchema.index({ status: 1 });
-vacationRequestSchema.index({ user: 1, status: 1 });
+// ya agregaste índices individuales arriba; añade compuestos útiles:
+vacationRequestSchema.index({ user: 1, status: 1, startDate: 1 });
+vacationRequestSchema.index({ status: 1, startDate: 1 });
 
 const VacationRequest = mongoose.model('VacationRequest', vacationRequestSchema);
 export default VacationRequest;

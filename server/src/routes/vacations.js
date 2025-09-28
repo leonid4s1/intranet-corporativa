@@ -15,6 +15,7 @@ import {
   getTeamVacationsForCalendar,
   getAllUsersVacationDays,
   getUnavailableDatesForCalendar,
+  getApprovedVacationsAdmin // 👈 NUEVO: reporte admin (todas las aprobadas)
 } from '../controllers/vacationController.js';
 import { validateDateRange, validateDateParams } from '../middleware/validation.js';
 
@@ -167,7 +168,7 @@ router.get('/users/days',
 // Cambio de estado (aprobado/rechazado)
 router.patch('/requests/:id/status',
   authenticate,
-  authorize(['admin', 'manager', 'hr']), // ← agrega roles que pueden aprobar
+  authorize(['admin', 'manager', 'hr']), // ← roles que pueden aprobar
   validateStatusChange,
   updateVacationRequestStatus
 );
@@ -203,6 +204,13 @@ router.get('/requests/pending',
   authenticate,
   authorize(['admin', 'manager', 'hr']),
   getPendingVacationRequests
+);
+
+// 👇 NUEVO: Reporte admin de TODAS las vacaciones aprobadas (activos, inactivos o eliminados)
+router.get('/admin/approved',
+  authenticate,
+  authorize('admin'), // si deseas abrirlo a manager/hr, cambia a authorize(['admin','manager','hr'])
+  getApprovedVacationsAdmin
 );
 
 export default router;

@@ -306,10 +306,14 @@ export const getTeamVacationsForCalendar = async (req, res) => {
       startDate: { $lte: endUTC },
       endDate: { $gte: startUTC },
     })
-      .populate('user', 'name email')
+      // incluimos isActive para filtrar
+      .populate('user', 'name email isActive')
       .lean();
 
-    const data = vacations.map(v => ({
+    // solo usuarios activos (excluye inactivos y eliminados)
+    const filtered = vacations.filter(v => v.user && v.user.isActive === true);
+
+    const data = filtered.map(v => ({
       id: String(v._id),
       userId: String(v.user?._id || v.user),
       startDate: toYMDUTC(v.startDate),
@@ -532,13 +536,34 @@ export const updateVacationRequestStatus = async (req, res, next) => {
     // 1) Actualiza y obtiene el doc con user (para responder al cliente)
     const doc = await VacationRequest
       .findByIdAndUpdate(req.params.id, update, { new: true })
-      .populate('user', 'name email');
+      .populate('user', 'name email isActive');
 
     if (!doc) {
       return res.status(404).json({ success: false, error: 'Solicitud no encontrada' });
     }
 
     const uid = String(doc.user?._id || doc.user);
+
+    // 👇 si se aprueba y falta snapshot, guardarlo (no bloquea la respuesta)
+    if (status === 'approved') {
+      const shouldFillSnapshot = !doc.userSnapshot?.name;
+      if (shouldFillSnapshot) {
+        process.nextTick(async () => {
+          try {
+            await VacationRequest.findByIdAndUpdate(doc._id, {
+              $set: {
+                userSnapshot: {
+                  name:  doc.user?.name  ?? null,
+                  email: doc.user?.email ?? null
+                }
+              }
+            });
+          } catch (err) {
+            console.error('[vacations] Error guardando userSnapshot:', err?.message || err);
+          }
+        });
+      }
+    }
 
     // 2) RESPONDER PRIMERO
     res.json({
@@ -715,4 +740,72 @@ export const checkVacationAvailability = async (req, res) => {
 
   const { isAvailable } = await checkConcurrentAvailabilityCore(startUTC, endUTC);
   return res.json({ success: true, data: { isAvailable } });
+};
+
+/* ===========================
+   Admin: Reporte de aprobadas
+   (activos, inactivos o eliminados)
+=========================== */
+// GET /vacations/admin/approved
+export const getApprovedVacationsAdmin = async (req, res) => {
+  try {
+    const { q, from, to, userStatus } = req.query;
+
+    const query = { status: 'approved' };
+    if (from || to) {
+      const f = from ? toDateUTC(from) : null;
+      const t = to ? toDateUTC(to)     : null;
+      if (f && t && f > t) {
+        return res.status(400).json({ success: false, error: 'Rango de fechas inválido' });
+      }
+      if (f) query.startDate = { ...(query.startDate || {}), $gte: f };
+      if (t) query.startDate = { ...(query.startDate || {}), $lte: t };
+    }
+
+    const rows = await VacationRequest.find(query)
+      .populate('user', 'name email isActive')
+      .sort({ startDate: -1 })
+      .lean();
+
+    let data = rows.map(v => {
+      const exists = !!v.user;
+      const status =
+        exists ? (v.user.isActive ? 'Activo' : 'Inactivo') : 'Eliminado';
+
+      const displayName  = exists
+        ? (v.user.name  ?? v.userSnapshot?.name  ?? '[usuario eliminado]')
+        : (v.userSnapshot?.name ?? '[usuario eliminado]');
+
+      const displayEmail = exists
+        ? (v.user.email ?? v.userSnapshot?.email ?? null)
+        : (v.userSnapshot?.email ?? null);
+
+      return {
+        id: String(v._id),
+        startDate: toYMDUTC(v.startDate),
+        endDate: toYMDUTC(v.endDate),
+        totalDays: v.daysRequested,
+        displayName,
+        displayEmail,
+        userStatus: status,
+        createdAt: v.createdAt?.toISOString?.() || null
+      };
+    });
+
+    // Filtro por texto (nombre/email)
+    if (q && q.trim()) {
+      const rx = new RegExp(q.trim(), 'i');
+      data = data.filter(row => rx.test(row.displayName) || rx.test(row.displayEmail || ''));
+    }
+
+    // Filtro por estado de usuario
+    if (userStatus && ['Activo', 'Inactivo', 'Eliminado'].includes(userStatus)) {
+      data = data.filter(row => row.userStatus === userStatus);
+    }
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('[getApprovedVacationsAdmin] error:', error);
+    return res.status(500).json({ success: false, error: 'Error obteniendo reporte admin' });
+  }
 };

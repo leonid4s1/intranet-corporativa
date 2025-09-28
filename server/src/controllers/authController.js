@@ -89,7 +89,7 @@ const generateTokens = async (user) => {
     throw new Error(
       "Configuración JWT faltante: define JWT_SECRET y REFRESH_TOKEN_SECRET en el servidor."
     );
-  }
+    }
 
   const accessToken = jwt.sign({ userId: user._id }, JWT_SECRET, {
     expiresIn: ACCESS_TTL,
@@ -335,7 +335,7 @@ export const login = async (req, res) => {
       return res.status(401).json(formatError("Credenciales invalidas"));
     }
 
-    // Bloqueo temporal si aplica
+    // 🔒 Bloqueo temporal si aplica
     const locked = Boolean(user.lockUntil && user.lockUntil > Date.now());
     if (locked) {
       const remainingTime = Math.ceil((user.lockUntil - Date.now()) / (60 * 1000));
@@ -346,6 +346,13 @@ export const login = async (req, res) => {
             `Cuenta bloqueada temporalmente. Intente nuevamente en ${remainingTime} minutos`
           )
         );
+    }
+
+    // 🔒 NUEVO: bloquear si está inactivo (antes de comparar contraseña)
+    if (!user.isActive) {
+      return res
+        .status(403)
+        .json(formatError("Tu cuenta está inactiva. Contacta al administrador."));
     }
 
     // Comparación segura de contraseña
@@ -466,6 +473,11 @@ export const refreshToken = async (req, res) => {
     const user = await User.findById(payload.userId);
     if (!user || user.refreshToken !== token) {
       return res.status(403).json({ message: "Token inválido" });
+    }
+
+    // 🔒 NUEVO: no refrescar si está inactivo
+    if (!user.isActive) {
+      return res.status(403).json({ message: "Cuenta inactiva" });
     }
 
     // Rotación simple

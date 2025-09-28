@@ -3,21 +3,22 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { authGuard } from './guards';
 
 // Vistas (lazy)
-const LoginView              = () => import('@/views/auth/LoginView.vue');
+const LoginView               = () => import('@/views/auth/LoginView.vue');
 // ⛔️ Registro eliminado del router (solo admin crea usuarios)
-// const RegisterView           = () => import('@/views/auth/RegisterView.vue');
-const EmailVerificationView  = () => import('@/views/auth/EmailVerificationView.vue');
+// const RegisterView         = () => import('@/views/auth/RegisterView.vue');
+const EmailVerificationView   = () => import('@/views/auth/EmailVerificationView.vue');
 
-const AdminDashboard         = () => import('@/views/admin/AdminHome.vue');
-const UserRolesAdmin         = () => import('@/views/admin/UserRolesAdmin.vue');
-const UserManagement         = () => import('@/views/admin/UserManagement.vue');
-const VacationManagement     = () => import('@/views/admin/AdminVacationManagement.vue');
+const AdminDashboard          = () => import('@/views/admin/AdminHome.vue');
+const UserRolesAdmin          = () => import('@/views/admin/UserRolesAdmin.vue');
+const UserManagement          = () => import('@/views/admin/UserManagement.vue');
+const VacationManagement      = () => import('@/views/admin/AdminVacationManagement.vue');
+const VacationsApprovedAdmin  = () => import('@/views/admin/VacationsApprovedAdmin.vue'); // NUEVO
 
-const UserDashboard          = () => import('@/views/user/Home.vue');
-const VacationCalendar       = () => import('@/views/user/VacationCalendar.vue');
+const UserDashboard           = () => import('@/views/user/Home.vue');
+const VacationCalendar        = () => import('@/views/user/VacationCalendar.vue');
 
-const ForbiddenView          = () => import('@/views/errors/ForbiddenView.vue');
-const NotFoundView           = () => import('@/views/errors/NotFoundView.vue');
+const ForbiddenView           = () => import('@/views/errors/ForbiddenView.vue');
+const NotFoundView            = () => import('@/views/errors/NotFoundView.vue');
 
 const routes: Array<RouteRecordRaw> = [
   // Raíz -> el guard decidirá según sesión
@@ -84,6 +85,12 @@ const routes: Array<RouteRecordRaw> = [
     name: 'vacation-management',
     component: VacationManagement,
     meta: { requiresAuth: true, requiresAdmin: true, title: 'Gestión de Vacaciones' }
+  },
+  {
+    path: '/admin/vacations/approved',                             // ← NUEVO
+    name: 'vacations-approved-admin',                              // ← NUEVO
+    component: VacationsApprovedAdmin,                             // ← NUEVO
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Vacaciones aprobadas' } // ← NUEVO
   },
 
   // Usuario
