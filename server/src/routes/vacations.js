@@ -1,5 +1,6 @@
 // server/src/routes/vacations.js
 import { Router } from 'express';
+import mongoose from 'mongoose';
 import { authenticate, authorize } from '../middleware/auth.js';
 import {
   requestVacation,
@@ -10,19 +11,28 @@ import {
   getVacationBalance,
   manageVacationDays,
   checkVacationAvailability,
-  // getHolidaysForCalendar, // <- ya no lo usamos; unificamos con holidayController.getHolidays
   getUserVacationsForCalendar,
   getTeamVacationsForCalendar,
   getAllUsersVacationDays,
   getUnavailableDatesForCalendar,
-  getApprovedVacationsAdmin // 👈 NUEVO: reporte admin (todas las aprobadas)
+  getApprovedVacationsAdmin
 } from '../controllers/vacationController.js';
 import { validateDateRange, validateDateParams } from '../middleware/validation.js';
-
-// 👇 CRUD de días festivos
 import * as holidayController from '../controllers/holidayController.js';
 
 const router = Router();
+
+/* -------------------- Helpers -------------------- */
+
+const noStore = (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); };
+
+const validateId = (param = 'id') => (req, res, next) => {
+  const val = req.params[param];
+  if (!mongoose.isValidObjectId(val)) {
+    return res.status(400).json({ success: false, message: `ID inválido (${param})` });
+  }
+  next();
+};
 
 /* -------------------- Validaciones ligeras de payload -------------------- */
 
@@ -73,7 +83,7 @@ const validateStatusChange = (req, res, next) => {
 
 /* -------------------------------- Usuarios -------------------------------- */
 
-router.get('/balance', authenticate, getVacationBalance);
+router.get('/balance', authenticate, noStore, getVacationBalance);
 
 router.route('/requests')
   .post(
@@ -82,9 +92,13 @@ router.route('/requests')
     validateOptionalReason,   // valida reason opcional
     requestVacation
   )
-  .get(authenticate, getUserVacations);
+  .get(authenticate, noStore, getUserVacations);
 
-router.patch('/requests/:id/cancel', authenticate, cancelVacationRequest);
+router.patch('/requests/:id/cancel',
+  authenticate,
+  validateId('id'),
+  cancelVacationRequest
+);
 
 router.post('/check-availability',
   authenticate,
@@ -93,42 +107,46 @@ router.post('/check-availability',
 
 /* -------------------------------- Calendario ------------------------------- */
 
-// Unificamos en holidayController.getHolidays para ambos endpoints
+// Festivos (unificado)
 router.get(
   '/calendar/holidays',
   authenticate,
   validateDateParams,
+  noStore,
   holidayController.getHolidays
 );
 
-// alias de compatibilidad (usado por el front)
+// Alias de compatibilidad
 router.get(
   '/holidays',
   authenticate,
   validateDateParams,
+  noStore,
   holidayController.getHolidays
 );
 
 router.get('/calendar/user-vacations',
   authenticate,
+  noStore,
   getUserVacationsForCalendar
 );
 
 router.get('/calendar/team-vacations',
   authenticate,
   validateDateParams,
+  noStore,
   getTeamVacationsForCalendar
 );
 
 router.get('/calendar/unavailable-dates',
   authenticate,
   validateDateParams,
+  noStore,
   getUnavailableDatesForCalendar
 );
 
 /* ---------------------------- Festivos (ADMIN) ---------------------------- */
 
-// Crear festivo
 router.post(
   '/holidays',
   authenticate,
@@ -136,39 +154,48 @@ router.post(
   holidayController.createHoliday
 );
 
-// Actualizar festivo por ID
 router.patch(
   '/holidays/:id',
   authenticate,
   authorize('admin'),
+  validateId('id'),
   holidayController.updateHoliday
 );
 
-// Eliminar festivo por ID
 router.delete(
   '/holidays/:id',
   authenticate,
   authorize('admin'),
+  validateId('id'),
   holidayController.deleteHoliday
 );
 
 /* --------------------------------- Admin ---------------------------------- */
 
 // Gestionar días (legacy)
-router.route('/users/:userId/days')
-  .put(authenticate, authorize('admin'), manageVacationDays);
-
-// Listado de días por usuario
-router.get('/users/days',
+router.put(
+  '/users/:userId/days',
   authenticate,
   authorize('admin'),
+  validateId('userId'),
+  manageVacationDays
+);
+
+// Listado de días por usuario
+router.get(
+  '/users/days',
+  authenticate,
+  authorize('admin'),
+  noStore,
   getAllUsersVacationDays
 );
 
 // Cambio de estado (aprobado/rechazado)
-router.patch('/requests/:id/status',
+router.patch(
+  '/requests/:id/status',
   authenticate,
-  authorize(['admin', 'manager', 'hr']), // ← roles que pueden aprobar
+  authorize(['admin', 'manager', 'hr']),
+  validateId('id'),
   validateStatusChange,
   updateVacationRequestStatus
 );
@@ -178,6 +205,7 @@ router.post(
   '/requests/:id/approve',
   authenticate,
   authorize(['admin', 'manager', 'hr']),
+  validateId('id'),
   (req, _res, next) => { req.body = { status: 'approved' }; next(); },
   validateStatusChange,
   updateVacationRequestStatus
@@ -187,8 +215,8 @@ router.post(
   '/requests/:id/reject',
   authenticate,
   authorize(['admin', 'manager', 'hr']),
+  validateId('id'),
   (req, _res, next) => {
-    // Mantener compatibilidad: aceptar rejectReason vía body o query ?reason=
     const reason = typeof req.body?.rejectReason === 'string'
       ? req.body.rejectReason
       : (req.query?.reason ?? '');
@@ -200,16 +228,20 @@ router.post(
 );
 
 // Pendientes para revisión
-router.get('/requests/pending',
+router.get(
+  '/requests/pending',
   authenticate,
   authorize(['admin', 'manager', 'hr']),
+  noStore,
   getPendingVacationRequests
 );
 
-// 👇 NUEVO: Reporte admin de TODAS las vacaciones aprobadas (activos, inactivos o eliminados)
-router.get('/admin/approved',
+// Reporte admin de TODAS las vacaciones aprobadas
+router.get(
+  '/admin/approved',
   authenticate,
-  authorize('admin'), // si deseas abrirlo a manager/hr, cambia a authorize(['admin','manager','hr'])
+  authorize('admin'),
+  noStore,
   getApprovedVacationsAdmin
 );
 

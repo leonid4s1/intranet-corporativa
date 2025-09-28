@@ -133,6 +133,42 @@ UserSchema.index({ role: 1 });
 UserSchema.index({ isActive: 1 });
 UserSchema.index({ isVerified: 1 });
 
+/* ================================
+ *  Virtuales
+ * ================================ */
+
+// Alias virtual: emailVerified ↔ isVerified
+UserSchema.virtual('emailVerified')
+  .get(function () { return !!this.isVerified; })
+  .set(function (v) { this.isVerified = !!v; });
+
+// Virtual: cuenta bloqueada
+UserSchema.virtual('isLocked').get(function () {
+  return !!(this.lockUntil && this.lockUntil > Date.now());
+});
+
+// Virtual: perfil básico
+UserSchema.virtual('profile').get(function () {
+  return {
+    id: this._id,
+    email: this.email,
+    role: this.role,
+    isActive: this.isActive,
+    isVerified: this.isVerified,
+    createdAt: this.createdAt
+  };
+});
+
+// Virtual: dias de vacaciones restantes
+UserSchema.virtual('vacationDays.remaining').get(function () {
+  if (!this.vacationDays) return 0;
+  return Math.max(0, this.vacationDays.total - this.vacationDays.used);
+});
+
+/* ================================
+ *  Hooks y métodos
+ * ================================ */
+
 // Middleware para encriptar contraseña
 UserSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
@@ -269,29 +305,9 @@ UserSchema.statics.findByResetToken = async function (resetToken) {
   });
 };
 
-// Virtuals
-UserSchema.virtual('isLocked').get(function () {
-  return !!(this.lockUntil && this.lockUntil > Date.now());
-});
-
-UserSchema.virtual('profile').get(function () {
-  return {
-    id: this._id,
-    email: this.email,
-    role: this.role,
-    isActive: this.isActive,
-    isVerified: this.isVerified,
-    createdAt: this.createdAt
-  };
-});
-
-// Dias de vacaciones restantes
-UserSchema.virtual('vacationDays.remaining').get(function () {
-  if (!this.vacationDays) return 0;
-  return Math.max(0, this.vacationDays.total - this.vacationDays.used);
-});
-
-// Middleware para logging y sync con VacationData (upsert robusto)
+/* ================================
+ *  Post-save: sync VacationData
+ * ================================ */
 UserSchema.post('save', async function (doc, next) {
   try {
     if (doc.vacationDays) {

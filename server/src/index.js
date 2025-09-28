@@ -5,6 +5,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import helmet from 'helmet'
 import morgan from 'morgan'
+import compression from 'compression'            // ⬅️ NUEVO
 import { connectDB } from './config/db.js'
 import errorHandler from './middleware/errorHandler.js'
 import authRoutes from './routes/auth.js'
@@ -101,24 +102,29 @@ app.options('*', cors(corsOptions)) // preflight global
 
 // Evita problemas de cache/CDN con CORS (asegura variación por origen y preflight)
 app.use((req, res, next) => {
-  res.header('Vary', 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers')
+  res.header('Vvary', 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers')
   next()
 })
 /* ==================================================================== */
 
-/** Helmet (después de CORS) */
+/** Helmet (después de CORS) — HSTS solo en prod */
 app.use(
   helmet({
     crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    hsts: process.env.NODE_ENV === 'production' ? undefined : false,
   })
 )
 
 // Logs
 app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'))
 
-// Body parser
+// Body parsers
 app.use(express.json({ limit: '10kb' }))
+app.use(express.urlencoded({ extended: false }))   // ⬅️ NUEVO
+
+// Compresión HTTP
+app.use(compression())                              // ⬅️ NUEVO
 
 /** Health */
 app.get('/api/health', async (_req, res) => {
@@ -142,6 +148,11 @@ app.use('/api/news', newsRoutes)
 app.use('/api/tasks', tasksRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/vacations', vacationRoutes)
+
+/** 404 para endpoints API no existentes (antes del error handler) */
+app.use('/api/*', (_req, res) => {
+  res.status(404).json({ success: false, message: 'Endpoint no encontrado' })
+})
 
 /**
  * (Opcional) Servir frontend build local sólo si quieres monolito.

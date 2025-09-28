@@ -181,16 +181,53 @@ export const createUser = async (req, res) => {
     await user.save()
     await upsertVacationData(user)
 
-    return res.status(201).json({
+    // ---- RESPONDE YA (no esperar envío de correo) ----
+    res.status(201).json({
       success: true,
       message: 'Usuario creado',
-      user: user.toObject(),
+      user: {
+        id: user._id.toString(),
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        isVerified: user.isVerified,
+        email_verified_at: user.email_verified_at,
+        createdAt: user.createdAt,
+        vacationDays: {
+          total: toNum(user.vacationDays?.total, 0),
+          used: toNum(user.vacationDays?.used, 0),
+          remaining: Math.max(
+            0,
+            toNum(user.vacationDays?.total, 0) - toNum(user.vacationDays?.used, 0)
+          ),
+        },
+      },
     })
+
+    // ---- Envío de verificación en background (solo si falta verificar) ----
+    if (!isVerified) {
+      setImmediate(async () => {
+        try {
+          // Import dinámico para evitar ciclo de dependencias
+          const { sendVerificationForUser } = await import('./authController.js')
+          if (typeof sendVerificationForUser === 'function') {
+            await sendVerificationForUser(user._id)
+          } else {
+            console.warn('[createUser] Helper sendVerificationForUser no encontrado en authController.js')
+          }
+        } catch (err) {
+          console.error('[createUser] Error al enviar verificación en background:', err?.message || err)
+        }
+      })
+    }
   } catch (error) {
     console.error('Error creando usuario:', error)
-    return res
-      .status(500)
-      .json({ success: false, message: 'Error al crear usuario', error: error.message })
+    if (!res.headersSent) {
+      return res
+        .status(500)
+        .json({ success: false, message: 'Error al crear usuario', error: error.message })
+    }
   }
 }
 

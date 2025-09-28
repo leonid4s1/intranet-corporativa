@@ -1,10 +1,10 @@
-// controllers/authController.js
+// server/src/controllers/authController.js
 import User from "../models/User.js";
 import VacationData from "../models/VacationData.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import crypto from "crypto";
-import nodemailer from "nodemailer";
+import { sendVerificationEmail } from "../services/emailService.js";
 
 dotenv.config();
 
@@ -30,7 +30,7 @@ const cookieOptions = {
   sameSite: isProd ? "None" : "Lax",
   maxAge: REFRESH_MAX_AGE_MS,
   path: "/api/auth", // limita a rutas de auth
-  // domain: isProd ? ".odesconstruction.com" : undefined,
+  // domain: isProd ? ".tudominio.com" : undefined,
 };
 
 const setRefreshCookie = (res, token) => {
@@ -40,16 +40,6 @@ const clearRefreshCookie = (res) => {
   // limpia cookie en el mismo path que fue seteada
   res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: 0 });
 };
-
-// Nodemailer
-const transporter = nodemailer.createTransport({
-  service: "Gmail",
-  auth: {
-    user: process.env.EMAIL_USER || "intracorreo7@gmail.com",
-    pass: process.env.EMAIL_PASSWORD || "fgyx zfpl qlkc nsmt",
-  },
-  tls: { rejectUnauthorized: false },
-});
 
 // helpers
 const formatError = (message, param = "") => ({
@@ -89,7 +79,7 @@ const generateTokens = async (user) => {
     throw new Error(
       "Configuración JWT faltante: define JWT_SECRET y REFRESH_TOKEN_SECRET en el servidor."
     );
-    }
+  }
 
   const accessToken = jwt.sign({ userId: user._id }, JWT_SECRET, {
     expiresIn: ACCESS_TTL,
@@ -103,6 +93,39 @@ const generateTokens = async (user) => {
   return { accessToken, refreshToken };
 };
 
+// ============================
+// Utilidades de verificación
+// ============================
+const buildVerificationLink = (token) => {
+  const backend = process.env.BACKEND_URL || "http://localhost:5000";
+  return `${backend}/api/auth/verify-email/${token}`;
+};
+
+/**
+ * Helper que pueden usar otros controladores (p.ej. userController.createUser)
+ * Genera/guarda un token de verificación y envía el correo.
+ * Ideal ejecutarlo en background (setImmediate/queue) por quien lo invoque.
+ */
+export const sendVerificationForUser = async (userId) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    console.warn("[sendVerificationForUser] usuario no encontrado:", userId);
+    return;
+  }
+  if (user.isVerified || user.emailVerified) {
+    // nada que hacer
+    return;
+  }
+
+  const verificationToken = crypto.randomBytes(32).toString("hex");
+  user.emailVerificationToken = verificationToken;
+  user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000); // 1h
+  await user.save();
+
+  const link = buildVerificationLink(verificationToken);
+  await sendVerificationEmail({ to: user.email, name: user.name, link });
+};
+
 /** ==========================
  *  Registro (solo admin puede elegir rol; no auto-login si crea admin)
  *  ========================== */
@@ -114,16 +137,16 @@ export const register = async (req, res) => {
       password,
       password_confirmation,
       role: requestedRole, // <- opcional, solo admin puede usarlo
-    } = req.body;
+    } = req.body; // ✅ sin paréntesis
 
-    const missingFields = [];
-    if (!name) missingFields.push("name");
-    if (!email) missingFields.push("email");
-    if (!password) missingFields.push("password");
-    if (!password_confirmation) missingFields.push("password_confirmation");
-    if (missingFields.length) {
+    const missing = [];
+    if (!name) missing.push("name");
+    if (!email) missing.push("email");
+    if (!password) missing.push("password");
+    if (!password_confirmation) missing.push("password_confirmation");
+    if (missing.length) {
       return res.status(400).json({
-        errors: missingFields.map((f) => ({ msg: `${f} es requerido`, param: f })),
+        errors: missing.map((f) => ({ msg: `${f} es requerido`, param: f })),
       });
     }
 
@@ -167,7 +190,7 @@ export const register = async (req, res) => {
       vacationDays: { total: 0, used: 0 },
     });
 
-    // token de verificación (igual para ambos flujos)
+    // token de verificación
     const verificationToken = crypto.randomBytes(32).toString("hex");
     user.emailVerificationToken = verificationToken;
     user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000); // 1h
@@ -181,17 +204,14 @@ export const register = async (req, res) => {
       remaining: 0,
     }).save();
 
-    const backend = process.env.BACKEND_URL || "http://localhost:5000";
-    const verificationLink = `${backend}/api/auth/verify-email/${verificationToken}`;
-
-    await transporter.sendMail({
+    const verificationLink = buildVerificationLink(verificationToken);
+    await sendVerificationEmail({
       to: user.email,
-      from: '"intraOdes" <no-reply@intraOdes.com>',
-      subject: "Verifica tu email",
-      html: `<p>Hola ${user.name},</p><p>Haz click en este enlace para verificar tu correo electrónico:</p><a href="${verificationLink}">${verificationLink}</a>`,
+      name: user.name,
+      link: verificationLink,
     });
 
-    // Si lo crea un admin, NO lo autenticamos aquí (no seteamos cookie ni devolvemos tokens)
+    // Si lo crea un admin, NO lo autenticamos aquí
     if (isAdminCreator) {
       return res.status(201).json({
         success: true,
@@ -202,7 +222,7 @@ export const register = async (req, res) => {
       });
     }
 
-    // (camino legado: auto-registro) — por si algún día se reabre el endpoint público
+    // (camino legado: auto-registro)
     const { accessToken, refreshToken } = await generateTokens(user);
     setRefreshCookie(res, refreshToken);
 
@@ -251,7 +271,7 @@ export const verifyEmail = async (req, res) => {
     }
 
     user.isVerified = true;
-    user.emailVerified = true;
+    user.emailVerified = true; // virtual: setea isVerified
     user.email_verified_at = new Date();
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
@@ -289,14 +309,11 @@ export const resendVerificationEmail = async (req, res) => {
     user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000);
     await user.save();
 
-    const backend = process.env.BACKEND_URL || "http://localhost:5000";
-    const verificationLink = `${backend}/api/auth/verify-email/${verificationToken}`;
-
-    await transporter.sendMail({
+    const verificationLink = buildVerificationLink(verificationToken);
+    await sendVerificationEmail({
       to: user.email,
-      from: '"intraOdes" <no-reply@intraOdes.com>',
-      subject: "Verifica tu email",
-      html: `<p>Hola ${user.name},</p><p>Haz click en este enlace para verificar tu correo electrónico:</p><a href="${verificationLink}">${verificationLink}</a>`,
+      name: user.name,
+      link: verificationLink,
     });
 
     return res.json({
