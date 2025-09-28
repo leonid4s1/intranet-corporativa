@@ -306,24 +306,26 @@ export const getTeamVacationsForCalendar = async (req, res) => {
       startDate: { $lte: endUTC },
       endDate: { $gte: startUTC },
     })
-      // incluimos isActive para filtrar
+      // Traemos isActive por si lo quieres mostrar en UI, pero NO filtramos por él.
       .populate('user', 'name email isActive')
       .lean();
 
-    // solo usuarios activos (excluye inactivos y eliminados)
-    const filtered = vacations.filter(v => v.user && v.user.isActive === true);
-
-    const data = filtered.map(v => ({
-      id: String(v._id),
-      userId: String(v.user?._id || v.user),
-      startDate: toYMDUTC(v.startDate),
-      endDate: toYMDUTC(v.endDate),
-      user: {
-        id: String(v.user?._id || v.user),
-        name: v.user?.name || '',
-        email: v.user?.email || '',
-      },
-    }));
+    // ⬇️ Mostramos inactivos también; ocultamos solo si el usuario fue eliminado (populate => null)
+    const data = vacations
+      .filter(v => !!v.user)
+      .map(v => ({
+        id: String(v._id),
+        userId: String(v.user?._id || v.user),
+        startDate: toYMDUTC(v.startDate),
+        endDate: toYMDUTC(v.endDate),
+        user: {
+          id: String(v.user?._id || v.user),
+          name: v.user?.name || '',
+          email: v.user?.email || '',
+          // isActive disponible si quieres diferenciar en la UI
+          isActive: v.user?.isActive
+        },
+      }));
 
     return res.json({ success: true, data });
   } catch (error) {

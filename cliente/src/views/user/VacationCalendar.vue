@@ -298,7 +298,13 @@ const teamCountByDate = computed<Record<string, number>>(() => {
 })
 
 /** ===== Utils ===== */
-const isWeekend = (d: Dayjs) => d.day() === 0 || d.day() === 6
+// Weekend robusto por Y-M-D en UTC (Sábado=6 y Domingo=0)
+function isWeekendYMD(ymd: string): boolean {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  const dow = d.getUTCDay() // 0=Dom, 6=Sáb
+  return dow === 0 || dow === 6
+}
+
 const isHoliday = (dateStr: string) => holidaysSet.value.has(dateStr)
 const isFull = (dateStr: string) => (teamCountByDate.value[dateStr] ?? 0) >= MAX_PER_DAY
 const isUnavailable = (dateStr: string) => unavailable.value.includes(dateStr)
@@ -314,7 +320,7 @@ function countBusinessDays(startISO: string, endISO: string): number {
   let count = 0
   while (d.isSame(end, 'day') || d.isBefore(end, 'day')) {
     const key = d.format('YYYY-MM-DD')
-    if (!isWeekend(d) && !isHoliday(key)) count++
+    if (!isWeekendYMD(key) && !isHoliday(key)) count++
     d = d.add(1, 'day')
   }
   return count
@@ -334,7 +340,7 @@ function canPickDay(d: Dayjs): boolean {
   const key = d.format('YYYY-MM-DD')
   if (!d.isAfter(today.value, 'day')) return false
 
-  const weekend = isWeekend(d)
+  const weekend = isWeekendYMD(key)
   const holiday = isHoliday(key)
   if (weekend || holiday) return true
 
@@ -346,7 +352,7 @@ function canPickDay(d: Dayjs): boolean {
 function getSingleDayBlockReason(d: Dayjs): string {
   const key = d.format('YYYY-MM-DD')
   if (!d.isAfter(today.value, 'day')) return 'No puedes seleccionar fechas pasadas ni el día de hoy.'
-  const weekend = isWeekend(d)
+  const weekend = isWeekendYMD(key)
   const holiday = isHoliday(key)
   if (weekend || holiday) return ''
   if (isFull(key)) return `No disponible: cupo lleno el ${formatDate(key)} (máximo ${MAX_PER_DAY} personas).`
@@ -360,7 +366,7 @@ function validateRangeSelection(startISO: string, endISO: string): { ok: boolean
 
   while (d.isSame(end, 'day') || d.isBefore(end, 'day')) {
     const key = d.format('YYYY-MM-DD')
-    const weekend = isWeekend(d)
+    const weekend = isWeekendYMD(key)
     const holiday = isHoliday(key)
 
     if (!d.isAfter(today.value, 'day')) {
@@ -427,7 +433,7 @@ const calendarDays = computed<CalendarDay[]>(() => {
   let d = startGrid
   while (d.isSame(endGrid, 'day') || d.isBefore(endGrid, 'day')) {
     const dateStr = d.format('YYYY-MM-DD')
-    const weekend = isWeekend(d)
+    const weekend = isWeekendYMD(dateStr)
     const holiday = isHoliday(dateStr)
     const full = isFull(dateStr)
     const available = canPickDay(d)
