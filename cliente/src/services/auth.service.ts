@@ -4,7 +4,6 @@ import api from '@/services/api';
 import type {
   AuthResponse,
   LoginData,
-  // RegisterData,  // ⛔️ ya no se usa (registro público deshabilitado)
   User,
   RefreshTokenResponse,
   VerificationResponse,
@@ -49,7 +48,7 @@ const handleApiError = (error: unknown): ErrorResponse => {
         .map((e) => (isRecord(e) ? `• ${toStr(get(e, 'param')) ?? 'Error'}: ${toStr(get(e, 'msg')) ?? ''}` : ''))
         .filter(Boolean)
         .join('\n');
-      return { success: false, message: msg || 'Errores de validación' };
+      if (msg) return { success: false, message: msg };
     }
   }
 
@@ -81,8 +80,6 @@ type LoginResponseWire = {
   token?: string;       // compat antiguo
 };
 
-// ⛔️ RegisterResponseWire eliminado (registro público deshabilitado)
-
 type RefreshResponseWire = {
   accessToken?: string;
   token?: string; // compat
@@ -100,16 +97,20 @@ export const AuthService = {
   /* POST /api/auth/login */
   async login(credentials: LoginData): Promise<AuthResponse> {
     try {
-      const { data } = await api.post<LoginResponseWire>('/auth/login', credentials);
+      const payload = {
+        ...credentials,
+        email: credentials.email.trim().toLowerCase(),
+      };
+      const { data } = await api.post<LoginResponseWire>('/auth/login', payload);
       return {
         success: true,
         message: data.message ?? 'Inicio de sesión exitoso',
         user: data.user,
         token: data.accessToken ?? data.token ?? null,
-        refreshToken: null, // el refresh va por cookie HttpOnly; no lo exponemos en cliente
+        refreshToken: null, // el refresh va por cookie HttpOnly; no se expone al cliente
       };
     } catch (error: unknown) {
-      // ⬇️ Mapeo explícito para mostrar mensajes claros en el formulario
+      // Mapeo explícito para el formulario de login
       if (isAxiosError(error) && error.response) {
         const status = error.response.status;
         const serverMsg = isRecord(error.response.data)
@@ -117,19 +118,15 @@ export const AuthService = {
           : undefined;
 
         if (status === 401) {
-          // Credenciales inválidas (usuario existe pero password incorrecta)
           throw new Error(serverMsg || 'Contraseña incorrecta');
         }
         if (status === 404) {
-          // Usuario no encontrado
           throw new Error(serverMsg || 'Usuario no encontrado');
         }
         if (status === 403) {
-          // Cuenta no verificada o bloqueada, según tu backend
           throw new Error(serverMsg || 'No puedes iniciar sesión: verifica tu correo o contacta al administrador');
         }
       }
-      // Resto de errores: usa el manejador genérico
       throw new Error(handleApiError(error).message);
     }
   },
@@ -137,7 +134,8 @@ export const AuthService = {
   /* POST /api/auth/resend-verification */
   async resendVerificationEmail(email: string): Promise<ResendVerificationResponse> {
     try {
-      const { data } = await api.post<ResendResponseWire>('/auth/resend-verification', { email });
+      const normalized = email.trim().toLowerCase();
+      const { data } = await api.post<ResendResponseWire>('/auth/resend-verification', { email: normalized });
       return {
         success: !!data?.success,
         sent: !!data?.success,
@@ -181,7 +179,7 @@ export const AuthService = {
       return {
         success: !!token,
         token,
-        refreshToken: null, // no se usa en cliente
+        refreshToken: null,
         message: token ? (data.message ?? 'Token actualizado correctamente') : (data.message ?? 'No se recibió token'),
         ...(data.user ? { user: data.user } : {}),
       } as RefreshTokenResponse;
@@ -206,12 +204,12 @@ export const AuthService = {
   },
 
   // ⛔️ Registro público deshabilitado: usar createUserAsAdmin() en user.service.ts
-  // async register(...) { ... },
 
   /* Opcionales (si los implementas en backend) */
   async forgotPassword(email: string): Promise<{ success: boolean; message?: string }> {
     try {
-      await api.post('/auth/forgot-password', { email });
+      const normalized = email.trim().toLowerCase();
+      await api.post('/auth/forgot-password', { email: normalized });
       return { success: true, message: 'Correo de recuperación enviado' };
     } catch (error: unknown) {
       return handleApiError(error);
