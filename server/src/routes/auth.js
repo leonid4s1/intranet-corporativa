@@ -7,40 +7,43 @@ import {
   logout,
   resendVerificationEmail,
   verifyEmail,
-  getProfile, // ⬅️ controlador de perfil
+  getProfile,
 } from '../controllers/authController.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import {
   validateRegister,
   validateLogin,
-  // validateRefreshToken  // (no se usa, el refresh va por cookie HttpOnly)
+  // validateRefreshToken, // (no se usa: refresh va por cookie HttpOnly)
   validateResendVerification,
 } from '../middleware/validation.js';
 import mongoose from 'mongoose';
 
 const router = express.Router();
 
-/* ===================== Auth públicas ===================== */
-
-// ⛔️ Ya NO público: /register pasa a requerir admin (ver sección protegidas)
+/* ===================== Rutas públicas ===================== */
 
 // Login
 router.post('/login', validateLogin, login);
 
 // Verificación de email (GET para enlace en correo)
-router.get('/verify-email/:token', verifyEmail);
+router.get(
+  '/verify-email/:token',
+  (req, res, next) => {
+    // Evita cachear respuestas de verificación
+    res.set('Cache-Control', 'no-store');
+    next();
+  },
+  verifyEmail
+);
 
 /**
  * Refresh Token
- * - Nuevo endpoint preferido:  POST /auth/refresh
- * - Alias de compatibilidad:  POST /auth/refresh-token
- *   (ambos leen la cookie httpOnly 'refreshToken'; no se requiere body)
+ * - Preferido:  POST /auth/refresh
+ * - Alias:      POST /auth/refresh-token
+ * Ambos leen la cookie HttpOnly 'refreshToken' (no body).
  */
 router.post('/refresh', refreshToken);
 router.post('/refresh-token', refreshToken);
-
-// Logout (protegido)
-router.post('/logout', authenticate, logout);
 
 // Reenviar verificación
 router.post('/resend-verification', validateResendVerification, resendVerificationEmail);
@@ -48,24 +51,21 @@ router.post('/resend-verification', validateResendVerification, resendVerificati
 /* ===================== Rutas protegidas ===================== */
 
 // Registro ➜ SOLO ADMIN
-router.post(
-  '/register',
-  authenticate,
-  authorize(['admin']),
-  validateRegister,
-  register
-);
+router.post('/register', authenticate, authorize(['admin']), validateRegister, register);
 
 // Perfil (y alias /me para compatibilidad con el cliente)
 router.get('/profile', authenticate, getProfile);
 router.get('/me', authenticate, getProfile);
+
+// Logout (protegido para limpiar refresh del usuario autenticado)
+router.post('/logout', authenticate, logout);
 
 // Solo admin (ejemplo)
 router.get('/admin', authenticate, authorize(['admin']), (req, res) => {
   res.json({
     success: true,
     message: 'Bienvenido administrador',
-    user: req.user.profile,
+    user: req.user.profile, // definido como virtual en el modelo
   });
 });
 
@@ -74,10 +74,11 @@ router.get('/admin', authenticate, authorize(['admin']), (req, res) => {
 router.get('/healthcheck', (_req, res) => {
   const health = {
     status: 'OK',
-    message: 'El servicio de autenticacion esta funcionando',
+    message: 'El servicio de autenticación está funcionando',
     timestamp: new Date(),
     uptime: process.uptime(),
     database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    env: process.env.NODE_ENV || 'development',
   };
   res.status(200).json(health);
 });

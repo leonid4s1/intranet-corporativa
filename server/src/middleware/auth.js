@@ -1,86 +1,93 @@
-// server/src/routes/auth.js
-import express from 'express';
-import {
-  register,
-  login,
-  refreshToken,
-  logout,
-  resendVerificationEmail,
-  verifyEmail,
-  getProfile,
-} from '../controllers/authController.js';
-import { authenticate, authorize } from '../middleware/auth.js';
-import {
-  validateRegister,
-  validateLogin,
-  // validateRefreshToken, // (no se usa: refresh va por cookie HttpOnly)
-  validateResendVerification,
-} from '../middleware/validation.js';
-import mongoose from 'mongoose';
+// server/src/middleware/auth.js
+import jwt from 'jsonwebtoken';
+import User from '../models/User.js';
+import { body, validationResult } from 'express-validator';
 
-const router = express.Router();
+/* =========================
+ *  AUTHENTICATE (JWT guard)
+ * ========================= */
+export const authenticate = async (req, res, next) => {
+  try {
+    const header = req.header('Authorization') || req.header('authorization') || '';
+    const parts = header.split(' ');
+    const isBearer = parts.length === 2 && parts[0].toLowerCase() === 'bearer';
+    const token = isBearer ? parts[1] : null;
 
-/* ===================== Rutas públicas ===================== */
+    if (!token) return res.status(401).json({ error: 'Acceso no autorizado' });
 
-// Login
-router.post('/login', validateLogin, login);
+    if (!process.env.JWT_SECRET) {
+      console.error('[AUTH] JWT_SECRET ausente en variables de entorno');
+      return res.status(500).json({ error: 'Configuración de autenticación incompleta' });
+    }
 
-// Verificación de email (GET para enlace en correo)
-router.get(
-  '/verify-email/:token',
-  (req, res, next) => {
-    // Evita cachear respuestas de verificación
-    res.set('Cache-Control', 'no-store');
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token expirado' });
+      return res.status(401).json({ error: 'Token inválido' });
+    }
+
+    const user = await User.findById(decoded.userId).select('role isActive name email');
+    if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
+
+    if (!user.isActive) return res.status(403).json({ error: 'Cuenta inactiva' });
+
+    req.user = user; // {_id, role, isActive, name, email}
     next();
-  },
-  verifyEmail
-);
+  } catch (error) {
+    console.error('[AUTH] Error inesperado en authenticate:', error);
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+};
 
-/**
- * Refresh Token
- * - Preferido:  POST /auth/refresh
- * - Alias:      POST /auth/refresh-token
- * Ambos leen la cookie HttpOnly 'refreshToken' (no body).
- */
-router.post('/refresh', refreshToken);
-router.post('/refresh-token', refreshToken);
-
-// Reenviar verificación
-router.post('/resend-verification', validateResendVerification, resendVerificationEmail);
-
-/* ===================== Rutas protegidas ===================== */
-
-// Registro ➜ SOLO ADMIN
-router.post('/register', authenticate, authorize(['admin']), validateRegister, register);
-
-// Perfil (y alias /me para compatibilidad con el cliente)
-router.get('/profile', authenticate, getProfile);
-router.get('/me', authenticate, getProfile);
-
-// Logout (protegido para limpiar refresh del usuario autenticado)
-router.post('/logout', authenticate, logout);
-
-// Solo admin (ejemplo)
-router.get('/admin', authenticate, authorize(['admin']), (req, res) => {
-  res.json({
-    success: true,
-    message: 'Bienvenido administrador',
-    user: req.user.profile, // definido como virtual en el modelo
-  });
-});
-
-/* ===================== Healthcheck ===================== */
-
-router.get('/healthcheck', (_req, res) => {
-  const health = {
-    status: 'OK',
-    message: 'El servicio de autenticación está funcionando',
-    timestamp: new Date(),
-    uptime: process.uptime(),
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    env: process.env.NODE_ENV || 'development',
+/* =========================
+ *  AUTHORIZE (role guard)
+ * ========================= */
+export const authorize = (roles = []) => {
+  const list = Array.isArray(roles) ? roles : [roles];
+  return (req, res, next) => {
+    if (list.length && !list.includes(req.user?.role)) {
+      return res.status(403).json({ error: 'Acceso prohibido' });
+    }
+    next();
   };
-  res.status(200).json(health);
-});
+};
 
-export default router;
+/* =========================
+ *  VALIDACIONES BÁSICAS
+ * ========================= */
+export const validateRegister = [
+  body('name')
+    .notEmpty().withMessage('El nombre es requerido')
+    .isLength({ min: 2, max: 50 }).withMessage('El nombre debe tener entre 2 y 50 caracteres')
+    .trim()
+    .escape(),
+  body('email').isEmail().withMessage('Email invalido').normalizeEmail(),
+  body('password')
+    .isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres')
+    .matches(/(?=.*[a-z])/).withMessage('Debe contener al menos una letra minúscula')
+    .matches(/(?=.*[A-Z])/).withMessage('Debe contener al menos una letra mayúscula')
+    .matches(/(?=.*\d)/).withMessage('Debe contener al menos un número')
+    .matches(/(?=.*[\W_])/).withMessage('Debe contener al menos un carácter especial'),
+  body('password_confirmation')
+    .custom((value, { req }) => {
+      if (value !== req.body.password) throw new Error('Las contraseñas no coinciden');
+      return true;
+    }),
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    next();
+  }
+];
+
+export const validateLogin = [
+  body('email').isEmail().withMessage('Email inválido').normalizeEmail(),
+  body('password').notEmpty().withMessage('Contraseña es requerida'),
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    next();
+  }
+];
