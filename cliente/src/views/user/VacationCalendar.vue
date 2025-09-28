@@ -426,8 +426,10 @@ type CalendarDay = {
 const calendarDays = computed<CalendarDay[]>(() => {
   const startOfMonth = currentDate.value.startOf('month')
   const endOfMonth = currentDate.value.endOf('month')
-  const startGrid = startOfMonth.startOf('week')
-  const endGrid = endOfMonth.endOf('week')
+
+  // 🔧 Forzar grid Domingo–Sábado (independiente del locale)
+  const startGrid = startOfMonth.subtract(startOfMonth.day(), 'day') // domingo previo o mismo día
+  const endGrid   = endOfMonth.add(6 - endOfMonth.day(), 'day')      // sábado siguiente o mismo día
 
   const out: CalendarDay[] = []
   let d = startGrid
@@ -690,13 +692,13 @@ onMounted(async () => {
 .dot--green{ background:var(--ok) } .dot--yellow{ background:var(--warn) } .dot--red{ background:var(--danger) } .dot--blue{ background:var(--info) }
 
 /* Semanas */
-.weekday-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; padding:0 .1rem; } /* más separación */
+.weekday-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; padding:0 .1rem; }
 .weekday-cell{ text-align:center; color:var(--muted); font-size:.9rem; }
 
 /* Grilla */
-.calendar-grid{ --cell:82px; display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; margin-top:.35rem; } /* más separación */
+.calendar-grid{ --cell:82px; display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; margin-top:.35rem; }
 
-/* Celdas (borde más marcado) */
+/* Celdas */
 .day-cell{
   position:relative; min-height:var(--cell);
   background:#fff; border:1.5px solid var(--line); border-radius:12px;
@@ -708,7 +710,7 @@ onMounted(async () => {
 .day-cell.is-other-month{ opacity:.45 }
 .day-cell.is-today{ box-shadow:inset 0 0 0 2px var(--brand) }
 
-/* Badges siempre visibles */
+/* Badges */
 .badges{
   position:absolute; top:6px; left:6px; right:6px;
   display:flex; gap:6px; flex-wrap:wrap; align-items:center; pointer-events:none;
@@ -718,7 +720,7 @@ onMounted(async () => {
   background:#f8fafc; color:#334155; border-color:var(--line); box-shadow:0 1px 0 rgba(0,0,0,.02);
 }
 .badge--holiday{ background:#eef6ff; color:#1d4ed8; border-color:#bfdbfe }
-.badge--weekend{ background:#f3f4f6; color:#475569; border-color:var(--line) }
+.badge--weekend{ background:#f3f4f6; color:#475569; border-color: var(--line); }
 .badge--count{ margin-left:auto; background:#e7f9ef; color:#166534; border-color:#86efac; font-weight:700 }
 .badge--count.is-full{ background:#fff1f2; color:#991b1b; border-color:#fecaca }
 
@@ -730,7 +732,7 @@ onMounted(async () => {
 }
 .day-cell.is-selected .day-number{ color:#1e3a8a }
 
-/* Festivo / Finde / Lleno */
+/* Estados */
 .day-cell.is-full{ background:#fff7ed; border-color:#fed7aa }
 .day-cell.is-holiday:not(.is-full){ background:#eff6ff; border-color:#bfdbfe }
 .day-cell.is-weekend:not(.is-full):not(.is-holiday){ background:#fafafa }
@@ -741,7 +743,7 @@ onMounted(async () => {
 /* Punto de estado */
 .dot{ position:absolute; right:8px; bottom:8px; width:9px; height:9px; border-radius:999px }
 
-/* Chips con nombres (hasta 2 +N) */
+/* Chips con nombres */
 .labels{
   position:absolute; top:28px; right:6px;
   display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 12px);
