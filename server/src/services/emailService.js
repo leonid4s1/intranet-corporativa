@@ -3,53 +3,86 @@ import nodemailer from 'nodemailer';
 
 const {
   EMAIL_USER,
-  EMAIL_PASSWORD,
+  EMAIL_PASSWORD,       // App Password de Gmail (SIN espacios)
   MAIL_FROM,
   SMTP_HOST = 'smtp.gmail.com',
-  SMTP_PORT = '465',
-  SMTP_SECURE = 'true',
 } = process.env;
 
 if (!EMAIL_USER || !EMAIL_PASSWORD) {
-  console.warn('[email] Falta EMAIL_USER o EMAIL_PASSWORD');
+  console.warn('[email] Falta EMAIL_USER o EMAIL_PASSWORD en env');
 }
 
-const transporter = nodemailer.createTransport({
+// Transport TLS 465
+const tx465 = nodemailer.createTransport({
   host: SMTP_HOST,
-  port: Number(SMTP_PORT),
-  secure: String(SMTP_SECURE) === 'true', // true => 465
+  port: 465,
+  secure: true,
   auth: { user: EMAIL_USER, pass: EMAIL_PASSWORD },
   pool: true,
   maxConnections: 3,
   maxMessages: 50,
-  connectionTimeout: 30000, // 30s
-  greetingTimeout: 30000,   // 30s
-  socketTimeout: 45000,     // 45s
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
+  socketTimeout: 45000,
 });
 
-// verificación opcional en arranque (la llamamos desde index.js)
+// Transport STARTTLS 587
+const tx587 = nodemailer.createTransport({
+  host: SMTP_HOST,
+  port: 587,
+  secure: false,
+  requireTLS: true,
+  auth: { user: EMAIL_USER, pass: EMAIL_PASSWORD },
+  pool: true,
+  maxConnections: 3,
+  maxMessages: 50,
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
+  socketTimeout: 45000,
+});
+
+async function tryVerify(t, tag) {
+  await t.verify();
+  console.log(`[email] SMTP listo (${tag})`);
+}
+
 export async function verifyEmailTransport() {
   try {
-    await transporter.verify();
-    console.log('[email] SMTP listo');
-  } catch (e) {
-    console.error('[email] SMTP verify falló:', e?.message || e);
+    await tryVerify(tx465, '465');
+    return true;
+  } catch (e1) {
+    console.error('[email] verify 465 falló:', e1?.message || e1);
+    try {
+      await tryVerify(tx587, '587');
+      return true;
+    } catch (e2) {
+      console.error('[email] verify 587 falló:', e2?.message || e2);
+      return false;
+    }
   }
 }
 
-/** NO romper el flujo HTTP, pero subir timeout a 45s */
-export async function sendMailSafe(mail, timeoutMs = 45000) {
+async function sendWith(t, mail, tag, timeoutMs) {
   const withTimeout = (p, ms) =>
     Promise.race([
       p,
       new Promise((_, r) => setTimeout(() => r(new Error('email-timeout')), ms)),
     ]);
+  const info = await withTimeout(t.sendMail(mail), timeoutMs);
+  console.log(`[email] enviado (${tag}):`, info?.messageId || 'sin-id');
+}
+
+export async function sendMailSafe(mail, timeoutMs = 45000) {
   try {
-    const info = await withTimeout(transporter.sendMail(mail), timeoutMs);
-    if (info?.messageId) console.log('[email] enviado:', info.messageId);
-  } catch (e) {
-    console.error('[email] fallo sendMailSafe:', e?.message || e);
-    // no relanzamos
+    await sendWith(tx465, mail, '465', timeoutMs);
+  } catch (e1) {
+    console.error('[email] 465 fallo:', e1?.message || e1);
+    try {
+      await sendWith(tx587, mail, '587', timeoutMs);
+    } catch (e2) {
+      console.error('[email] 587 fallo:', e2?.message || e2);
+      // No relanzamos: no debe romper el flujo HTTP
+    }
   }
 }
 
