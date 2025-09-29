@@ -23,7 +23,11 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
-// Helper: todas estas rutas requieren admin
+/* =============================
+   Helpers
+   ============================= */
+
+// Todas estas rutas requieren admin
 const adminOnly = [authenticate, adminMiddleware];
 
 // Valida que :id sea un ObjectId válido
@@ -43,6 +47,7 @@ router.get(
   '/',
   ...adminOnly,
   (req, res, next) => {
+    // Evita cache en listados de admin
     res.set('Cache-Control', 'no-store');
     next();
   },

@@ -9,15 +9,16 @@
         </button>
       </div>
 
-      <form @submit.prevent="submit" class="vacation-form">
+      <form @submit.prevent="onSubmit" class="vacation-form">
         <div class="form-group highlight">
           <label class="form-label">Total:</label>
           <input
             type="number"
+            step="1"
+            min="0"
             v-model.number="form.total"
             class="form-input editable"
             required
-            min="0"
           >
           <p v-if="showWarning" class="warning-message">
             <i class="fas fa-exclamation-circle"></i> {{ warningText }}
@@ -28,6 +29,7 @@
           <label class="form-label">Usados:</label>
           <input
             type="number"
+            step="1"
             v-model.number="form.used"
             class="form-input"
             disabled
@@ -38,6 +40,7 @@
           <label class="form-label">Disponibles:</label>
           <input
             type="number"
+            step="1"
             v-model.number="form.remaining"
             class="form-input"
             disabled
@@ -58,58 +61,68 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
-import type { VacationDays, User } from '@/types/user';
+import { ref, watch } from 'vue';
+import type { User } from '@/types/user';
 
-const props = defineProps<{
-  user: User
-}>();
+const props = defineProps<{ user: User }>();
 
 const emit = defineEmits<{
-  (e: 'submit', data: { userId: string, vacationDays: VacationDays }): void;
+  (e: 'save', payload: { id: string; total: number }): void;
   (e: 'cancel'): void;
 }>();
 
 const form = ref({
   total: props.user.vacationDays?.total ?? 0,
   used: props.user.vacationDays?.used ?? 0,
-  remaining: props.user.vacationDays?.remaining ?? 0
+  remaining: props.user.vacationDays?.remaining ?? 0,
 });
 
 const showWarning = ref(false);
 const warningText = ref('');
 
-watch(() => props.user, (newUser) => {
-  form.value = {
-    total: newUser.vacationDays?.total ?? 0,
-    used: newUser.vacationDays?.used ?? 0,
-    remaining: newUser.vacationDays?.remaining ?? 0
-  };
-}, { immediate: true });
+watch(
+  () => props.user,
+  (u) => {
+    form.value = {
+      total: u.vacationDays?.total ?? 0,
+      used: u.vacationDays?.used ?? 0,
+      remaining: u.vacationDays?.remaining ?? 0,
+    };
+  },
+  { immediate: true }
+);
 
-watch(() => form.value.total, (newTotal) => {
-  if (newTotal < form.value.used) {
+watch(
+  () => form.value.total,
+  (newTotal) => {
+    const used = Number(form.value.used) || 0;
+    const t = Math.floor(Number(newTotal) || 0);
+
+    if (t < used) {
+      showWarning.value = true;
+      warningText.value = 'El total no puede ser menor que los días usados';
+    } else {
+      showWarning.value = false;
+      form.value.total = t;
+      form.value.remaining = t - used;
+    }
+  }
+);
+
+function onSubmit() {
+  const total = Math.floor(Number(form.value.total) || 0);
+  const used = Math.floor(Number(form.value.used) || 0);
+
+  if (total < 0) return;
+  if (total < used) {
     showWarning.value = true;
     warningText.value = 'El total no puede ser menor que los días usados';
-  } else {
-    showWarning.value = false;
-    // Actualizar automáticamente los disponibles
-    form.value.remaining = newTotal - form.value.used;
+    return;
   }
-});
 
-const submit = () => {
-  if (form.value.total >= form.value.used) {
-    emit('submit', {
-      userId: props.user.id,
-      vacationDays: {
-        total: form.value.total,
-        used: form.value.used,
-        remaining: form.value.total - form.value.used
-      }
-    });
-  }
-};
+  // Emitimos EXACTAMENTE lo que el backend/servicio espera
+  emit('save', { id: props.user.id, total });
+}
 </script>
 
 <style scoped>
@@ -263,5 +276,11 @@ const submit = () => {
 
 .form-input.editable:valid {
   border-color: #2ecc71;
+}
+
+.warning-message {
+  margin-top: 0.5rem;
+  color: #e67e22;
+  font-size: 0.9rem;
 }
 </style>

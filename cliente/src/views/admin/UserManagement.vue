@@ -281,6 +281,9 @@
             <small v-if="vacForm.newTotal < vacForm.used" class="text-warn">
               El total no puede ser menor que los días usados ({{ vacForm.used }}).
             </small>
+            <small v-else-if="isSameTotal" class="text-warn">
+              El nuevo total es igual al actual.
+            </small>
           </div>
         </div>
 
@@ -288,7 +291,7 @@
           <button class="cancel-btn" @click="closeVacModal">Cancelar</button>
           <button
             class="save-btn"
-            :disabled="savingVac || vacForm.newTotal < vacForm.used"
+            :disabled="savingVac || vacForm.newTotal < vacForm.used || isSameTotal"
             @click.stop.prevent="saveVacationTotal()"
           >
             {{ savingVac ? 'Guardando…' : 'Guardar' }}
@@ -445,6 +448,12 @@ const vacForm = ref({
   newTotal: 0
 })
 
+/* Computed para habilitar/deshabilitar Guardar */
+const isSameTotal = computed(() => {
+  const t = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
+  return t === vacForm.value.currentTotal
+})
+
 onMounted(async () => {
   await fetchUsers()
 })
@@ -558,14 +567,28 @@ async function saveVacationTotal() {
   try {
     savingVac.value = true
     const newTotal = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
-    console.log('[saveVacationTotal] START', { id: vacForm.value.id, newTotal })
+    console.log('[saveVacationTotal] START', { id: vacForm.value.id, total: newTotal })
 
-    await userService.setVacationTotal(vacForm.value.id, { total: newTotal })
+    // Evita llamada si no hay cambios
+    if (newTotal === vacForm.value.currentTotal) {
+      pushToast('No hay cambios en el total de días', 'info')
+      return closeVacModal()
+    }
 
-    console.log('[saveVacationTotal] OK -> refetch users')
-    await fetchUsers()
+    // PATCH
+    const vd = await userService.setVacationTotal(vacForm.value.id, { total: newTotal })
+
+    // Actualiza la fila local sin refetch
+    const idx = users.value.findIndex(u => u.id === vacForm.value.id)
+    if (idx !== -1) {
+      users.value[idx] = {
+        ...users.value[idx],
+        vacationDays: { ...vd },
+      }
+    }
+
     closeVacModal()
-    pushToast('Días de vacaciones actualizados', 'success')
+    pushToast(`Días de vacaciones actualizados: total ${vd.total}, disponibles ${vd.remaining}`, 'success')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'No se pudieron guardar los días'
     vacError.value = msg
@@ -679,7 +702,6 @@ async function saveVacationTotal() {
 .modal-error { margin: .75rem 1.5rem 1.25rem; padding: 0.75rem; background-color: #fff5f5; color: #e53e3e; border-radius: 0.375rem; font-size: 0.875rem; }
 .modal-info { margin: .75rem 1.5rem 1.25rem; padding: 0.75rem; background-color: #f0fff4; color: #2f855a; border-radius: 0.375rem; font-size: 0.875rem; }
 
-/* Específicos de otros modales */
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; margin-bottom: .75rem; }
 .stat { background: #f7fafc; border: 1px solid #edf2f7; padding: .5rem .75rem; border-radius: .375rem; }
 .stat.full { grid-column: 1 / -1; }
