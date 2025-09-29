@@ -412,41 +412,73 @@ export const updateUserData = async (req, res) => {
 export const setVacationTotal = async (req, res) => {
   try {
     const { id } = req.params
-    const total = toInt(req.body.total, -1)
+    const total = Math.max(0, Math.floor(Number(req.body?.total)))
 
-    if (total < 0) {
+    if (!Number.isFinite(total)) {
       return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' })
     }
 
-    const user = await User.findById(id)
-    if (!user) {
+    // 1) Lee used actual
+    const u = await User.findById(id).select('vacationDays.used').lean()
+    if (!u) {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND })
     }
 
-    ensureVacSubdoc(user)
-
-    const used = toInt(user.vacationDays?.used, 0)
+    const used = Math.max(0, Math.floor(Number(u?.vacationDays?.used ?? 0)))
     if (total < used) {
       return res
         .status(400)
         .json({ success: false, message: 'El total no puede ser menor que los usados' })
     }
 
-    user.vacationDays.total = total
-    user.vacationDays.lastUpdate = new Date()
-    await user.save()
-    const sync = await upsertVacationData(user)
+    // 2) Update atómico (sin save hooks)
+    await User.updateOne(
+      { _id: id },
+      {
+        $set: {
+          'vacationDays.total': total,
+          'vacationDays.lastUpdate': new Date(),
+        },
+      },
+      { runValidators: true }
+    )
+
+    // 3) Sincroniza VacationData (robusto a E11000)
+    const remaining = Math.max(0, total - used)
+    try {
+      await VacationData.updateOne(
+        { user: id },
+        {
+          $set: { total, used, remaining, lastUpdate: new Date() },
+          $setOnInsert: { user: id },
+        },
+        { upsert: true, runValidators: true }
+      )
+    } catch (err) {
+      if (err?.code === 11000) {
+        await VacationData.updateOne(
+          { user: id },
+          { $set: { total, used, remaining, lastUpdate: new Date() } },
+          { runValidators: true }
+        )
+      } else {
+        throw err
+      }
+    }
 
     return res.json({
       success: true,
       message: 'Días de vacaciones (total) actualizados',
-      data: sync,
+      data: { total, used, remaining },
     })
   } catch (error) {
-    console.error('setVacationTotal error:', error)
-    return res
-      .status(500)
-      .json({ success: false, message: 'Error actualizando días', error: error.message, code: error?.code })
+    console.error('setVacationTotal error:', { id: req.params.id, body: req.body, code: error?.code }, error)
+    return res.status(500).json({
+      success: false,
+      message: 'Error actualizando días',
+      error: error?.message || String(error),
+      code: error?.code,
+    })
   }
 }
 
