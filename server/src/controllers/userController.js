@@ -422,7 +422,7 @@ export const setVacationTotal = async (req, res) => {
       return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' });
     }
 
-    // Lee 'used' actual (lean para no instanciar documento)
+    // Lee 'used' actual
     const u = await User.findById(id).select('vacationDays.used').lean();
     if (!u) {
       return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
@@ -435,72 +435,59 @@ export const setVacationTotal = async (req, res) => {
         .json({ success: false, message: 'El total no puede ser menor que los usados', meta: { total, used } });
     }
 
-    // Update atómico SIN validadores (evita validaciones cruzadas/hook)
+    // Update atómico del User (sin validadores para evitar roces de schema)
     const upd = await User.updateOne(
       { _id: id },
-      {
-        $set: {
-          'vacationDays.total': total,
-          'vacationDays.lastUpdate': new Date(),
-        },
-      },
-      { runValidators: false } // ⬅️ importante para descartar problemas de schema
+      { $set: { 'vacationDays.total': total, 'vacationDays.lastUpdate': new Date() } },
+      { runValidators: false }
     );
-
     console.log('[setVacationTotal] User.updateOne result', upd);
 
-    // Sync VacationData (tolerante a E11000)
     const remaining = Math.max(0, total - used);
-    try {
-      const updv = await VacationData.updateOne(
-        { user: id },
-        {
-          $set: { total, used, remaining, lastUpdate: new Date() },
-          $setOnInsert: { user: id },
-        },
-        { upsert: true, runValidators: false }
-      );
-      console.log('[setVacationTotal] VacationData.updateOne result', updv);
-    } catch (err) {
-      if (err?.code === 11000) {
-        const updv2 = await VacationData.updateOne(
-          { user: id },
-          { $set: { total, used, remaining, lastUpdate: new Date() } },
-          { runValidators: false }
-        );
-        console.log('[setVacationTotal] VacationData.updateOne E11000 -> retry result', updv2);
-      } else {
-        throw err;
-      }
-    }
 
-    return res.json({
+    // ✅ RESPONDEMOS YA (no bloqueamos al cliente)
+    res.json({
       success: true,
       message: 'Días de vacaciones (total) actualizados',
       data: { total, used, remaining },
     });
+
+    // 🔧 Sincronización con VacationData en background (no afecta la respuesta)
+    setImmediate(async () => {
+      try {
+        const updv = await VacationData.updateOne(
+          { user: id },
+          {
+            $set: { total, used, remaining, lastUpdate: new Date() },
+            $setOnInsert: { user: id },
+          },
+          { upsert: true, runValidators: false }
+        );
+        console.log('[setVacationTotal/bg] VacationData.updateOne OK', updv?.acknowledged, updv);
+      } catch (err) {
+        if (err?.code === 11000) {
+          const updv2 = await VacationData.updateOne(
+            { user: id },
+            { $set: { total, used, remaining, lastUpdate: new Date() } },
+            { runValidators: false }
+          );
+          console.warn('[setVacationTotal/bg] E11000 retry OK', updv2?.acknowledged, updv2);
+        } else {
+          console.error('[setVacationTotal/bg] ERROR sync VacationData:', {
+            name: err?.name, code: err?.code, msg: err?.message, stack: err?.stack?.split('\n')[0],
+          });
+        }
+      }
+    });
   } catch (error) {
-    // Respuesta súper detallada para ver en Network → Response
-    const payload = {
+    console.error('setVacationTotal error (outer catch):', {
+      id, body: req.body, name: error?.name, code: error?.code, msg: error?.message,
+    });
+    return res.status(500).json({
       success: false,
       message: 'Error actualizando días',
       error: error?.message || String(error),
-      name: error?.name,
-      code: error?.code,
-      kind: error?.kind,
-      path: error?.path,
-      stack: (error?.stack || '').split('\n').slice(0, 3).join('\n'),
-    };
-
-    // Si es ValidationError/CastError, incluye más info
-    if (error?.errors && typeof error.errors === 'object') {
-      payload.validation = Object.fromEntries(
-        Object.entries(error.errors).map(([k, v]) => [k, v?.message || String(v)])
-      );
-    }
-
-    console.error('setVacationTotal error:', { id, body: req.body }, error);
-    return res.status(500).json(payload);
+    });
   }
 };
 
