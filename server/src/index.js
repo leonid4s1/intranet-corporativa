@@ -16,6 +16,7 @@ import vacationRoutes from './routes/vacations.js'
 import cookieParser from 'cookie-parser'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { verifyEmailTransport } from './services/emailService.js'  // ⬅️ NUEVO
 
 dotenv.config()
 
@@ -102,7 +103,7 @@ app.options('*', cors(corsOptions)) // preflight global
 
 // Evita problemas de cache/CDN con CORS (asegura variación por origen y preflight)
 app.use((req, res, next) => {
-  res.header('Vvary', 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers')
+  res.header('Vary', 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers') // ⬅️ FIX
   next()
 })
 /* ==================================================================== */
@@ -141,6 +142,9 @@ app.get('/api/health', async (_req, res) => {
 connectDB()
 mongoose.connection.on('connected', () => console.log('✅ Conectado a MongoDB'))
 mongoose.connection.on('error', (err) => console.error('❌ Error MongoDB:', err))
+
+/** Verificar transporte de email al arrancar (logs claros) */
+verifyEmailTransport().catch(() => {})               // ⬅️ NUEVO
 
 /** Rutas API */
 app.use('/api/auth', authRoutes)
