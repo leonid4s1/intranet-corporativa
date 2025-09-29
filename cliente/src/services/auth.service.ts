@@ -32,11 +32,16 @@ interface ErrorResponse {
 }
 
 const handleApiError = (error: unknown): ErrorResponse => {
+  // 👇 Mensaje claro si fue timeout de Axios
+  if (isAxiosError(error) && error.code === 'ECONNABORTED') {
+    return { success: false, message: 'La operación tardó más de lo esperado. Inténtalo de nuevo.' };
+  }
+
   if (!isAxiosError(error)) {
     return { success: false, message: 'Error desconocido al procesar la solicitud' };
   }
   if (!error.response) {
-    return { success: false, message: 'Error de conexión. Verifique su conexión a internet' };
+    return { success: false, message: 'Error de conexión. Verifica tu internet' };
   }
 
   const status = error.response.status;
@@ -137,7 +142,12 @@ export const AuthService = {
   /* POST /api/auth/resend-verification */
   async resendVerificationEmail(email: string): Promise<ResendVerificationResponse> {
     try {
-      const { data } = await api.post<ResendResponseWire>('/auth/resend-verification', { email });
+      // Puede tardar si el backend aún espera al proveedor de email
+      const { data } = await api.post<ResendResponseWire>(
+        '/auth/resend-verification',
+        { email },
+        { timeout: 30000 } // opcional: ampliar solo aquí
+      );
       return {
         success: !!data?.success,
         sent: !!data?.success,

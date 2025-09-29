@@ -369,6 +369,12 @@ function validateCreate(): boolean {
   return !Object.values(e).some(Boolean)
 }
 
+/* --- helper para detectar timeouts de Axios --- */
+function looksLikeTimeout(err: unknown) {
+  const anyErr = err as { code?: string; message?: string }
+  return anyErr?.code === 'ECONNABORTED' || /timeout/i.test(anyErr?.message || '')
+}
+
 async function handleCreateUser() {
   if (creating.value) return
   if (!validateCreate()) {
@@ -393,9 +399,16 @@ async function handleCreateUser() {
         : `Usuario creado: ${user.name}.`,
       'success'
     )
-    // Cerramos rápido para volver a la tabla
     closeCreateModal()
   } catch (err: unknown) {
+    // Fallback: si el servidor tardó pero sí creó el usuario, refrescamos la lista.
+    if (looksLikeTimeout(err)) {
+      await fetchUsers()
+      closeCreateModal()
+      pushToast('Usuario creado, pero el servidor tardó más de lo esperado. Refrescamos la lista.', 'info')
+      console.warn('[createUser][timeout] Refrescado de lista tras timeout', err)
+      return
+    }
     const msg = err instanceof Error ? err.message : 'No se pudo crear el usuario'
     pushToast(msg, 'error')
     console.error('[createUser] ERROR', err)
