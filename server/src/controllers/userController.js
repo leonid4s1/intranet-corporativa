@@ -410,29 +410,33 @@ export const updateUserData = async (req, res) => {
 
 /** PATCH /api/users/:id/vacation/total  { total } */
 export const setVacationTotal = async (req, res) => {
+  const { id } = req.params;
+  const rawTotal = req.body?.total;
+
   try {
-    const { id } = req.params
-    const total = Math.max(0, Math.floor(Number(req.body?.total)))
+    console.log('[setVacationTotal] IN', { id, body: req.body });
 
+    // Validación básica
+    const total = Math.max(0, Math.floor(Number(rawTotal)));
     if (!Number.isFinite(total)) {
-      return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' })
+      return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' });
     }
 
-    // 1) Lee used actual
-    const u = await User.findById(id).select('vacationDays.used').lean()
+    // Lee 'used' actual (lean para no instanciar documento)
+    const u = await User.findById(id).select('vacationDays.used').lean();
     if (!u) {
-      return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND })
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     }
 
-    const used = Math.max(0, Math.floor(Number(u?.vacationDays?.used ?? 0)))
+    const used = Math.max(0, Math.floor(Number(u?.vacationDays?.used ?? 0)));
     if (total < used) {
       return res
         .status(400)
-        .json({ success: false, message: 'El total no puede ser menor que los usados' })
+        .json({ success: false, message: 'El total no puede ser menor que los usados', meta: { total, used } });
     }
 
-    // 2) Update atómico (sin save hooks)
-    await User.updateOne(
+    // Update atómico SIN validadores (evita validaciones cruzadas/hook)
+    const upd = await User.updateOne(
       { _id: id },
       {
         $set: {
@@ -440,29 +444,33 @@ export const setVacationTotal = async (req, res) => {
           'vacationDays.lastUpdate': new Date(),
         },
       },
-      { runValidators: true }
-    )
+      { runValidators: false } // ⬅️ importante para descartar problemas de schema
+    );
 
-    // 3) Sincroniza VacationData (robusto a E11000)
-    const remaining = Math.max(0, total - used)
+    console.log('[setVacationTotal] User.updateOne result', upd);
+
+    // Sync VacationData (tolerante a E11000)
+    const remaining = Math.max(0, total - used);
     try {
-      await VacationData.updateOne(
+      const updv = await VacationData.updateOne(
         { user: id },
         {
           $set: { total, used, remaining, lastUpdate: new Date() },
           $setOnInsert: { user: id },
         },
-        { upsert: true, runValidators: true }
-      )
+        { upsert: true, runValidators: false }
+      );
+      console.log('[setVacationTotal] VacationData.updateOne result', updv);
     } catch (err) {
       if (err?.code === 11000) {
-        await VacationData.updateOne(
+        const updv2 = await VacationData.updateOne(
           { user: id },
           { $set: { total, used, remaining, lastUpdate: new Date() } },
-          { runValidators: true }
-        )
+          { runValidators: false }
+        );
+        console.log('[setVacationTotal] VacationData.updateOne E11000 -> retry result', updv2);
       } else {
-        throw err
+        throw err;
       }
     }
 
@@ -470,17 +478,31 @@ export const setVacationTotal = async (req, res) => {
       success: true,
       message: 'Días de vacaciones (total) actualizados',
       data: { total, used, remaining },
-    })
+    });
   } catch (error) {
-    console.error('setVacationTotal error:', { id: req.params.id, body: req.body, code: error?.code }, error)
-    return res.status(500).json({
+    // Respuesta súper detallada para ver en Network → Response
+    const payload = {
       success: false,
       message: 'Error actualizando días',
       error: error?.message || String(error),
+      name: error?.name,
       code: error?.code,
-    })
+      kind: error?.kind,
+      path: error?.path,
+      stack: (error?.stack || '').split('\n').slice(0, 3).join('\n'),
+    };
+
+    // Si es ValidationError/CastError, incluye más info
+    if (error?.errors && typeof error.errors === 'object') {
+      payload.validation = Object.fromEntries(
+        Object.entries(error.errors).map(([k, v]) => [k, v?.message || String(v)])
+      );
+    }
+
+    console.error('setVacationTotal error:', { id, body: req.body }, error);
+    return res.status(500).json(payload);
   }
-}
+};
 
 /** POST /api/users/:id/vacation/add  { days } */
 export const addVacationDays = async (req, res) => {
