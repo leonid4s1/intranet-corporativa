@@ -61,30 +61,43 @@ const upsertVacationData = async (userDoc) => {
   return { total, used, remaining }
 }
 
-// Mapea el usuario + datos de vacaciones con fallback a user.vacationDays
+// Mapea el usuario + datos de vacaciones usando la fuente más fresca
 const mapUserWithVacation = (user, vacationMap) => {
-  const vacDoc = vacationMap.get(user._id.toString())
+  const vacDoc = vacationMap.get(user._id.toString()) || null
 
-  const uVac = user.vacationDays ?? { total: 0, used: 0 }
-  const base = {
-    total: toNum(uVac.total, 0),
-    used: toNum(uVac.used, 0),
-  }
-  const fallback = {
-    ...base,
-    remaining: Math.max(0, base.total - base.used),
+  const uVac = user?.vacationDays ?? { total: 0, used: 0, lastUpdate: null }
+  const dVac = vacDoc ?? { total: 0, used: 0, lastUpdate: null }
+
+  const uDate = uVac?.lastUpdate ? new Date(uVac.lastUpdate).getTime() : 0
+  const dDate = dVac?.lastUpdate ? new Date(dVac.lastUpdate).getTime() : 0
+
+  // 1) Preferir el que tenga lastUpdate más reciente
+  let chosen = null
+  if (uDate > dDate) {
+    chosen = { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
+  } else if (dDate > uDate) {
+    chosen = { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
+  } else {
+    // 2) Si empatan en fecha (o sin fecha), preferir el que no esté en cero
+    const uZero = !(toNum(uVac.total, 0) || toNum(uVac.used, 0))
+    const dZero = !(toNum(dVac.total, 0) || toNum(dVac.used, 0))
+
+    if (!uZero && dZero) {
+      chosen = { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
+    } else if (!dZero && uZero) {
+      chosen = { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
+    } else {
+      // 3) Empate total: usar doc si existe; si no, user
+      chosen = vacDoc
+        ? { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
+        : { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
+    }
   }
 
-  const fromDoc = vacDoc
-    ? {
-        total: toNum(vacDoc.total, 0),
-        used: toNum(vacDoc.used, 0),
-        remaining:
-          vacDoc.remaining != null
-            ? toNum(vacDoc.remaining, 0)
-            : Math.max(0, toNum(vacDoc.total, 0) - toNum(vacDoc.used, 0)),
-      }
-    : null
+  const remaining =
+    vacDoc && dDate >= uDate && vacDoc.remaining != null
+      ? toNum(vacDoc.remaining, Math.max(0, chosen.total - chosen.used))
+      : Math.max(0, chosen.total - chosen.used)
 
   return {
     id: user._id.toString(),
@@ -95,7 +108,11 @@ const mapUserWithVacation = (user, vacationMap) => {
     isVerified: user.isVerified,
     email_verified_at: user.email_verified_at,
     createdAt: user.createdAt,
-    vacationDays: fromDoc || fallback,
+    vacationDays: {
+      total: chosen.total,
+      used: chosen.used,
+      remaining,
+    },
   }
 }
 
