@@ -4,14 +4,13 @@ import VacationData from '../models/VacationData.js';
 import VacationRequest from '../models/VacationRequest.js';
 
 /**
- * Suma los días de todas las solicitudes aprobadas de un usuario.
- * Intenta usar, en este orden: daysCount -> days.length -> (endDate - startDate + 1)
+ * Suma los días de una solicitud:
+ * - daysCount -> days.length -> rango de fechas (calendario)
  */
 function countRequestDays(req) {
   if (typeof req.daysCount === 'number' && Number.isFinite(req.daysCount)) return req.daysCount;
   if (Array.isArray(req.days)) return req.days.length;
 
-  // fallback por fechas (asume días calendario; si manejas hábiles, adapta aquí)
   const start = req.startDate ? new Date(req.startDate) : null;
   const end   = req.endDate ? new Date(req.endDate) : null;
   if (start && end && !isNaN(start) && !isNaN(end)) {
@@ -22,54 +21,80 @@ function countRequestDays(req) {
   return 0;
 }
 
+const toInt = (v, def = 0) => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.max(0, n) : def;
+};
+
 /**
- * Recalcula los días usados de vacaciones de un usuario (suma solicitudes aprobadas)
- * y sincroniza User.vacationDays y VacationData.
+ * Recalcula los días USADOS de un usuario a partir de sus solicitudes aprobadas
+ * y sincroniza tanto User.vacationDays como la colección VacationData.
+ *
+ * Política aplicada: **CAP** → used = min(approvedUsed, total)
+ * (si prefieres elevar total automáticamente, avísame y te dejo la variante).
  */
 export async function recomputeUserVacationUsed(userId) {
-  // 1) sumar usados por solicitudes aprobadas
-  const approved = await VacationRequest.find({ user: userId, status: 'approved' }).lean();
-  const used = approved.reduce((sum, r) => sum + countRequestDays(r), 0);
+  // 1) Sumar usados por solicitudes aprobadas
+  const [approved, user, vd] = await Promise.all([
+    VacationRequest.find({ user: userId, status: 'approved' }).lean(),
+    User.findById(userId).select('vacationDays').lean(),
+    VacationData.findOne({ user: userId }).lean(),
+  ]);
 
-  // 2) obtener el total actual (desde User o desde VacationData si existe)
-  const user = await User.findById(userId).lean();
-  const vd   = await VacationData.findOne({ user: userId }).lean();
-  const total = (user?.vacationDays?.total ?? vd?.total ?? 0);
+  const approvedUsed = toInt(approved.reduce((sum, r) => sum + countRequestDays(r), 0), 0);
 
-  // 3) actualizar User (no necesitamos el hook post-save aquí, actualizamos ambas colecciones explícitamente)
-  await User.findByIdAndUpdate(
-    userId,
+  // 2) Total actual (User tiene prioridad; si no, VacationData)
+  const total = toInt(user?.vacationDays?.total ?? vd?.total ?? 0, 0);
+
+  // 3) CAP: nunca dejar que used supere total
+  const safeUsed = Math.min(approvedUsed, total);
+  const remaining = Math.max(0, total - safeUsed);
+  const now = new Date();
+
+  // 4) Actualizar User con validadores
+  await User.updateOne(
+    { _id: userId },
     {
-      'vacationDays.used': used,
-      'vacationDays.lastUpdate': new Date()
+      $set: {
+        'vacationDays.used': safeUsed,
+        'vacationDays.lastUpdate': now,
+      },
     },
-    { new: true }
+    { runValidators: true, context: 'query' }
   );
 
-  // 4) actualizar/crear VacationData
-  await VacationData.findOneAndUpdate(
+  // 5) Actualizar/crear VacationData (resumen)
+  await VacationData.updateOne(
     { user: userId },
     {
-      total,
-      used,
-      remaining: Math.max(0, total - used),
-      lastUpdate: new Date()
+      $set: {
+        total,
+        used: safeUsed,
+        remaining,
+        lastUpdate: now,
+      },
+      $setOnInsert: { user: userId },
     },
-    { upsert: true, new: true, runValidators: true }
+    { upsert: true, runValidators: true, setDefaultsOnInsert: true }
   );
 
-  return { total, used, remaining: Math.max(0, total - used) };
+  return { total, used: safeUsed, remaining };
 }
 
 /**
- * (Opcional) Recalcula usados para todos los usuarios.
+ * Recalcula usados para todos los usuarios (continúa aunque alguno falle).
  */
 export async function recomputeAllUsersVacationUsed() {
   const users = await User.find().select('_id').lean();
   const results = [];
   for (const u of users) {
-    const r = await recomputeUserVacationUsed(u._id);
-    results.push({ user: u._id.toString(), ...r });
+    try {
+      const r = await recomputeUserVacationUsed(u._id);
+      results.push({ user: u._id.toString(), ok: true, ...r });
+    } catch (err) {
+      console.error('[vacations] Error recomputing user', u._id?.toString(), err?.message || err);
+      results.push({ user: u._id.toString(), ok: false, error: err?.message || String(err) });
+    }
   }
   return results;
 }
