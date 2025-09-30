@@ -67,19 +67,6 @@ export type AdminApprovedRow = {
   createdAt: string | null;
 };
 
-/** Forma en la que llega cada fila desde el backend (parcial/relajada) */
-type AdminApprovedApiRow = {
-  id?: string;
-  _id?: string;
-  startDate?: string;
-  endDate?: string;
-  totalDays?: number;
-  displayName?: string;
-  displayEmail?: string | null;
-  userStatus?: UserStatusFilter | string;
-  createdAt?: string | null;
-};
-
 /* =========================
  * Helpers seguros / type guards
  * ========================= */
@@ -97,10 +84,28 @@ function isUserStatus(x: unknown): x is UserStatusFilter {
   return x === 'Activo' || x === 'Inactivo' || x === 'Eliminado';
 }
 
+/** Accesos seguros a propiedades de Record<string, unknown> */
+function getStr(obj: Record<string, unknown>, key: string): string | undefined {
+  const v = obj[key];
+  return isString(v) ? v : undefined;
+}
+function getNum(obj: Record<string, unknown>, key: string): number | undefined {
+  const v = obj[key];
+  return isNumber(v) ? v : undefined;
+}
+function getRec(obj: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const v = obj[key];
+  return isRecord(v) ? v : undefined;
+}
+function getArr(obj: Record<string, unknown>, key: string): unknown[] | undefined {
+  const v = obj[key];
+  return Array.isArray(v) ? v : undefined;
+}
+
 /** Algunos endpoints vienen como { data: ... } */
 function unwrapData<T>(payload: unknown, fallback: T): T {
   if (isRecord(payload) && 'data' in payload) {
-    const inner = (payload as { data: unknown }).data;
+    const inner = (payload as Record<string, unknown>).data;
     return (inner as T) ?? fallback;
   }
   return (payload as T) ?? fallback;
@@ -120,23 +125,26 @@ export async function getVacationBalance(): Promise<VacationBalance> {
 
   // current > balance > root
   const nodeRaw =
-    (isRecord(base.current) ? base.current : undefined) ??
-    (isRecord(base.balance) ? base.balance : undefined) ??
+    (isRecord(base.current as unknown) ? (base.current as Record<string, unknown>) : undefined) ??
+    (isRecord(base.balance as unknown) ? (base.balance as Record<string, unknown>) : undefined) ??
     base;
 
   const current = isRecord(nodeRaw) ? nodeRaw : {};
 
-  const availableDays = Number(
-    ((current.availableDays ??
-      current.remaining ??
-      current.remainingDays ??
-      current.available ??
-      0) as number)
-  );
-  const usedDays = Number((current.usedDays ?? current.used ?? 0) as number);
-  const totalAnnualDays = Number(
-    ((current.totalAnnualDays ?? current.total ?? current.annual ?? 0) as number)
-  );
+  const availableDays =
+    Number(
+      (current['availableDays'] ??
+        current['remaining'] ??
+        current['remainingDays'] ??
+        current['available'] ??
+        0) as number
+    ) || 0;
+
+  const usedDays = Number((current['usedDays'] ?? current['used'] ?? 0) as number) || 0;
+
+  const totalAnnualDays =
+    Number((current['totalAnnualDays'] ?? current['total'] ?? current['annual'] ?? 0) as number) ||
+    0;
 
   return { availableDays, usedDays, totalAnnualDays };
 }
@@ -157,8 +165,9 @@ export async function getHolidays(
     .map((h: unknown): ApiHoliday | null => {
       if (isString(h)) return { date: h };
       if (isRecord(h)) {
-        const date = isString(h.date) ? h.date : '';
-        const name = isString(h.name) ? h.name : undefined;
+        const rec = h as Record<string, unknown>;
+        const date = getStr(rec, 'date') ?? '';
+        const name = getStr(rec, 'name') ?? undefined;
         return date ? { date, name } : null;
       }
       return null;
@@ -168,29 +177,25 @@ export async function getHolidays(
 
 // pequeño type guard opcional
 function isVacationRequestApi(x: unknown): x is VacationRequestApi {
-  return (
-    isRecord(x) &&
-    isString(x.startDate) &&
-    isString(x.endDate) &&
-    isString(x.status)
-  );
+  if (!isRecord(x)) return false;
+  const r = x as Record<string, unknown>;
+  return isString(getStr(r, 'startDate')) && isString(getStr(r, 'endDate')) && isString(getStr(r, 'status'));
 }
 
 export async function getUserVacations(): Promise<VacationsUserResponse> {
   const { data } = await api.get('/vacations/requests');
 
   const wrapped = unwrapData<unknown>(data, {});
+  const wrappedRec = isRecord(wrapped) ? (wrapped as Record<string, unknown>) : {};
 
-  // lector seguro sin any
   const readList = (key: 'approved' | 'pending' | 'rejected'): VacationRequestApi[] => {
-    if (isRecord(wrapped) && Array.isArray(wrapped[key])) {
-      return (wrapped[key] as unknown[]).filter(isVacationRequestApi);
-    }
-    return [];
+    const arr = getArr(wrappedRec, key);
+    if (!arr) return [];
+    return arr.filter(isVacationRequestApi) as VacationRequestApi[];
   };
 
   const approved = readList('approved');
-  const pending  = readList('pending');
+  const pending = readList('pending');
   const rejected = readList('rejected');
 
   return rejected.length ? { approved, pending, rejected } : { approved, pending };
@@ -211,17 +216,18 @@ export async function getTeamVacations(
     .map((v: unknown): TeamVacationApi | null => {
       if (!isRecord(v)) return null;
 
-      const id = isString(v.id) ? v.id : undefined;
-      const userId = isString(v.userId) ? v.userId : undefined;
-      const start = isString(v.startDate) ? v.startDate : '';
-      const end = isString(v.endDate) ? v.endDate : '';
+      const rec = v as Record<string, unknown>;
+      const id = getStr(rec, 'id');
+      const userId = getStr(rec, 'userId');
+      const start = getStr(rec, 'startDate') ?? '';
+      const end = getStr(rec, 'endDate') ?? '';
 
-      const userObj = isRecord(v.user) ? v.user : {};
+      const userObj = getRec(rec, 'user') ?? {};
       const user = {
-        id: isString(userObj.id) ? userObj.id : undefined,
-        _id: isString(userObj._id) ? userObj._id : undefined,
-        name: isString(userObj.name) ? userObj.name : undefined,
-        email: isString(userObj.email) ? userObj.email : undefined,
+        id: getStr(userObj, 'id') ?? undefined,
+        _id: getStr(userObj, '_id') ?? undefined,
+        name: getStr(userObj, 'name') ?? undefined,
+        email: getStr(userObj, 'email') ?? undefined,
       };
 
       return start && end ? { id, userId, startDate: start, endDate: end, user } : null;
@@ -272,30 +278,23 @@ export async function getPendingRequests(): Promise<UIVacationRequest[]> {
     const rec = isRecord(v) ? (v as Record<string, unknown>) : {};
 
     const id =
-      isString(rec._id)
-        ? rec._id
-        : isString(rec.id)
-        ? rec.id
-        : '';
+      getStr(rec, '_id') ??
+      getStr(rec, 'id') ??
+      '';
 
-    const startDate = isString(rec.startDate) ? rec.startDate : '';
-    const endDate = isString(rec.endDate) ? rec.endDate : '';
-    const status = (isString(rec.status) ? rec.status : 'pending') as Status;
-    const reason = isString(rec.reason) ? rec.reason : undefined;
-    const rejectReason = isString(rec.rejectReason) ? rec.rejectReason : undefined;
-    const daysRequested =
-      isNumber(rec.daysRequested) ? rec.daysRequested : undefined;
+    const startDate = getStr(rec, 'startDate') ?? '';
+    const endDate = getStr(rec, 'endDate') ?? '';
+    const statusRaw = getStr(rec, 'status') ?? 'pending';
+    const status = (statusRaw as Status);
+    const reason = getStr(rec, 'reason') ?? undefined;
+    const rejectReason = getStr(rec, 'rejectReason') ?? undefined;
+    const daysRequested = getNum(rec, 'daysRequested') ?? undefined;
 
-    const u = isRecord(rec.user) ? (rec.user as Record<string, unknown>) : {};
+    const u = getRec(rec, 'user') ?? {};
     const user = {
-      id:
-        isString(u._id)
-          ? u._id
-          : isString(u.id)
-          ? u.id
-          : '',
-      name: isString(u.name) ? u.name : 'Usuario',
-      email: isString(u.email) ? u.email : undefined,
+      id: getStr(u, '_id') ?? getStr(u, 'id') ?? '',
+      name: getStr(u, 'name') ?? 'Usuario',
+      email: getStr(u, 'email') ?? undefined,
     };
 
     return { id, user, startDate, endDate, status, reason, rejectReason, daysRequested };
@@ -314,26 +313,27 @@ type UpdateStatusPayload = {
 
 function isUpdatePayload(v: unknown): v is UpdateStatusPayload {
   if (!isRecord(v)) return false;
-  const idOk = isString(v.id) && v.id.length > 0;
-  const st = v.status;
+  const r = v as Record<string, unknown>;
+  const idOk = isString(getStr(r, 'id')) && (getStr(r, 'id') as string).length > 0;
+  const st = getStr(r, 'status');
   const statusOk = st === 'approved' || st === 'rejected';
-  return idOk && statusOk;
+  return idOk && !!statusOk;
 }
 
 // Overloads
-export function updateRequestStatus(payload: UpdateStatusPayload): Promise<unknown>;
+export function updateRequestStatus(payload: UpdateStatusPayload): Promise<VacationRequestApi>;
 export function updateRequestStatus(
   id: string,
   status: ApproveReject,
   rejectReason?: string
-): Promise<unknown>;
+): Promise<VacationRequestApi>;
 
 // Impl
 export async function updateRequestStatus(
   arg1: UpdateStatusPayload | string,
   arg2?: ApproveReject,
   arg3?: string
-): Promise<unknown> {
+): Promise<VacationRequestApi> {
   let id: string;
   let status: ApproveReject;
   let rejectReason: string | undefined;
@@ -348,13 +348,29 @@ export async function updateRequestStatus(
     rejectReason = arg3;
   }
 
+  // Guard de UX: evita ida/vuelta si falta motivo o es muy corto/largo
+  if (status === 'rejected') {
+    const msg = (rejectReason ?? '').trim();
+    if (msg.length < 3) throw new Error('El motivo de rechazo debe tener al menos 3 caracteres');
+    if (msg.length > 500) throw new Error('El motivo de rechazo no puede exceder 500 caracteres');
+  }
+
   const body: Record<string, unknown> = { status };
   if (status === 'rejected') {
-    body.rejectReason = rejectReason ?? '';
+    body['rejectReason'] = rejectReason ?? '';
   }
 
   const { data } = await api.patch(`/vacations/requests/${id}/status`, body);
-  return data as unknown;
+  // Backend responde { success, data }; devolvemos el objeto "data"
+  return unwrapData<VacationRequestApi>(data, {} as VacationRequestApi);
+}
+
+/** Azúcar sintáctico: evita confusiones con el nombre del campo */
+export function approve(id: string) {
+  return updateRequestStatus(id, 'approved');
+}
+export function reject(id: string, reason: string) {
+  return updateRequestStatus({ id, status: 'rejected', rejectReason: reason });
 }
 
 /** Reporte admin de TODAS las vacaciones aprobadas (activos, inactivos o eliminados) */
@@ -373,26 +389,24 @@ export async function getApprovedAdmin(params?: {
     .map((v: unknown): AdminApprovedRow | null => {
       if (!isRecord(v)) return null;
 
-      const rec = v as Partial<AdminApprovedApiRow>;
+      const rec = v as Record<string, unknown>;
 
-      const id =
-        isString(rec.id) ? rec.id :
-        isString(rec._id) ? rec._id : '';
+      const id = getStr(rec, 'id') ?? getStr(rec, '_id') ?? '';
+      const startDate = getStr(rec, 'startDate') ?? '';
+      const endDate   = getStr(rec, 'endDate') ?? '';
+      const totalDays = getNum(rec, 'totalDays') ?? 0;
+      const displayName  = getStr(rec, 'displayName') ?? '';
+      const displayEmailRaw = rec['displayEmail'];
+      const displayEmail =
+        displayEmailRaw === null ? null : (isString(displayEmailRaw) ? displayEmailRaw : null);
 
-      const startDate = isString(rec.startDate) ? rec.startDate : '';
-      const endDate   = isString(rec.endDate)   ? rec.endDate   : '';
-      const totalDays = isNumber(rec.totalDays) ? rec.totalDays : 0;
-      const displayName  = isString(rec.displayName) ? rec.displayName : '';
-      const displayEmail = rec.displayEmail === null
-        ? null
-        : isString(rec.displayEmail) ? rec.displayEmail : null;
-
+      const statusRaw = rec['userStatus'];
       const userStatus: UserStatusFilter =
-        isUserStatus(rec.userStatus) ? rec.userStatus as UserStatusFilter : 'Activo';
+        isUserStatus(statusRaw) ? statusRaw : 'Activo';
 
-      const createdAt = rec.createdAt === null
-        ? null
-        : isString(rec.createdAt) ? rec.createdAt : null;
+      const createdAtRaw = rec['createdAt'];
+      const createdAt =
+        createdAtRaw === null ? null : (isString(createdAtRaw) ? createdAtRaw : null);
 
       if (!id || !startDate || !endDate) return null;
       return { id, startDate, endDate, totalDays, displayName, displayEmail, userStatus, createdAt };
@@ -414,5 +428,7 @@ export default {
   cancelVacationRequest,
   getPendingRequests,
   updateRequestStatus,
+  approve,
+  reject,
   getApprovedAdmin,
 };

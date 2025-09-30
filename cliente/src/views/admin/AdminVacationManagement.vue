@@ -401,7 +401,7 @@ async function confirmReject() {
   try {
     reject.value.loading = true;
     isActionLoading.value = id;
-    await vacationService.updateRequestStatus({ id, status: 'rejected', reason: text });
+    await vacationService.updateRequestStatus({ id, status: 'rejected', rejectReason: text });
     showAlert('success', 'Solicitud rechazada');
     closeRejectDialog();
     await loadPending();

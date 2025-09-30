@@ -5,6 +5,11 @@ import VacationRequest from '../models/VacationRequest.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
 import VacationData from '../models/VacationData.js';
+import {
+  sendVacationApprovedEmail,
+  sendVacationRejectedEmail,
+} from '../services/emailService.js';
+
 
 /* ===========================
    Helpers de fechas (UTC)
@@ -585,13 +590,48 @@ export const updateVacationRequestStatus = async (req, res, next) => {
 
     // 3) EFECTOS EN SEGUNDO PLANO
     process.nextTick(async () => {
+      // Recalcular usados
       try {
         await recomputeUserVacationUsed(uid);
       } catch (err) {
         console.error('[vacations] Error en recomputeUserVacationUsed:', err?.message || err);
       }
-    });
 
+      // Envío de correo al usuario
+      try {
+        const to = doc.user?.email;
+        const name = doc.user?.name || doc.userSnapshot?.name || '';
+        const approverName = req.user?.name || req.user?.email || 'Recursos Humanos';
+
+        if (to) {
+          if (status === 'approved') {
+            await sendVacationApprovedEmail({
+              to,
+              name,
+              startDate: doc.startDate,
+              endDate: doc.endDate,
+              approverName,
+            });
+            console.log('[vacations] Email de aprobación enviado a', to);
+          } else if (status === 'rejected') {
+            await sendVacationRejectedEmail({
+              to,
+              name,
+              startDate: doc.startDate,
+              endDate: doc.endDate,
+              reason: doc.rejectReason || '',
+              approverName,
+            });
+            console.log('[vacations] Email de rechazo enviado a', to);
+          }
+        } else {
+          console.warn('[vacations] Usuario sin email; no se envía notificación.');
+        }
+      } catch (err) {
+        // No romper flujo: ya respondimos al cliente
+        console.error('[vacations] Error enviando correo:', err?.message || err);
+      }
+    });
   } catch (e) {
     next(e);
   }

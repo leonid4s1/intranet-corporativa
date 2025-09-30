@@ -141,3 +141,69 @@ export async function sendVerificationEmail({ to, name, link }) {
   `;
   await sendMailSafe({ to, from, subject: 'Verifica tu email', html });
 }
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Helpers de formateo locales (MX)
+const fmtMX = (date) =>
+  new Date(date).toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City' });
+
+/**
+ * Envía correo: Vacaciones APROBADAS
+ * @param {{to:string, name?:string, startDate:Date|string, endDate:Date|string, approverName?:string}} p
+ */
+export async function sendVacationApprovedEmail(p) {
+  const { to, name, startDate, endDate, approverName } = p;
+  const subject = '✅ Vacaciones aprobadas';
+  const html = `
+    <div style="font-family:system-ui,Segoe UI,Arial">
+      <h2 style="margin:0 0 8px">✅ Vacaciones aprobadas</h2>
+      <p>Hola <strong>${name ?? ''}</strong>,</p>
+      <p>Tu solicitud de vacaciones ha sido <strong>APROBADA</strong>.</p>
+      <p><strong>Fechas aprobadas:</strong><br>
+        ${fmtMX(startDate)} — ${fmtMX(endDate)}
+      </p>
+      <p>Aprobado por: <strong>${approverName || 'Recursos Humanos'}</strong></p>
+      <p>¡Disfruta tus vacaciones!</p>
+    </div>
+  `;
+  const text = `Hola ${name ?? ''},
+Tu solicitud de vacaciones ha sido APROBADA.
+
+Fechas aprobadas:
+${fmtMX(startDate)} — ${fmtMX(endDate)}
+
+Aprobado por: ${approverName || 'Recursos Humanos'}`;
+
+  await sendMailSafe({ to, subject, html, text });
+}
+
+/**
+ * Envía correo: Vacaciones RECHAZADAS
+ * @param {{to:string, name?:string, startDate:Date|string, endDate:Date|string, reason?:string, approverName?:string}} p
+ */
+export async function sendVacationRejectedEmail(p) {
+  const { to, name, startDate, endDate, reason, approverName } = p;
+  const subject = '❌ Vacaciones rechazadas';
+  const html = `
+    <div style="font-family:system-ui,Segoe UI,Arial">
+      <h2 style="margin:0 0 8px">❌ Vacaciones rechazadas</h2>
+      <p>Hola <strong>${name ?? ''}</strong>,</p>
+      <p>Tu solicitud de vacaciones ha sido <strong>RECHAZADA</strong>.</p>
+      <p><strong>Fechas no aprobadas:</strong><br>
+        ${fmtMX(startDate)} — ${fmtMX(endDate)}
+      </p>
+      <p><strong>Motivo:</strong> ${reason || 'No especificado'}</p>
+      <p>Revisado por: <strong>${approverName || 'Recursos Humanos'}</strong></p>
+    </div>
+  `;
+  const text = `Hola ${name ?? ''},
+Tu solicitud de vacaciones ha sido RECHAZADA.
+
+Fechas no aprobadas:
+${fmtMX(startDate)} — ${fmtMX(endDate)}
+
+Motivo: ${reason || 'No especificado'}
+Revisado por: ${approverName || 'Recursos Humanos'}`;
+
+  await sendMailSafe({ to, subject, html, text });
+}
