@@ -44,6 +44,26 @@ const UserSchema = new mongoose.Schema({
     required: true
   },
 
+  // ===============================
+  // 👇 NUEVOS CAMPOS DE PERFIL
+  // ===============================
+  birthDate: {
+    type: Date,
+    default: null
+  }, // fecha de nacimiento
+
+  hireDate: {
+    type: Date,
+    default: null
+  }, // fecha de ingreso
+
+  position: {
+    type: String,
+    trim: true,
+    maxlength: [120, 'El puesto no puede exceder 120 caracteres'],
+    default: null
+  }, // puesto
+
   refreshToken: {
     type: String,
     select: false
@@ -132,6 +152,9 @@ const UserSchema = new mongoose.Schema({
 UserSchema.index({ role: 1 });
 UserSchema.index({ isActive: 1 });
 UserSchema.index({ isVerified: 1 });
+// (opcionales, útiles para reportes/listados)
+UserSchema.index({ hireDate: 1 });
+UserSchema.index({ position: 1 });
 
 /* ================================
  *  Virtuales
@@ -155,6 +178,10 @@ UserSchema.virtual('profile').get(function () {
     role: this.role,
     isActive: this.isActive,
     isVerified: this.isVerified,
+    // 👇 expón nuevos campos en el perfil básico
+    birthDate: this.birthDate,
+    hireDate: this.hireDate,
+    position: this.position,
     createdAt: this.createdAt
   };
 });
@@ -209,7 +236,7 @@ UserSchema.methods.generateRefreshToken = function () {
   const refreshToken = jwt.sign(
     { userId: this._id },
     process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRE || '7d' }
+    { expiresIn: process.env.RECRESH_TOKEN_EXPIRE || process.env.REFRESH_TOKEN_EXPIRE || '7d' }
   );
   this.refreshToken = refreshToken;
   return refreshToken;

@@ -17,6 +17,11 @@ export interface User {
   role: Role
   isActive: boolean
   email_verified_at?: string | null
+  // 👇 nuevos campos de metadata laboral
+  position?: string | null
+  birthDate?: string | null // YYYY-MM-DD o ISO
+  hireDate?: string | null  // YYYY-MM-DD o ISO
+
   vacationDays?: VacationDays
 }
 
@@ -40,6 +45,17 @@ export interface CreateUserAsAdminPayload {
   password: string
   password_confirmation: string
   role?: Role
+  // 👇 nuevos (opcionales)
+  position?: string
+  birthDate?: string | Date // YYYY-MM-DD o Date
+  hireDate?: string | Date  // YYYY-MM-DD o Date
+}
+
+/** Meta editable desde el panel */
+export interface UpdateUserMetaPayload {
+  position?: string | ''            // '' para limpiar
+  birthDate?: string | ''           // YYYY-MM-DD o '' para limpiar
+  hireDate?: string | ''            // YYYY-MM-DD o '' para limpiar
 }
 
 /* Vacaciones */
@@ -65,6 +81,18 @@ function toNum(v: unknown): number | undefined {
   if (typeof v === 'number' && !Number.isNaN(v)) return v
   if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v)
   return undefined
+}
+
+/** Normaliza fecha a YYYY-MM-DD (UTC) si es posible */
+function toISODateOnly(v?: unknown): string | undefined {
+  const s = typeof v === 'string' ? v : v instanceof Date ? v.toISOString() : undefined
+  if (!s) return undefined
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return typeof v === 'string' ? v : undefined
+  const yyyy = d.getUTCFullYear()
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(d.getUTCDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
 }
 
 /** Normaliza un usuario venido del backend (directo / {user} / {data}) */
@@ -97,6 +125,11 @@ function normalizeUser(raw: unknown): User | null {
     toStr(get(r, 'emailVerifiedAt')) ??
     undefined
 
+  // 👇 nuevos campos
+  const position = toStr(get(r, 'position')) ?? null
+  const birthDate = toISODateOnly(get(r, 'birthDate')) ?? (toStr(get(r, 'birthDate')) ?? null)
+  const hireDate  = toISODateOnly(get(r, 'hireDate'))  ?? (toStr(get(r, 'hireDate'))  ?? null)
+
   // Vacaciones
   let vacationDays: VacationDays | undefined
   if (isRecord(get(r, 'vacationDays'))) {
@@ -107,7 +140,7 @@ function normalizeUser(raw: unknown): User | null {
     vacationDays = { total, used, remaining }
   }
 
-  return { id, name, email, role, isActive: isActive ?? true, email_verified_at, vacationDays }
+  return { id, name, email, role, isActive: isActive ?? true, email_verified_at, position, birthDate, hireDate, vacationDays }
 }
 
 function unwrapList(data: unknown): unknown[] {
@@ -201,6 +234,9 @@ export async function createUserAsAdmin(
     password_confirmation: payload.password_confirmation,
   }
   if (payload.role) body.role = payload.role
+  if (payload.position?.trim()) body.position = payload.position.trim()
+  if (payload.birthDate) body.birthDate = toISODateOnly(payload.birthDate)
+  if (payload.hireDate)  body.hireDate  = toISODateOnly(payload.hireDate)
 
   const { data } = await api.post('/auth/register', body)
 
@@ -212,6 +248,25 @@ export async function createUserAsAdmin(
     (isRecord(data) && (get<boolean>(data, 'requiresEmailVerification') ?? true)) || true
 
   return { user, requiresEmailVerification }
+}
+
+/** ✏️ Actualizar metadata (puesto y fechas)
+ *  Endpoint sugerido: PATCH /users/:id/meta con body { position?, birthDate?, hireDate? }
+ *  Si tu backend usa otra ruta, ajusta aquí.
+ */
+export async function updateUserMeta(
+  userId: string,
+  payload: UpdateUserMetaPayload
+): Promise<User> {
+  const body: Record<string, unknown> = {}
+  if (payload.position !== undefined) body.position = payload.position?.trim?.() ?? ''
+  if (payload.birthDate !== undefined) body.birthDate = payload.birthDate ? toISODateOnly(payload.birthDate) : ''
+  if (payload.hireDate  !== undefined) body.hireDate  = payload.hireDate  ? toISODateOnly(payload.hireDate)  : ''
+
+  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/meta`, body)
+  const user = normalizeUser(data)
+  if (!user) throw new Error('Respuesta inválida al actualizar metadata')
+  return user
 }
 
 /* ======= Vacaciones ======= */
@@ -266,7 +321,8 @@ export default {
   toggleUserLock,
   updateUserPassword,
   deleteUser,
-  createUserAsAdmin, // ✅ nuevo
+  createUserAsAdmin,
+  updateUserMeta,     // ✅ nuevo
   // vacaciones
   setVacationTotal,
   addVacationDays,

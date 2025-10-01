@@ -13,7 +13,7 @@ const ERROR_MESSAGES = {
 }
 
 /* ==============================
-   Helpers
+   Helpers numéricos y fechas
 ============================== */
 const toNum = (v, def = 0) => {
   const n = Number(v)
@@ -26,7 +26,36 @@ const toInt = (v, def = 0) => {
   return Number.isFinite(n) ? Math.max(0, n) : def
 }
 
-// Asegura que el subdocumento exista
+// --- Fechas ---
+const isoDayRe = /^\d{4}-\d{2}-\d{2}$/
+const toDateOnlyUTC = (val) => {
+  if (val == null || val === '') return undefined
+  if (val instanceof Date) {
+    if (Number.isNaN(val.getTime())) return undefined
+    const d = new Date(val)
+    d.setUTCHours(0, 0, 0, 0)
+    return d
+  }
+  if (typeof val === 'string') {
+    if (!isoDayRe.test(val)) return undefined
+    const d = new Date(val)
+    if (Number.isNaN(d.getTime())) return undefined
+    d.setUTCHours(0, 0, 0, 0)
+    return d
+  }
+  return undefined
+}
+const todayUTC = () => {
+  const t = new Date()
+  t.setUTCHours(0, 0, 0, 0)
+  return t
+}
+const isFutureUTC = (d) => d && d.getTime() > todayUTC().getTime()
+const yearsBetween = (a, b) => (b.getTime() - a.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+
+/* ==============================
+   Asegura subdoc vacaciones
+============================== */
 const ensureVacSubdoc = (user) => {
   if (!user.vacationDays) {
     user.vacationDays = { total: 0, used: 0, lastUpdate: new Date() }
@@ -52,7 +81,6 @@ const upsertVacationData = async (userDoc) => {
     )
   } catch (err) {
     if (err?.code === 11000) {
-      // Ya existe; solo actualiza
       await VacationData.updateOne(filter, { $set }, { runValidators: true })
     } else {
       throw err
@@ -61,7 +89,9 @@ const upsertVacationData = async (userDoc) => {
   return { total, used, remaining }
 }
 
-// Mapea el usuario + datos de vacaciones usando la fuente más fresca
+/* ==============================
+   Mapper con vacaciones + meta
+============================== */
 const mapUserWithVacation = (user, vacationMap) => {
   const vacDoc = vacationMap.get(user._id.toString()) || null
 
@@ -71,27 +101,19 @@ const mapUserWithVacation = (user, vacationMap) => {
   const uDate = uVac?.lastUpdate ? new Date(uVac.lastUpdate).getTime() : 0
   const dDate = dVac?.lastUpdate ? new Date(dVac.lastUpdate).getTime() : 0
 
-  // 1) Preferir el que tenga lastUpdate más reciente
   let chosen = null
   if (uDate > dDate) {
     chosen = { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
   } else if (dDate > uDate) {
     chosen = { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
   } else {
-    // 2) Si empatan en fecha (o sin fecha), preferir el que no esté en cero
     const uZero = !(toNum(uVac.total, 0) || toNum(uVac.used, 0))
     const dZero = !(toNum(dVac.total, 0) || toNum(dVac.used, 0))
-
-    if (!uZero && dZero) {
-      chosen = { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
-    } else if (!dZero && uZero) {
-      chosen = { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
-    } else {
-      // 3) Empate total: usar doc si existe; si no, user
-      chosen = vacDoc
-        ? { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
-        : { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
-    }
+    if (!uZero && dZero) chosen = { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
+    else if (!dZero && uZero) chosen = { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
+    else chosen = vacDoc
+      ? { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
+      : { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
   }
 
   const remaining =
@@ -108,11 +130,12 @@ const mapUserWithVacation = (user, vacationMap) => {
     isVerified: user.isVerified,
     email_verified_at: user.email_verified_at,
     createdAt: user.createdAt,
-    vacationDays: {
-      total: chosen.total,
-      used: chosen.used,
-      remaining,
-    },
+    // 👇 NUEVO: meta laboral
+    position: user.position ?? null,
+    birthDate: user.birthDate ?? null,
+    hireDate: user.hireDate ?? null,
+    // vacaciones
+    vacationDays: { total: chosen.total, used: chosen.used, remaining },
   }
 }
 
@@ -123,7 +146,8 @@ export const getUsers = async (_req, res) => {
   try {
     const [users, vacationDataList] = await Promise.all([
       User.find()
-        .select('name email role isActive isVerified email_verified_at createdAt vacationDays')
+        // 👇 añadimos campos nuevos
+        .select('name email role isActive isVerified email_verified_at createdAt vacationDays position birthDate hireDate')
         .lean()
         .exec(),
       VacationData.find().lean().exec(),
@@ -149,7 +173,7 @@ export const getUsers = async (_req, res) => {
 
 /* ==============================
    POST /api/users   (admin)
-   Body: { name, email, password, role?, isActive?, isVerified?, availableDays? }
+   Body: { name, email, password, role?, isActive?, isVerified?, availableDays?, position?, birthDate?, hireDate? }
 ============================== */
 export const createUser = async (req, res) => {
   try {
@@ -161,6 +185,10 @@ export const createUser = async (req, res) => {
       isActive = true,
       isVerified = false,
       availableDays,
+      // 👇 nuevos campos
+      position,
+      birthDate,
+      hireDate,
     } = req.body
 
     if (!name || !email || !password) {
@@ -178,6 +206,20 @@ export const createUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Rol no válido' })
     }
 
+    // Validaciones de fechas
+    const bd = toDateOnlyUTC(birthDate)
+    const hd = toDateOnlyUTC(hireDate)
+
+    if (bd && isFutureUTC(bd)) {
+      return res.status(400).json({ success: false, message: 'La fecha de nacimiento no puede ser futura' })
+    }
+    if (hd && isFutureUTC(hd)) {
+      return res.status(400).json({ success: false, message: 'La fecha de ingreso no puede ser futura' })
+    }
+    if (bd && hd && yearsBetween(bd, hd) < 14) {
+      return res.status(400).json({ success: false, message: 'Ingreso inconsistente con el nacimiento (≥ 14 años)' })
+    }
+
     const user = new User({
       name,
       email,
@@ -186,6 +228,10 @@ export const createUser = async (req, res) => {
       isActive,
       isVerified,
       email_verified_at: isVerified ? new Date() : undefined,
+      // 👇 meta laboral
+      position: typeof position === 'string' && position.trim() ? position.trim() : undefined,
+      birthDate: bd,
+      hireDate: hd,
     })
 
     ensureVacSubdoc(user)
@@ -198,35 +244,17 @@ export const createUser = async (req, res) => {
     await user.save()
     await upsertVacationData(user)
 
-    // ---- RESPONDE YA (no esperar envío de correo) ----
+    // ---- RESPUESTA
     res.status(201).json({
       success: true,
       message: 'Usuario creado',
-      user: {
-        id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        isActive: user.isActive,
-        isVerified: user.isVerified,
-        email_verified_at: user.email_verified_at,
-        createdAt: user.createdAt,
-        vacationDays: {
-          total: toNum(user.vacationDays?.total, 0),
-          used: toNum(user.vacationDays?.used, 0),
-          remaining: Math.max(
-            0,
-            toNum(user.vacationDays?.total, 0) - toNum(user.vacationDays?.used, 0)
-          ),
-        },
-      },
+      user: mapUserWithVacation(user.toObject(), new Map()),
     })
 
-    // ---- Envío de verificación en background (solo si falta verificar) ----
+    // ---- Envío de verificación en background (solo si falta verificar)
     if (!isVerified) {
       setImmediate(async () => {
         try {
-          // Import dinámico para evitar ciclo de dependencias
           const { sendVerificationForUser } = await import('./authController.js')
           if (typeof sendVerificationForUser === 'function') {
             await sendVerificationForUser(user._id)
@@ -274,7 +302,6 @@ export const deleteUser = async (req, res) => {
 
 /* ==============================
    PATCH /api/users/:id/role
-   Body: { role: 'admin' | 'user' | 'moderator' }
 ============================== */
 export const updateUserRole = async (req, res) => {
   try {
@@ -296,7 +323,7 @@ export const updateUserRole = async (req, res) => {
     return res.json({
       success: true,
       message: 'Rol actualizado',
-      user,
+      user: mapUserWithVacation(user.toObject(), new Map()),
     })
   } catch (error) {
     console.error('Error actualizando rol:', error)
@@ -324,11 +351,7 @@ export const toggleUserLock = async (req, res) => {
     return res.json({
       success: true,
       message: user.isActive ? 'Usuario activado' : 'Usuario desactivado',
-      user: {
-        id: user._id.toString(),
-        name: user.name,
-        isActive: user.isActive,
-      },
+      user: { id: user._id.toString(), name: user.name, isActive: user.isActive },
     })
   } catch (error) {
     console.error('Error cambiando estado usuario:', error)
@@ -342,12 +365,10 @@ export const toggleUserLock = async (req, res) => {
 
 /* ==============================
    PATCH /api/users/:id/password
-   Body: { newPassword }
 ============================== */
 export const updateUserPassword = async (req, res) => {
   try {
     const { newPassword } = req.body
-
     if (!newPassword || newPassword.length < 8) {
       return res.status(400).json({
         success: false,
@@ -363,10 +384,7 @@ export const updateUserPassword = async (req, res) => {
     user.password = newPassword // se hashea en pre('save')
     await user.save()
 
-    return res.json({
-      success: true,
-      message: 'Contraseña actualizada',
-    })
+    return res.json({ success: true, message: 'Contraseña actualizada' })
   } catch (error) {
     console.error('Error actualizando contraseña:', error)
     return res.status(500).json({
@@ -406,7 +424,7 @@ export const updateUserData = async (req, res) => {
     return res.json({
       success: true,
       message: 'Datos actualizados',
-      user,
+      user: mapUserWithVacation(user.toObject(), new Map()),
     })
   } catch (error) {
     console.error('Error actualizando datos:', error)
@@ -416,6 +434,73 @@ export const updateUserData = async (req, res) => {
     return res.status(500).json({
       success: false,
       message,
+      error: error.message,
+    })
+  }
+}
+
+/* ==============================
+   NUEVO: PATCH /api/users/:id/meta
+   Body: { position?, birthDate?, hireDate? }
+============================== */
+export const updateUserMeta = async (req, res) => {
+  try {
+    const { id } = req.params
+    const { position, birthDate, hireDate } = req.body
+
+    const user = await User.findById(id)
+    if (!user) {
+      return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND })
+    }
+
+    // Preparamos nuevos valores tomando en cuenta los actuales
+    let bd = user.birthDate ?? undefined
+    let hd = user.hireDate ?? undefined
+
+    if (birthDate !== undefined) {
+      if (birthDate === '' || birthDate === null) bd = undefined
+      else {
+        const parsed = toDateOnlyUTC(birthDate)
+        if (!parsed) return res.status(400).json({ success: false, message: 'Formato de birthDate inválido (YYYY-MM-DD)' })
+        if (isFutureUTC(parsed)) return res.status(400).json({ success: false, message: 'birthDate no puede ser futura' })
+        bd = parsed
+      }
+    }
+
+    if (hireDate !== undefined) {
+      if (hireDate === '' || hireDate === null) hd = undefined
+      else {
+        const parsed = toDateOnlyUTC(hireDate)
+        if (!parsed) return res.status(400).json({ success: false, message: 'Formato de hireDate inválido (YYYY-MM-DD)' })
+        if (isFutureUTC(parsed)) return res.status(400).json({ success: false, message: 'hireDate no puede ser futura' })
+        hd = parsed
+      }
+    }
+
+    if (bd && hd && yearsBetween(bd, hd) < 14) {
+      return res.status(400).json({ success: false, message: 'Ingreso inconsistente con nacimiento (≥ 14 años)' })
+    }
+
+    // Asignaciones
+    if (position !== undefined) {
+      const p = typeof position === 'string' ? position.trim() : ''
+      user.position = p || undefined
+    }
+    user.birthDate = bd
+    user.hireDate = hd
+
+    await user.save()
+
+    return res.json({
+      success: true,
+      message: 'Metadata actualizada',
+      user: mapUserWithVacation(user.toObject(), new Map()),
+    })
+  } catch (error) {
+    console.error('Error actualizando metadata:', error)
+    return res.status(500).json({
+      success: false,
+      message: ERROR_MESSAGES.DEFAULT_ERROR,
       error: error.message,
     })
   }
@@ -433,13 +518,11 @@ export const setVacationTotal = async (req, res) => {
   try {
     console.log('[setVacationTotal] IN', { id, body: req.body });
 
-    // Validación básica
     const total = Math.max(0, Math.floor(Number(rawTotal)));
     if (!Number.isFinite(total)) {
       return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' });
     }
 
-    // Lee 'used' actual
     const u = await User.findById(id).select('vacationDays.used').lean();
     if (!u) {
       return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
@@ -452,7 +535,6 @@ export const setVacationTotal = async (req, res) => {
         .json({ success: false, message: 'El total no puede ser menor que los usados', meta: { total, used } });
     }
 
-    // Update atómico del User (sin validadores para evitar roces de schema)
     const upd = await User.updateOne(
       { _id: id },
       { $set: { 'vacationDays.total': total, 'vacationDays.lastUpdate': new Date() } },
@@ -462,14 +544,12 @@ export const setVacationTotal = async (req, res) => {
 
     const remaining = Math.max(0, total - used);
 
-    // ✅ RESPONDEMOS YA (no bloqueamos al cliente)
     res.json({
       success: true,
       message: 'Días de vacaciones (total) actualizados',
       data: { total, used, remaining },
     });
 
-    // 🔧 Sincronización con VacationData en background (no afecta la respuesta)
     setImmediate(async () => {
       try {
         const updv = await VacationData.updateOne(

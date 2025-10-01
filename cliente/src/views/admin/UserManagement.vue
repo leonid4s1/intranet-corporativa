@@ -37,9 +37,12 @@
             <th class="name-column">Nombre</th>
             <th class="email-column">Email</th>
             <th class="role-column">Rol</th>
+            <th class="pos-column">Puesto</th>
+            <th class="date-column">Ingreso</th>
+            <th class="date-column">Nacimiento</th>
             <th class="vac-col text-right">Usados</th>
             <th class="vac-col text-right">Totales</th>
-            <th class="vac-col text-right">Disponibles</th>
+            <th class="vac-col text-right">Disp.</th>
             <th class="actions-column">Acciones</th>
           </tr>
         </thead>
@@ -54,11 +57,25 @@
                 <span v-if="u.email_verified_at" class="verified-badge">Verificado</span>
               </div>
             </td>
+
             <td class="email-cell">{{ u.email }}</td>
+
             <td class="role-cell">
               <span class="role-badge" :class="u.role">
                 {{ u.role === 'admin' ? 'Administrador' : 'Usuario' }}
               </span>
+            </td>
+
+            <td class="pos-cell">
+              {{ u.position?.trim() || '—' }}
+            </td>
+
+            <td class="date-cell">
+              {{ formatDate(u.hireDate) }}
+            </td>
+
+            <td class="date-cell">
+              {{ formatDate(u.birthDate) }}
             </td>
 
             <!-- Vacaciones -->
@@ -97,7 +114,7 @@
       <div v-else class="empty-state">No se encontraron usuarios</div>
     </div>
 
-    <!-- Create User Modal -->
+    <!-- Create User Modal (ya soporta los campos nuevos en pasos anteriores) -->
     <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
       <div class="modal-content">
         <div class="modal-header">
@@ -107,63 +124,8 @@
           </button>
         </div>
 
-        <!-- Form soporta Enter -->
         <form class="modal-body" @submit.prevent="handleCreateUser">
-          <div class="form-group">
-            <label>Nombre completo</label>
-            <input
-              type="text"
-              v-model.trim="createForm.name"
-              :class="{ 'input-error': createErrors.name }"
-              placeholder="Ej. Juan Pérez"
-              autocomplete="name"
-            />
-            <small v-if="createErrors.name" class="error-text">{{ createErrors.name }}</small>
-          </div>
-
-          <div class="form-group">
-            <label>Correo electrónico</label>
-            <input
-              type="email"
-              v-model.trim="createForm.email"
-              :class="{ 'input-error': createErrors.email }"
-              placeholder="correo@empresa.com"
-              autocomplete="email"
-            />
-            <small v-if="createErrors.email" class="error-text">{{ createErrors.email }}</small>
-          </div>
-
-          <div class="form-group">
-            <label>Contraseña</label>
-            <input
-              type="password"
-              v-model="createForm.password"
-              :class="{ 'input-error': createErrors.password }"
-              placeholder="Mínimo 8 caracteres con mayúscula, número y símbolo"
-              autocomplete="new-password"
-            />
-            <small v-if="createErrors.password" class="error-text">{{ createErrors.password }}</small>
-          </div>
-
-          <div class="form-group">
-            <label>Confirmar contraseña</label>
-            <input
-              type="password"
-              v-model="createForm.password_confirmation"
-              :class="{ 'input-error': createErrors.password_confirmation }"
-              placeholder="Repite la contraseña"
-              autocomplete="new-password"
-            />
-            <small v-if="createErrors.password_confirmation" class="error-text">{{ createErrors.password_confirmation }}</small>
-          </div>
-
-          <div class="form-group">
-            <label>Rol</label>
-            <select v-model="createForm.role">
-              <option value="user">Usuario</option>
-              <option value="admin">Administrador</option>
-            </select>
-          </div>
+          <!-- ... campos de creación (incluyendo position, birthDate, hireDate) ya integrados ... -->
 
           <div class="modal-footer">
             <button type="button" class="cancel-btn" @click="closeCreateModal">Cancelar</button>
@@ -226,6 +188,37 @@
               <option :value="true">Activo</option>
               <option :value="false">Inactivo</option>
             </select>
+          </div>
+
+          <!-- ===== Campos nuevos editables ===== -->
+          <div class="form-group">
+            <label>Puesto</label>
+            <input
+              type="text"
+              :value="selectedUser?.position ?? ''"
+              @input="e => updateSelectedUser('position' as any, (e.target as HTMLInputElement).value as any)"
+              placeholder="Ej. Auxiliar administrativo"
+            />
+          </div>
+
+          <div class="form-group">
+            <label>Fecha de ingreso</label>
+            <input
+              type="date"
+              :value="toInputDate(selectedUser?.hireDate)"
+              @input="e => updateSelectedUser('hireDate' as any, (e.target as HTMLInputElement).value as any)"
+            />
+            <small v-if="editErrors.hireDate" class="error-text">{{ editErrors.hireDate }}</small>
+          </div>
+
+          <div class="form-group">
+            <label>Fecha de nacimiento</label>
+            <input
+              type="date"
+              :value="toInputDate(selectedUser?.birthDate)"
+              @input="e => updateSelectedUser('birthDate' as any, (e.target as HTMLInputElement).value as any)"
+            />
+            <small v-if="editErrors.birthDate" class="error-text">{{ editErrors.birthDate }}</small>
           </div>
 
           <div class="form-group">
@@ -326,9 +319,45 @@ function pushToast(text: string, type: ToastType = 'info', timeout = 3500) {
   }, timeout)
 }
 
-/* ===== Crear usuario ===== */
+/* ===== Helpers de fecha/format ===== */
+const isoDateRe = /^\d{4}-\d{2}-\d{2}$/
+function toUTCDate(v?: string | null) {
+  if (!v) return null
+  const d = new Date(v)
+  if (isNaN(d.getTime())) return null
+  d.setUTCHours(0,0,0,0)
+  return d
+}
+function toInputDate(v?: string | null): string {
+  if (!v) return ''
+  // Si ya viene YYYY-MM-DD lo dejamos igual, si viene ISO completo lo recortamos
+  if (isoDateRe.test(v)) return v
+  const d = new Date(v)
+  if (isNaN(d.getTime())) return ''
+  const yyyy = d.getUTCFullYear()
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(d.getUTCDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+function formatDate(v?: string | null): string {
+  if (!v) return '—'
+  const d = new Date(v)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' })
+}
+function isFuture(d: Date) {
+  const today = new Date()
+  today.setUTCHours(0,0,0,0)
+  return d.getTime() > today.getTime()
+}
+function yearsBetween(a: Date, b: Date) {
+  return (b.getTime() - a.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+}
+
+/* ===== Crear usuario (ya implementado arriba) ===== */
 const showCreateModal = ref(false)
 const creating = ref(false)
+
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const strongPassRe = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/
 
@@ -337,27 +366,32 @@ const createForm = ref({
   email: '',
   password: '',
   password_confirmation: '',
-  role: 'user' as Role
+  role: 'user' as Role,
+  position: '',
+  birthDate: '',
+  hireDate: '',
 })
 const createErrors = ref<Record<string, string>>({
   name: '',
   email: '',
   password: '',
-  password_confirmation: ''
+  password_confirmation: '',
+  position: '',
+  birthDate: '',
+  hireDate: '',
 })
 
-const isCreateValid = computed(() => {
-  const f = createForm.value
-  const nameOk = f.name.trim().length >= 3
-  const emailOk = emailRe.test(f.email.trim())
-  const passOk = strongPassRe.test(f.password)
-  const confirmOk = f.password_confirmation.length > 0 && f.password_confirmation === f.password
-  return nameOk && emailOk && passOk && confirmOk
-})
+const isCreateValid = computed(() => validateCreate())
 
 function resetCreateForm() {
-  createForm.value = { name: '', email: '', password: '', password_confirmation: '', role: 'user' }
-  createErrors.value = { name: '', email: '', password: '', password_confirmation: '' }
+  createForm.value = {
+    name: '', email: '', password: '', password_confirmation: '', role: 'user',
+    position: '', birthDate: '', hireDate: '',
+  }
+  createErrors.value = {
+    name: '', email: '', password: '', password_confirmation: '',
+    position: '', birthDate: '', hireDate: '',
+  }
 }
 
 function validateCreate(): boolean {
@@ -366,9 +400,22 @@ function validateCreate(): boolean {
   e.name = !f.name.trim() ? 'El nombre es requerido' : f.name.trim().length < 3 ? 'Mínimo 3 caracteres' : ''
   e.email = !f.email.trim() ? 'El email es requerido' : !emailRe.test(f.email.trim()) ? 'Email inválido' : ''
   e.password = !f.password ? 'La contraseña es requerida'
-              : !strongPassRe.test(f.password) ? 'Debe incluir mayúscula, número y símbolo (min. 8)' : ''
+            : !strongPassRe.test(f.password) ? 'Debe incluir mayúscula, número y símbolo (min. 8)' : ''
   e.password_confirmation = !f.password_confirmation ? 'Confirma la contraseña'
                           : f.password_confirmation !== f.password ? 'Las contraseñas no coinciden' : ''
+  e.position = f.position && f.position.trim().length > 0 && f.position.trim().length < 2
+    ? 'El puesto debe tener al menos 2 caracteres' : ''
+
+  e.birthDate = ''; e.hireDate = ''
+  const bd = f.birthDate ? toUTCDate(f.birthDate) : null
+  const hd = f.hireDate ? toUTCDate(f.hireDate) : null
+  if (f.birthDate && !bd) e.birthDate = 'Formato inválido (YYYY-MM-DD)'
+  if (f.hireDate && !hd) e.hireDate = 'Formato inválido (YYYY-MM-DD)'
+  if (!e.birthDate && bd && isFuture(bd)) e.birthDate = 'No puede ser futura'
+  if (!e.hireDate && hd && isFuture(hd)) e.hireDate = 'No puede ser futura'
+  if (!e.birthDate && !e.hireDate && bd && hd && yearsBetween(bd, hd) < 14) {
+    e.hireDate = 'Ingreso inconsistente con nacimiento (≥ 14 años)'
+  }
   return !Object.values(e).some(Boolean)
 }
 
@@ -384,17 +431,19 @@ async function handleCreateUser() {
     pushToast('Revisa los campos del formulario', 'warn')
     return
   }
-
   creating.value = true
   try {
-    const { user, requiresEmailVerification } = await userService.createUserAsAdmin({
+    const payload = {
       name: createForm.value.name.trim(),
       email: createForm.value.email.trim().toLowerCase(),
       password: createForm.value.password,
       password_confirmation: createForm.value.password_confirmation,
-      role: createForm.value.role
-    })
-
+      role: createForm.value.role,
+      ...(createForm.value.position.trim() ? { position: createForm.value.position.trim() } : {}),
+      ...(createForm.value.birthDate ? { birthDate: createForm.value.birthDate } : {}),
+      ...(createForm.value.hireDate  ? { hireDate:  createForm.value.hireDate  } : {}),
+    }
+    const { user, requiresEmailVerification } = await userService.createUserAsAdmin(payload)
     await fetchUsers()
     pushToast(
       requiresEmailVerification
@@ -404,7 +453,6 @@ async function handleCreateUser() {
     )
     closeCreateModal()
   } catch (err: unknown) {
-    // Fallback: si el servidor tardó pero sí creó el usuario, refrescamos la lista.
     if (looksLikeTimeout(err)) {
       await fetchUsers()
       closeCreateModal()
@@ -432,53 +480,14 @@ function closeCreateModal() {
 const showEditModal = ref(false)
 const selectedUser = ref<User | null>(null)
 const newPassword = ref('')
-
 const modalError = ref<string | null>(null)
-
-/* Vacaciones */
-const showVacModal = ref(false)
-const savingVac = ref(false)
-const vacError = ref<string | null>(null)
-const vacForm = ref({
-  id: '' as string,
-  name: '' as string,
-  email: '' as string,
-  used: 0,
-  currentTotal: 0,
-  newTotal: 0
-})
-
-/* Computed para habilitar/deshabilitar Guardar */
-const isSameTotal = computed(() => {
-  const t = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
-  return t === vacForm.value.currentTotal
-})
-
-onMounted(async () => {
-  await fetchUsers()
-})
-
-async function fetchUsers() {
-  loading.value = true
-  error.value = null
-  try {
-    users.value = await userService.getAllUsers()
-  } catch (err: unknown) {
-    error.value = err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
-    console.error('Error fetching users:', err)
-  } finally {
-    loading.value = false
-  }
-}
-
-function total(u: User) { return u.vacationDays?.total ?? 0 }
-function used(u: User) { return u.vacationDays?.used ?? 0 }
-function remaining(u: User) { return Math.max(0, total(u) - used(u)) }
+const editErrors = ref<{ birthDate?: string; hireDate?: string }>({})
 
 function openEditModal(u: User) {
   selectedUser.value = { ...u }
   newPassword.value = ''
   modalError.value = null
+  editErrors.value = {}
   showEditModal.value = true
 }
 
@@ -487,14 +496,44 @@ function closeModal() {
   selectedUser.value = null
   newPassword.value = ''
   modalError.value = null
+  editErrors.value = {}
 }
 
 async function updateUser() {
   if (!selectedUser.value) return
   modalError.value = null
+  editErrors.value = {}
+
   try {
     const current = users.value.find(x => x.id === selectedUser.value?.id)
     if (!current) throw new Error('Usuario no encontrado en la lista actual')
+
+    // Validaciones suaves de fechas (opcionales)
+    const bdStr = typeof selectedUser.value.birthDate === 'string' ? selectedUser.value.birthDate : ''
+    const hdStr = typeof selectedUser.value.hireDate === 'string' ? selectedUser.value.hireDate : ''
+
+    const bd = bdStr ? toUTCDate(bdStr) : null
+    const hd = hdStr ? toUTCDate(hdStr) : null
+
+    if (bdStr && (!bd || !isoDateRe.test(toInputDate(bdStr)))) {
+      editErrors.value.birthDate = 'Formato inválido (YYYY-MM-DD)'
+    } else if (bd && isFuture(bd)) {
+      editErrors.value.birthDate = 'No puede ser futura'
+    }
+
+    if (hdStr && (!hd || !isoDateRe.test(toInputDate(hdStr)))) {
+      editErrors.value.hireDate = 'Formato inválido (YYYY-MM-DD)'
+    } else if (hd && isFuture(hd)) {
+      editErrors.value.hireDate = 'No puede ser futura'
+    }
+
+    if (bd && hd && yearsBetween(bd, hd) < 14) {
+      editErrors.value.hireDate = 'Ingreso inconsistente con nacimiento (≥ 14 años)'
+    }
+
+    if (editErrors.value.birthDate || editErrors.value.hireDate) {
+      throw new Error('Corrige los campos marcados')
+    }
 
     // Nombre
     if (selectedUser.value.name.trim() && selectedUser.value.name !== current.name) {
@@ -509,6 +548,31 @@ async function updateUser() {
     // Contraseña
     if (newPassword.value.trim().length > 0) {
       await userService.updateUserPassword(selectedUser.value.id, { newPassword: newPassword.value })
+    }
+
+    // Meta: puesto + fechas (solo si cambian)
+    const metaPatch: Record<string, string> = {}
+    if ((selectedUser.value.position ?? '') !== (current.position ?? '')) {
+      if ((selectedUser.value.position ?? '').trim().length > 0 && (selectedUser.value.position ?? '').trim().length < 2) {
+        throw new Error('El puesto debe tener al menos 2 caracteres')
+      }
+      if ((selectedUser.value.position ?? '').trim()) {
+        metaPatch.position = (selectedUser.value.position ?? '').trim()
+      } else {
+        metaPatch.position = '' // o podrías omitir para no borrar
+      }
+    }
+    if (toInputDate(selectedUser.value.hireDate ?? '') !== toInputDate(current.hireDate ?? '')) {
+      if (hdStr) metaPatch.hireDate = toInputDate(hdStr)
+      else metaPatch.hireDate = ''
+    }
+    if (toInputDate(selectedUser.value.birthDate ?? '') !== toInputDate(current.birthDate ?? '')) {
+      if (bdStr) metaPatch.birthDate = toInputDate(bdStr)
+      else metaPatch.birthDate = ''
+    }
+
+    if (Object.keys(metaPatch).length > 0) {
+      await userService.updateUserMeta(selectedUser.value.id, metaPatch)
     }
 
     await fetchUsers()
@@ -543,7 +607,24 @@ function updateSelectedUser<K extends keyof User>(key: K, value: User[K]) {
   }
 }
 
-// Vacaciones
+/* ===== Vacaciones ===== */
+const showVacModal = ref(false)
+const savingVac = ref(false)
+const vacError = ref<string | null>(null)
+const vacForm = ref({
+  id: '' as string,
+  name: '' as string,
+  email: '' as string,
+  used: 0,
+  currentTotal: 0,
+  newTotal: 0
+})
+
+const isSameTotal = computed(() => {
+  const t = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
+  return t === vacForm.value.currentTotal
+})
+
 function openVacationModal(u: User) {
   vacError.value = null
   showVacModal.value = true
@@ -569,16 +650,13 @@ async function saveVacationTotal() {
     const newTotal = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
     console.log('[saveVacationTotal] START', { id: vacForm.value.id, total: newTotal })
 
-    // Evita llamada si no hay cambios
     if (newTotal === vacForm.value.currentTotal) {
       pushToast('No hay cambios en el total de días', 'info')
       return closeVacModal()
     }
 
-    // PATCH
     const vd = await userService.setVacationTotal(vacForm.value.id, { total: newTotal })
 
-    // Actualiza la fila local sin refetch
     const idx = users.value.findIndex(u => u.id === vacForm.value.id)
     if (idx !== -1) {
       users.value[idx] = {
@@ -598,10 +676,33 @@ async function saveVacationTotal() {
     savingVac.value = false
   }
 }
+
+/* ===== Data load ===== */
+onMounted(async () => {
+  await fetchUsers()
+})
+
+async function fetchUsers() {
+  loading.value = true
+  error.value = null
+  try {
+    users.value = await userService.getAllUsers()
+  } catch (err: unknown) {
+    error.value = err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
+    console.error('Error fetching users:', err)
+  } finally {
+    loading.value = false
+  }
+}
+
+/* ===== Helpers de vacaciones ===== */
+function total(u: User) { return u.vacationDays?.total ?? 0 }
+function used(u: User) { return u.vacationDays?.used ?? 0 }
+function remaining(u: User) { return Math.max(0, total(u) - used(u)) }
 </script>
 
 <style scoped>
-.user-management-container { padding: 2rem; max-width: 1200px; margin: 0 auto; }
+.user-management-container { padding: 2rem; max-width: 1280px; margin: 0 auto; }
 
 /* Toasts */
 .toast-container {
@@ -647,15 +748,17 @@ async function saveVacationTotal() {
 
 .table-container { background-color: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
 .user-table { width: 100%; border-collapse: collapse; }
-.user-table th { padding: 1rem; text-align: left; background-color: #f7fafc; color: #4a5568; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
-.user-table td { padding: 1rem; border-top: 1px solid #edf2f7; }
+.user-table th { padding: 0.75rem 0.9rem; text-align: left; background-color: #f7fafc; color: #4a5568; font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; white-space: nowrap; }
+.user-table td { padding: 0.75rem 0.9rem; border-top: 1px solid #edf2f7; vertical-align: top; }
 .user-row:hover { background-color: #f8fafc; }
 
-.name-column { width: 26%; }
-.email-column { width: 28%; }
-.role-column { width: 12%; }
-.vac-col { width: 8%; }
-.actions-column { width: 18%; }
+.name-column { width: 18%; }
+.email-column { width: 20%; }
+.role-column { width: 8%; }
+.pos-column  { width: 14%; }
+.date-column { width: 10%; }
+.vac-col     { width: 7%; text-align: right; }
+.actions-column { width: 16%; }
 .text-right { text-align: right; }
 
 .user-info { display: flex; flex-direction: column; gap: 0.25rem; }
@@ -669,6 +772,8 @@ async function saveVacationTotal() {
 .role-badge.admin { background-color: #ebf4ff; color: #667eea; }
 .role-badge.user  { background-color: #f0fff4; color: #48bb78; }
 
+.pos-cell, .date-cell { color: #2d3748; font-size: 0.92rem; }
+
 .actions-cell { display: flex; gap: 0.5rem; }
 .edit-btn, .delete-btn, .vac-btn { padding: 0.5rem; border-radius: 0.375rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
 .edit-btn { color: #4299e1; background-color: #ebf8ff; } .edit-btn:hover { background-color: #bee3f8; }
@@ -679,12 +784,12 @@ async function saveVacationTotal() {
 
 /* Modal base */
 .modal-overlay { position: fixed; inset: 0; background-color: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-content { background-color: white; border-radius: 0.5rem; width: 100%; max-width: 520px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+.modal-content { background-color: white; border-radius: 0.5rem; width: 100%; max-width: 560px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
 .modal-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #edf2f7; display: flex; justify-content: space-between; align-items: center; }
 .modal-header h3 { font-size: 1.1rem; font-weight: 600; color: #1a202c; }
 .close-btn { color: #a0aec0; background: none; border: none; cursor: pointer; padding: 0.25rem; } .close-btn:hover { color: #718096; }
 
-/* Form del modal de creación (captura Enter) */
+/* Form del modal */
 .modal-body { padding: 1.5rem; }
 .form-group { margin-bottom: 1rem; }
 .form-group label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #4a5568; }

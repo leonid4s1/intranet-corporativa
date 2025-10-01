@@ -4,11 +4,12 @@ import api from '@/services/api';
 import type {
   AuthResponse,
   LoginData,
-  // RegisterData,  // ⛔️ ya no se usa (registro público deshabilitado)
+  RegisterData,                // ✅ usamos registro para crear usuarios (admin o público si habilitado)
   User,
   RefreshTokenResponse,
   VerificationResponse,
   ResendVerificationResponse,
+  RegisterResponse,
 } from '@/types/auth';
 
 /* ========= Helpers de tipo/guards ========= */
@@ -24,6 +25,18 @@ function toStr(v: unknown): string | undefined {
 function toArr(v: unknown): unknown[] | undefined {
   return Array.isArray(v) ? Array.from(v) : undefined;
 }
+
+/* ========= Normalización de fechas ========= */
+const toISODate = (d?: string | Date | null): string | undefined => {
+  if (!d) return undefined;
+  const date = typeof d === 'string' ? new Date(d) : d;
+  if (isNaN(date.getTime())) return undefined;
+  // formateo YYYY-MM-DD
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
 
 /* ========= Manejo de errores uniforme ========= */
 interface ErrorResponse {
@@ -86,7 +99,14 @@ type LoginResponseWire = {
   token?: string;       // compat antiguo
 };
 
-// ⛔️ RegisterResponseWire eliminado (registro público deshabilitado)
+type RegisterResponseWire = {
+  success?: boolean;
+  message?: string;
+  user: User;
+  requiresEmailVerification?: boolean;
+  accessToken?: string;
+  token?: string;
+};
 
 type RefreshResponseWire = {
   accessToken?: string;
@@ -130,11 +150,44 @@ export const AuthService = {
           throw new Error(serverMsg || 'Usuario no encontrado');
         }
         if (status === 403) {
-          // Cuenta no verificada o bloqueada, según tu backend
+          // Cuenta no verificada/bloqueada/inactiva
           throw new Error(serverMsg || 'No puedes iniciar sesión: verifica tu correo o contacta al administrador');
         }
       }
       // Resto de errores: usa el manejador genérico
+      throw new Error(handleApiError(error).message);
+    }
+  },
+
+  /* ✅ POST /api/auth/register
+     Úsalo en el modal de "Crear usuario" (admin) o en registro público si lo habilitas */
+  async register(payload: RegisterData): Promise<RegisterResponse> {
+    try {
+      const body = {
+        name: payload.name?.trim(),
+        email: payload.email?.trim().toLowerCase(),
+        password: payload.password,
+        password_confirmation: payload.password_confirmation,
+        ...(payload.terms_accepted != null ? { terms_accepted: !!payload.terms_accepted } : {}),
+
+        // 👇 nuevos campos (solo si vienen con valor)
+        ...(payload.position?.trim() ? { position: payload.position.trim() } : {}),
+        ...(toISODate(payload.birthDate) ? { birthDate: toISODate(payload.birthDate) } : {}),
+        ...(toISODate(payload.hireDate) ? { hireDate: toISODate(payload.hireDate) } : {}),
+      };
+
+      const { data } = await api.post<RegisterResponseWire>('/auth/register', body);
+
+      return {
+        success: !!data?.user,
+        message: data?.message ?? 'Usuario creado correctamente',
+        user: data.user,
+        token: data.accessToken ?? data.token ?? null,
+        refreshToken: null,
+        requiresEmailVerification: !!data?.requiresEmailVerification,
+      };
+    } catch (error: unknown) {
+      // Deja caer mensajes de validación de backend
       throw new Error(handleApiError(error).message);
     }
   },
@@ -215,9 +268,6 @@ export const AuthService = {
     }
   },
 
-  // ⛔️ Registro público deshabilitado: usar createUserAsAdmin() en user.service.ts
-  // async register(...) { ... },
-
   /* Opcionales (si los implementas en backend) */
   async forgotPassword(email: string): Promise<{ success: boolean; message?: string }> {
     try {
@@ -240,7 +290,20 @@ export const AuthService = {
   async updateProfile(token: string, updateData: Partial<User> | FormData): Promise<User> {
     try {
       const isFormData = typeof FormData !== 'undefined' && updateData instanceof FormData;
-      const { data } = await api.patch<{ user: User }>('/auth/profile', updateData, {
+
+      // Normaliza fechas si NO es FormData y vienen como strings/Date
+      let body: Partial<User> | FormData = updateData;
+      if (!isFormData && isRecord(updateData)) {
+        const u = updateData as Partial<User>;
+        body = {
+          ...u,
+          ...(u.birthDate ? { birthDate: toISODate(u.birthDate) } : {}),
+          ...(u.hireDate ? { hireDate: toISODate(u.hireDate) } : {}),
+          ...(u.position ? { position: String(u.position).trim() } : {}),
+        };
+      }
+
+      const { data } = await api.patch<{ user: User }>('/auth/profile', body, {
         headers: {
           Authorization: `Bearer ${token}`,
           ...(isFormData ? { 'Content-Type': 'multipart/form-data' } : {}),

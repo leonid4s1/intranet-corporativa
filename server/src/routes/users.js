@@ -13,6 +13,7 @@ import {
   addVacationDays,
   setVacationUsed,
   // setVacationAvailable, // ← habilita si quieres editar "disponibles" directo
+  updateUserMeta, // ✅ nuevo: puesto, nacimiento, ingreso
 } from '../controllers/userController.js';
 
 import { authenticate } from '../middleware/auth.js';
@@ -88,6 +89,13 @@ router.patch('/:id/name', ...adminOnly, validateId, async (req, res, next) => {
     next(err);
   }
 });
+
+/* =============================
+   Metadata laboral
+   ============================= */
+
+// PATCH /api/users/:id/meta  { position?, birthDate?, hireDate? }
+router.patch('/:id/meta', ...adminOnly, validateId, updateUserMeta);
 
 /* =============================
    Vacaciones

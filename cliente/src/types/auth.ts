@@ -1,5 +1,3 @@
-// src/types/auth.ts
-
 /**
  * Datos requeridos para iniciar sesión
  */
@@ -18,6 +16,11 @@ export interface RegisterData {
   password: string;
   password_confirmation: string;
   terms_accepted?: boolean; // Para aceptación de términos y condiciones
+
+  // 👇 Nuevos campos (opcionales)
+  position?: string;       // Puesto
+  birthDate?: string;      // 'YYYY-MM-DD'
+  hireDate?: string;       // 'YYYY-MM-DD'
 }
 
 /**
@@ -45,6 +48,11 @@ export interface UpdateProfileData {
   current_password?: string; // Para verificación al cambiar datos sensibles
   new_password?: string;
   avatar?: string | File; // Puede ser URL o archivo para upload
+
+  // 👇 Nuevos campos (opcionales)
+  position?: string | null;
+  birthDate?: string | null; // 'YYYY-MM-DD'
+  hireDate?: string | null;  // 'YYYY-MM-DD'
 }
 
 /** Tipos para el Modelo de Usuario */
@@ -68,6 +76,12 @@ export interface User {
   isActive?: boolean;
   role: UserRole;
   avatar_url?: string;
+
+  // 👇 Nuevos campos recibidos desde el backend
+  position?: string | null;
+  birthDate?: string | null; // ISO date
+  hireDate?: string | null;  // ISO date
+
   created_at: string;
   updated_at: string;
   metadata?: UserMetadata;
@@ -134,7 +148,11 @@ export type RegisterErrorFields =
   | 'email'
   | 'password'
   | 'password_confirmation'
-  | 'terms_accepted';
+  | 'terms_accepted'
+  // 👇 nuevos
+  | 'position'
+  | 'birthDate'
+  | 'hireDate';
 
 export interface RegisterErrors {
   name: string;
@@ -142,6 +160,12 @@ export interface RegisterErrors {
   password: string;
   password_confirmation: string;
   terms_accepted: string;
+
+  // 👇 nuevos
+  position: string;
+  birthDate: string;
+  hireDate: string;
+
   [key: string]: string;
 }
 

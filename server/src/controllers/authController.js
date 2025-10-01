@@ -46,6 +46,15 @@ const formatError = (message, param = "") => ({
   errors: [{ msg: message, ...(param && { param }) }],
 });
 
+// Normaliza fechas opcionales (si llegan como string "YYYY-MM-DD")
+const toUTCDateOrNull = (v) => {
+  if (!v) return null;
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return null;
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+};
+
 const publicUser = (u) => ({
   id: u._id,
   name: u.name,
@@ -55,6 +64,10 @@ const publicUser = (u) => ({
   isVerified: !!(u.isVerified ?? u.emailVerified),
   emailVerified: !!(u.emailVerified ?? u.isVerified),
   email_verified_at: u.email_verified_at || null,
+  // 👇 nuevos campos visibles para el front
+  position: u.position ?? null,
+  birthDate: u.birthDate ?? null,
+  hireDate: u.hireDate ?? null,
   vacationDays: u.vacationDays,
 });
 
@@ -137,7 +150,11 @@ export const register = async (req, res) => {
       password,
       password_confirmation,
       role: requestedRole, // <- opcional, solo admin puede usarlo
-    } = req.body; // ✅ sin paréntesis
+      // 👇 nuevos campos (opcionales)
+      position,
+      birthDate,
+      hireDate,
+    } = req.body;
 
     const missing = [];
     if (!name) missing.push("name");
@@ -179,6 +196,10 @@ export const register = async (req, res) => {
     const isAdminCreator = Boolean(req.user && req.user.role === "admin");
     const safeRole = isAdminCreator && requestedRole ? requestedRole : "user";
 
+    // Normaliza fechas opcionales (si no las sanitizó el validator)
+    const birthDateUTC = toUTCDateOrNull(birthDate);
+    const hireDateUTC = toUTCDateOrNull(hireDate);
+
     const user = new User({
       name,
       email,
@@ -188,6 +209,10 @@ export const register = async (req, res) => {
       isVerified: false,
       emailVerified: false,
       vacationDays: { total: 0, used: 0 },
+      // 👇 nuevos campos
+      position: position?.trim() || null,
+      birthDate: birthDateUTC,
+      hireDate: hireDateUTC,
     });
 
     // token de verificación
@@ -196,7 +221,7 @@ export const register = async (req, res) => {
     user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000); // 1h
     await user.save();
 
-    // crea doc de VacationData
+    // crea doc de VacationData (el post-save también lo upsertea; esto es por compat)
     await new VacationData({
       user: user._id,
       total: 0,
