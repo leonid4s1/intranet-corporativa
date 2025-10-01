@@ -890,15 +890,49 @@ async function saveVacationTotal() {
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
 .empty-state { padding: 2rem; text-align: center; color: #718096; }
 
-/* Modal base */
-.modal-overlay { position: fixed; inset: 0; background-color: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-content { background-color: white; border-radius: 0.5rem; width: 100%; max-width: 520px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-.modal-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid #edf2f7; display: flex; justify-content: space-between; align-items: center; }
+/* Modal base — con scroll interno y footer fijo */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0,0,0,.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+
+  /* Permite scroll si el modal es alto */
+  overflow: auto;
+  padding: 1rem;
+}
+.modal-content {
+  background-color: white;
+  border-radius: 0.5rem;
+  width: 100%;
+  max-width: 560px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+
+  /* Limita altura y crea layout en columna */
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid #edf2f7;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
 .modal-header h3 { font-size: 1.1rem; font-weight: 600; color: #1a202c; }
-.close-btn { color: #a0aec0; background: none; border: none; cursor: pointer; padding: 0.25rem; } .close-btn:hover { color: #718096; }
+.close-btn { color: #a0aec0; background: none; border: none; cursor: pointer; padding: 0.25rem; }
+.close-btn:hover { color: #718096; }
 
 /* Form del modal de creación (captura Enter) */
-.modal-body { padding: 1.5rem; }
+.modal-body {
+  padding: 1.5rem;
+  overflow: auto; /* El cuerpo hace scroll */
+}
 .form-group { margin-bottom: 1rem; }
 .form-group label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #4a5568; }
 .form-group input, .form-group select { width: 100%; padding: 0.625rem; border: 1px solid #e2e8f0; border-radius: 0.375rem; transition: border-color 0.2s; }
@@ -906,7 +940,19 @@ async function saveVacationTotal() {
 .input-error { border-color: #e53e3e !important; }
 .error-text { color: #e53e3e; font-size: 0.85rem; }
 
-.modal-footer { padding: 1.25rem 1.5rem; border-top: 1px solid #edf2f7; display: flex; justify-content: flex-end; gap: 0.75rem; }
+.modal-footer {
+  padding: 1.25rem 1.5rem;
+  border-top: 1px solid #edf2f7;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+
+  /* Siempre visible en la parte baja del modal */
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  flex-shrink: 0;
+}
 .cancel-btn, .save-btn { padding: 0.625rem 1.25rem; border-radius: 0.375rem; font-weight: 500; transition: all 0.2s; }
 .cancel-btn { background-color: #edf2f7; color: #4a5568; } .cancel-btn:hover { background-color: #e2e8f0; }
 .save-btn { background-color: #4299e1; color: white; } .save-btn:hover { background-color: #3182ce; }
@@ -921,4 +967,8 @@ async function saveVacationTotal() {
 .stat .label { font-size: .75rem; color: #4a5568; }
 .stat .value { font-weight: 600; color: #1a202c; }
 .text-warn { color: #c05621; }
+
+@media (max-height: 700px) {
+  .modal-content { max-height: 96vh; }
+}
 </style>
