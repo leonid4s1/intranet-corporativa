@@ -67,6 +67,23 @@ export type AdminApprovedRow = {
   createdAt: string | null;
 };
 
+/** Derecho vigente (LFT) */
+export type EntitlementCycle = {
+  yearsOfService: number;
+  entitlementDays: number;
+  usedDays: number;
+  remainingDays: number;
+  window: { start: string; end: string }; // YYYY-MM-DD
+  daysUntilWindowEnds: number;
+  nextAnniversary: string; // YYYY-MM-DD
+  policy: string; // ej. 'LFT MX 2023'
+};
+
+export type EntitlementResponse = {
+  user: { id: string; name?: string; email?: string; hireDate?: string | Date };
+  cycle: EntitlementCycle;
+};
+
 /* =========================
  * Helpers seguros / type guards
  * ========================= */
@@ -266,6 +283,65 @@ export async function cancelVacationRequest(id: string) {
 }
 
 /* =========================
+ * Derecho vigente (LFT)
+ * ========================= */
+
+function parseEntitlement(payload: unknown): EntitlementResponse {
+  const root = unwrapData<unknown>(payload, {});
+  const rec = isRecord(root) ? root : {};
+
+  const userObj = getRec(rec, 'user') ?? {};
+  const cycleObj = getRec(rec, 'cycle') ?? {};
+
+  const user = {
+    id: getStr(userObj, 'id') ?? getStr(userObj, '_id') ?? '',
+    name: getStr(userObj, 'name'),
+    email: getStr(userObj, 'email'),
+    hireDate: ((): string | undefined => {
+      const hd = userObj['hireDate'];
+      if (isString(hd)) return hd;
+      if (hd instanceof Date) return hd.toISOString();
+      return undefined;
+    })(),
+  };
+
+  const windowObj = getRec(cycleObj, 'window') ?? {};
+  const window = {
+    start: getStr(windowObj, 'start') ?? '',
+    end: getStr(windowObj, 'end') ?? '',
+  };
+
+  const cycle: EntitlementCycle = {
+    yearsOfService: getNum(cycleObj, 'yearsOfService') ?? 0,
+    entitlementDays: getNum(cycleObj, 'entitlementDays') ?? 0,
+    usedDays: getNum(cycleObj, 'usedDays') ?? 0,
+    remainingDays: getNum(cycleObj, 'remainingDays') ?? 0,
+    window,
+    daysUntilWindowEnds: getNum(cycleObj, 'daysUntilWindowEnds') ?? 0,
+    nextAnniversary: getStr(cycleObj, 'nextAnniversary') ?? '',
+    policy: getStr(cycleObj, 'policy') ?? 'LFT MX 2023',
+  };
+
+  return { user, cycle };
+}
+
+/** GET /vacations/my/entitlement */
+export async function getMyEntitlement(): Promise<EntitlementResponse> {
+  const { data } = await api.get('/vacations/my/entitlement', {
+    headers: { 'Cache-Control': 'no-store' },
+  });
+  return parseEntitlement(data);
+}
+
+/** GET /vacations/users/:userId/entitlement (admin) */
+export async function getUserEntitlementAdmin(userId: string): Promise<EntitlementResponse> {
+  const { data } = await api.get(`/vacations/users/${userId}/entitlement`, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
+  return parseEntitlement(data);
+}
+
+/* =========================
  * Endpoints de admin
  * ========================= */
 
@@ -426,6 +502,12 @@ export default {
   getUnavailableDates,
   requestVacation,
   cancelVacationRequest,
+
+  // Derecho vigente (LFT)
+  getMyEntitlement,
+  getUserEntitlementAdmin,
+
+  // Admin
   getPendingRequests,
   updateRequestStatus,
   approve,

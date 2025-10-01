@@ -3,6 +3,9 @@
     <!-- Toast -->
     <div v-if="toastMsg" class="toast">{{ toastMsg }}</div>
 
+    <!-- Derecho vigente (LFT) -->
+    <EntitlementBar :compact="true" />
+
     <!-- KPIs -->
     <div class="kpi-grid">
       <div class="kpi-card">
@@ -227,6 +230,7 @@
 import { ref, computed, onMounted } from 'vue'
 import dayjs, { Dayjs } from 'dayjs'
 import VacationRequestDialog from '@/components/vacations/VacationRequestDialog.vue'
+import EntitlementBar from '@/components/vacations/EntitlementBar.vue'
 import {
   getVacationBalance,
   getHolidays,
@@ -336,7 +340,7 @@ function abbrevName(full: string): string {
 }
 
 /** Reglas de selección (festivos/fines se permiten) */
-function canPickDay(d: Dayjs): boolean {
+function canPickDay(d: dayjs.Dayjs): boolean {
   const key = d.format('YYYY-MM-DD')
   if (!d.isAfter(today.value, 'day')) return false
 
@@ -349,7 +353,7 @@ function canPickDay(d: Dayjs): boolean {
   return true
 }
 
-function getSingleDayBlockReason(d: Dayjs): string {
+function getSingleDayBlockReason(d: dayjs.Dayjs): string {
   const key = d.format('YYYY-MM-DD')
   if (!d.isAfter(today.value, 'day')) return 'No puedes seleccionar fechas pasadas ni el día de hoy.'
   const weekend = isWeekendYMD(key)

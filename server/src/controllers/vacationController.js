@@ -10,6 +10,14 @@ import {
   sendVacationRejectedEmail,
 } from '../services/emailService.js';
 
+// LFT MX 2023 — utilidades y servicio de cómputo por ciclo
+import {
+  currentEntitlementDays,
+  isWithinCurrentWindow,
+  currentAnniversaryWindow, // usado en endpoints de derecho vigente
+  yearsOfService,           // usado en endpoints de derecho vigente
+} from '../utils/vacationLawMX.js';
+import { getUsedDaysInCurrentCycle } from '../services/vacationService.js';
 
 /* ===========================
    Helpers de fechas (UTC)
@@ -445,36 +453,38 @@ export const requestVacation = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'El rango no contiene días hábiles' });
     }
 
-    // Lee total anual y días usados en el año en curso (aprobados)
+    // === LFT: pre-validación al crear (UX) ===
     const user = await User.findById(req.user.id).lean();
     if (!user) {
       await session.abortTransaction(); session.endSession();
       return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
     }
-
-    const yearStart = dayjs().startOf('year').toDate();
-    const yearEnd = dayjs().endOf('year').toDate();
-    const approved = await VacationRequest.find({
-      user: req.user.id,
-      status: 'approved',
-      startDate: { $lte: yearEnd },
-      endDate: { $gte: yearStart },
-    }).lean();
-    let used = 0;
-    for (const r of approved) {
-      const s = toDateUTC(r.startDate);
-      const e = toDateUTC(r.endDate);
-      const hol2 = await getHolidayDatesInRange(s, e);
-      used += calculateBusinessDaysUTC(s, e, hol2);
+    if (!user.hireDate) {
+      await session.abortTransaction(); session.endSession();
+      return res.status(400).json({ success: false, message: 'Falta fecha de ingreso (hireDate) para aplicar LFT' });
     }
-    const total = (user?.vacationDays?.total ?? user?.totalAnnualDays ?? 0);
+
+    const within = isWithinCurrentWindow(user.hireDate, startUTC, endUTC);
+    if (!within) {
+      await session.abortTransaction(); session.endSession();
+      return res.status(422).json({
+        success: false,
+        message: 'La solicitud está fuera de la ventana de 6 meses posterior al aniversario (LFT).',
+        code: 'OUTSIDE_WINDOW',
+      });
+    }
+
+    const total = currentEntitlementDays(user.hireDate);
+    const used = await getUsedDaysInCurrentCycle(user._id, user.hireDate);
     const remaining = Math.max(total - used, 0);
+
     if (business > remaining) {
       await session.abortTransaction(); session.endSession();
-      return res.status(400).json({
+      return res.status(422).json({
         success: false,
-        message: `No tienes días suficientes. Solicitaste ${business} hábiles y te quedan ${remaining}.`,
-        meta: { requestedBusinessDays: business, remainingDays: remaining, totalAnnualDays: total, usedDays: used }
+        message: `No tienes saldo suficiente del ciclo vigente (LFT). Derecho: ${total}, Usados: ${used}, Restantes: ${remaining}, Solicitados: ${business}.`,
+        code: 'INSUFFICIENT_BALANCE',
+        meta: { requestedBusinessDays: business, remainingDays: remaining, totalEntitlement: total, usedInCycle: used }
       });
     }
 
@@ -520,10 +530,69 @@ export const updateVacationRequestStatus = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Estado inválido' });
     }
 
+    // 1) Cargar la solicitud con usuario (incluye hireDate)
+    const existing = await VacationRequest
+      .findById(req.params.id)
+      .populate('user', 'name email isActive hireDate')
+      .lean();
+
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Solicitud no encontrada' });
+    }
+
+    const uid = String(existing.user?._id || existing.user);
+
+    // 2) Si vamos a aprobar, validar LFT: ventana de 6 meses + saldo del ciclo vigente
+    if (status === 'approved') {
+      if (!existing.user?.hireDate) {
+        return res.status(400).json({
+          success: false,
+          error: 'El usuario no tiene fecha de ingreso (hireDate) configurada',
+        });
+      }
+
+      const within = isWithinCurrentWindow(
+        existing.user.hireDate,
+        existing.startDate,
+        existing.endDate
+      );
+
+      const allowOverride = Boolean(req.body?.overrideWindow === true);
+      if (!within && !allowOverride) {
+        return res.status(422).json({
+          success: false,
+          error: 'La solicitud está fuera de la ventana de 6 meses posterior al aniversario (LFT).',
+          code: 'OUTSIDE_WINDOW',
+        });
+      }
+
+      const total = currentEntitlementDays(existing.user.hireDate);
+      const used = await getUsedDaysInCurrentCycle(existing.user._id, existing.user.hireDate);
+
+      // usamos daysRequested si está definido; si no, caemos a naturales del rango
+      const startN = toDateUTC(existing.startDate);
+      const endN = toDateUTC(existing.endDate);
+      const natural = dayjs(endN).diff(dayjs(startN), 'day') + 1;
+      const requestDays = Number.isFinite(existing.daysRequested) && existing.daysRequested > 0
+        ? existing.daysRequested
+        : Math.max(natural, 1);
+
+      if (used + requestDays > total) {
+        return res.status(422).json({
+          success: false,
+          error: `No hay saldo suficiente en el ciclo vigente (LFT). Derecho: ${total}, Usados: ${used}, Solicitud: ${requestDays}.`,
+          code: 'INSUFFICIENT_BALANCE',
+        });
+      }
+    }
+
+    // 3) Preparar update (con validaciones de rejection)
     const update = {
       status,
       processedBy: req.user.id,
       processedAt: new Date(),
+      // si aprobamos, limpiamos rejectReason; si rechazamos, lo validamos abajo
+      rejectReason: status === 'approved' ? '' : undefined,
     };
 
     if (status === 'rejected') {
@@ -535,12 +604,9 @@ export const updateVacationRequestStatus = async (req, res, next) => {
         return res.status(400).json({ success: false, error: 'El motivo de rechazo no puede exceder 500 caracteres' });
       }
       update.rejectReason = reason;
-    } else {
-      // Si se aprueba, limpiar posible motivo previo
-      update.rejectReason = '';
     }
 
-    // 1) Actualiza y obtiene el doc con user (para responder al cliente)
+    // 4) Actualizar y devolver doc final (con user para responder)
     const doc = await VacationRequest
       .findByIdAndUpdate(req.params.id, update, { new: true })
       .populate('user', 'name email isActive');
@@ -549,35 +615,14 @@ export const updateVacationRequestStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Solicitud no encontrada' });
     }
 
-    const uid = String(doc.user?._id || doc.user);
+    const uidFinal = String(doc.user?._id || doc.user);
 
-    // 👇 si se aprueba y falta snapshot, guardarlo (no bloquea la respuesta)
-    if (status === 'approved') {
-      const shouldFillSnapshot = !doc.userSnapshot?.name;
-      if (shouldFillSnapshot) {
-        process.nextTick(async () => {
-          try {
-            await VacationRequest.findByIdAndUpdate(doc._id, {
-              $set: {
-                userSnapshot: {
-                  name:  doc.user?.name  ?? null,
-                  email: doc.user?.email ?? null
-                }
-              }
-            });
-          } catch (err) {
-            console.error('[vacations] Error guardando userSnapshot:', err?.message || err);
-          }
-        });
-      }
-    }
-
-    // 2) RESPONDER PRIMERO
+    // 5) RESPUESTA
     res.json({
       success: true,
       data: {
         id: String(doc._id),
-        user: { id: uid, name: doc.user?.name || '', email: doc.user?.email || '' },
+        user: { id: uidFinal, name: doc.user?.name || '', email: doc.user?.email || '' },
         startDate: toYMDUTC(doc.startDate),
         endDate: toYMDUTC(doc.endDate),
         daysRequested: doc.daysRequested,
@@ -588,16 +633,27 @@ export const updateVacationRequestStatus = async (req, res, next) => {
       }
     });
 
-    // 3) EFECTOS EN SEGUNDO PLANO
+    // 6) EFECTOS EN BACKGROUND (no bloquean)
     process.nextTick(async () => {
-      // Recalcular usados
+      // a) Completar snapshot si falta (solo en aprobadas)
+      if (status === 'approved' && !doc.userSnapshot?.name) {
+        try {
+          await VacationRequest.findByIdAndUpdate(doc._id, {
+            $set: { userSnapshot: { name: doc.user?.name ?? null, email: doc.user?.email ?? null } }
+          });
+        } catch (err) {
+          console.error('[vacations] Error guardando userSnapshot:', err?.message || err);
+        }
+      }
+
+      // b) Recalcular usados
       try {
-        await recomputeUserVacationUsed(uid);
+        await recomputeUserVacationUsed(uidFinal);
       } catch (err) {
         console.error('[vacations] Error en recomputeUserVacationUsed:', err?.message || err);
       }
 
-      // Envío de correo al usuario
+      // c) Emails
       try {
         const to = doc.user?.email;
         const name = doc.user?.name || doc.userSnapshot?.name || '';
@@ -605,30 +661,16 @@ export const updateVacationRequestStatus = async (req, res, next) => {
 
         if (to) {
           if (status === 'approved') {
-            await sendVacationApprovedEmail({
-              to,
-              name,
-              startDate: doc.startDate,
-              endDate: doc.endDate,
-              approverName,
-            });
+            await sendVacationApprovedEmail({ to, name, startDate: doc.startDate, endDate: doc.endDate, approverName });
             console.log('[vacations] Email de aprobación enviado a', to);
           } else if (status === 'rejected') {
-            await sendVacationRejectedEmail({
-              to,
-              name,
-              startDate: doc.startDate,
-              endDate: doc.endDate,
-              reason: doc.rejectReason || '',
-              approverName,
-            });
+            await sendVacationRejectedEmail({ to, name, startDate: doc.startDate, endDate: doc.endDate, reason: doc.rejectReason || '', approverName });
             console.log('[vacations] Email de rechazo enviado a', to);
           }
         } else {
           console.warn('[vacations] Usuario sin email; no se envía notificación.');
         }
       } catch (err) {
-        // No romper flujo: ya respondimos al cliente
         console.error('[vacations] Error enviando correo:', err?.message || err);
       }
     });
@@ -849,5 +891,107 @@ export const getApprovedVacationsAdmin = async (req, res) => {
   } catch (error) {
     console.error('[getApprovedVacationsAdmin] error:', error);
     return res.status(500).json({ success: false, error: 'Error obteniendo reporte admin' });
+  }
+};
+
+/* ===========================
+   Derecho vigente (LFT) — UX
+=========================== */
+// GET /vacations/my/entitlement
+export const getMyCurrentEntitlement = async (req, res) => {
+  try {
+    const me = await User.findById(req.user.id).select('name email hireDate').lean();
+    if (!me) {
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    }
+    if (!me.hireDate) {
+      return res.status(400).json({ success: false, message: 'Falta fecha de ingreso (hireDate)' });
+    }
+
+    const yos = yearsOfService(me.hireDate);
+    const total = currentEntitlementDays(me.hireDate);
+    const win = currentAnniversaryWindow(me.hireDate);
+    const used = await getUsedDaysInCurrentCycle(me._id, me.hireDate);
+    const remaining = Math.max(0, total - used);
+
+    const today = new Date(); today.setUTCHours(0,0,0,0);
+    const startYMD = win.start.toISOString().slice(0,10);
+    const endYMD   = win.end.toISOString().slice(0,10);
+    const nextAnniversary = (() => {
+      const base = new Date(win.start);
+      const next = new Date(Date.UTC(base.getUTCFullYear()+1, base.getUTCMonth(), base.getUTCDate()));
+      return next.toISOString().slice(0,10);
+    })();
+    const daysUntilWindowEnds = Math.max(0, Math.ceil((win.end.getTime() - today.getTime()) / (24*60*60*1000)));
+
+    return res.json({
+      success: true,
+      data: {
+        user: { id: String(me._id), name: me.name, email: me.email, hireDate: me.hireDate },
+        cycle: {
+          yearsOfService: yos,
+          entitlementDays: total,
+          usedDays: used,
+          remainingDays: remaining,
+          window: { start: startYMD, end: endYMD },
+          daysUntilWindowEnds,
+          nextAnniversary,
+          policy: 'LFT MX 2023',
+        }
+      }
+    });
+  } catch (err) {
+    console.error('[getMyCurrentEntitlement] error:', err);
+    return res.status(500).json({ success: false, message: 'Error obteniendo derecho vigente', error: err?.message });
+  }
+};
+
+// (Opcional/Admin) GET /vacations/users/:userId/entitlement
+export const getUserCurrentEntitlementAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const u = await User.findById(userId).select('name email hireDate').lean();
+    if (!u) {
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    }
+    if (!u.hireDate) {
+      return res.status(400).json({ success: false, message: 'Falta fecha de ingreso (hireDate)' });
+    }
+
+    const yos = yearsOfService(u.hireDate);
+    const total = currentEntitlementDays(u.hireDate);
+    const win = currentAnniversaryWindow(u.hireDate);
+    const used = await getUsedDaysInCurrentCycle(u._id, u.hireDate);
+    const remaining = Math.max(0, total - used);
+
+    const today = new Date(); today.setUTCHours(0,0,0,0);
+    const startYMD = win.start.toISOString().slice(0,10);
+    const endYMD   = win.end.toISOString().slice(0,10);
+    const nextAnniversary = (() => {
+      const base = new Date(win.start);
+      const next = new Date(Date.UTC(base.getUTCFullYear()+1, base.getUTCMonth(), base.getUTCDate()));
+      return next.toISOString().slice(0,10);
+    })();
+    const daysUntilWindowEnds = Math.max(0, Math.ceil((win.end.getTime() - today.getTime()) / (24*60*60*1000)));
+
+    return res.json({
+      success: true,
+      data: {
+        user: { id: String(u._id), name: u.name, email: u.email, hireDate: u.hireDate },
+        cycle: {
+          yearsOfService: yos,
+          entitlementDays: total,
+          usedDays: used,
+          remainingDays: remaining,
+          window: { start: startYMD, end: endYMD },
+          daysUntilWindowEnds,
+          nextAnniversary,
+          policy: 'LFT MX 2023',
+        }
+      }
+    });
+  } catch (err) {
+    console.error('[getUserCurrentEntitlementAdmin] error:', err);
+    return res.status(500).json({ success: false, message: 'Error obteniendo derecho vigente (admin)', error: err?.message });
   }
 };

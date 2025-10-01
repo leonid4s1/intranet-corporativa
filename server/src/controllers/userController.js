@@ -1,6 +1,13 @@
 // server/src/controllers/userController.js
 import User from '../models/User.js'
 import VacationData from '../models/VacationData.js'
+// --- LFT MX 2023: utilidades y servicio de cómputo del ciclo vigente
+import {
+  currentEntitlementDays,
+  currentAnniversaryWindow,
+  yearsOfService,
+} from '../utils/vacationLawMX.js';
+import { getUsedDaysInCurrentCycle } from '../services/vacationService.js';
 
 /* ==============================
    Constantes para mensajes
@@ -708,3 +715,66 @@ export const setVacationAvailable = async (req, res) => {
     })
   }
 }
+
+/* ==============================
+   LFT MX 2023 — Resumen de vacaciones por usuario
+   GET /api/users/:userId/vacation/summary
+============================== */
+export const getUserVacationSummary = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId)
+      .select('name email hireDate')
+      .lean()
+      .exec();
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    }
+    if (!user.hireDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'El usuario no tiene fecha de ingreso (hireDate) configurada',
+      });
+    }
+
+    // Total del ciclo vigente (derecho del año que se cumple)
+    const total = currentEntitlementDays(user.hireDate);
+
+    // Usados en el ciclo vigente (solicitudes aprobadas, recortadas a la ventana)
+    const used = await getUsedDaysInCurrentCycle(user._id, user.hireDate);
+
+    const remaining = Math.max(0, total - used);
+    const window = currentAnniversaryWindow(user.hireDate);
+    const yos = yearsOfService(user.hireDate);
+
+    return res.json({
+      success: true,
+      data: {
+        user: {
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+          hireDate: user.hireDate,
+          yearsOfService: yos,
+        },
+        vacation: {
+          total,
+          used,
+          remaining,
+          window, // { start: Date, end: Date }
+          policy: 'LFT MX 2023',
+        },
+      },
+    });
+  } catch (error) {
+    console.error('[getUserVacationSummary] error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener el resumen de vacaciones',
+      error: error?.message,
+    });
+  }
+};
+

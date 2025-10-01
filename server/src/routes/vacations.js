@@ -15,7 +15,10 @@ import {
   getTeamVacationsForCalendar,
   getAllUsersVacationDays,
   getUnavailableDatesForCalendar,
-  getApprovedVacationsAdmin
+  getApprovedVacationsAdmin,
+  // ⬇️ NUEVOS handlers (derecho vigente LFT)
+  getMyCurrentEntitlement,
+  getUserCurrentEntitlementAdmin,
 } from '../controllers/vacationController.js';
 import { validateDateRange, validateDateParams } from '../middleware/validation.js';
 import * as holidayController from '../controllers/holidayController.js';
@@ -84,6 +87,9 @@ const validateStatusChange = (req, res, next) => {
 /* -------------------------------- Usuarios -------------------------------- */
 
 router.get('/balance', authenticate, noStore, getVacationBalance);
+
+// Derecho vigente (LFT) del usuario autenticado
+router.get('/my/entitlement', authenticate, noStore, getMyCurrentEntitlement);
 
 router.route('/requests')
   .post(
@@ -171,6 +177,16 @@ router.delete(
 );
 
 /* --------------------------------- Admin ---------------------------------- */
+
+// (Admin) Derecho vigente por usuario
+router.get(
+  '/users/:userId/entitlement',
+  authenticate,
+  authorize('admin'),
+  validateId('userId'),
+  noStore,
+  getUserCurrentEntitlementAdmin
+);
 
 // Gestionar días (legacy)
 router.put(

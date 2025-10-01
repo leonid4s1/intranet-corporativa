@@ -14,6 +14,8 @@ import {
   setVacationUsed,
   // setVacationAvailable, // ← habilita si quieres editar "disponibles" directo
   updateUserMeta, // ✅ nuevo: puesto, nacimiento, ingreso
+  // ✅ NUEVO: importar el resumen LFT
+  getUserVacationSummary,
 } from '../controllers/userController.js';
 
 import { authenticate } from '../middleware/auth.js';
@@ -35,6 +37,14 @@ const adminOnly = [authenticate, adminMiddleware];
 const validateId = (req, res, next) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
     return res.status(400).json({ success: false, message: 'ID inválido' });
+  }
+  next();
+};
+
+// ✅ NUEVO: validador para :userId (la ruta del summary usa este parámetro)
+const validateUserId = (req, res, next) => {
+  if (!mongoose.isValidObjectId(req.params.userId)) {
+    return res.status(400).json({ success: false, message: 'userId inválido' });
   }
   next();
 };
@@ -100,6 +110,10 @@ router.patch('/:id/meta', ...adminOnly, validateId, updateUserMeta);
 /* =============================
    Vacaciones
    ============================= */
+
+// ✅ NUEVO: Resumen LFT vigente (disponible para usuario autenticado o admin)
+// GET /api/users/:userId/vacation/summary
+router.get('/:userId/vacation/summary', authenticate, validateUserId, getUserVacationSummary);
 
 // PATCH /api/users/:id/vacation/total  { total }
 router.patch('/:id/vacation/total', ...adminOnly, validateId, setVacationTotal);

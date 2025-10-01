@@ -1,4 +1,4 @@
-<!-- cliente/src/views/admin/UserManagement.vue -->
+ahora modifica UserManagement.vue: <!-- cliente/src/views/admin/UserManagement.vue -->
 <template>
   <div class="user-management-container">
     <!-- Toasts -->
