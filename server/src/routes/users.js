@@ -9,13 +9,13 @@ import {
   updateUserPassword,
   toggleUserLock,
   updateUserData,
-  setVacationTotal,
-  addVacationDays,
-  setVacationUsed,
-  // setVacationAvailable, // ← habilita si quieres editar "disponibles" directo
-  updateUserMeta, // ✅ nuevo: puesto, nacimiento, ingreso
-  // ✅ NUEVO: importar el resumen LFT
-  getUserVacationSummary,
+  setVacationTotal,   // legacy
+  addVacationDays,    // legacy
+  setVacationUsed,    // legacy
+  // setVacationAvailable, // ← habilita si quieres editar "disponibles" directo (legacy)
+  updateUserMeta,     // ✅ puesto, nacimiento, ingreso
+  getUserVacationSummary, // ✅ resumen LFT vigente
+  adjustAdminExtra,   // ✅ NUEVO: bono admin (sube/baja, mínimo 0)
 } from '../controllers/userController.js';
 
 import { authenticate } from '../middleware/auth.js';
@@ -111,9 +111,14 @@ router.patch('/:id/meta', ...adminOnly, validateId, updateUserMeta);
    Vacaciones
    ============================= */
 
-// ✅ NUEVO: Resumen LFT vigente (disponible para usuario autenticado o admin)
-// GET /api/users/:userId/vacation/summary
+// ✅ Resumen LFT vigente (autenticado o admin)
 router.get('/:userId/vacation/summary', authenticate, validateUserId, getUserVacationSummary);
+
+// ✅ NUEVO: Bono admin (puede subir o bajar, pero nunca por debajo del derecho ⇒ adminExtra ≥ 0)
+// PATCH /api/users/:id/vacation/bonus   Body: { delta?: number }  ó  { value?: number }
+router.patch('/:id/vacation/bonus', ...adminOnly, validateId, adjustAdminExtra);
+
+// ---- Endpoints legacy de soporte (mantener por compatibilidad) ----
 
 // PATCH /api/users/:id/vacation/total  { total }
 router.patch('/:id/vacation/total', ...adminOnly, validateId, setVacationTotal);

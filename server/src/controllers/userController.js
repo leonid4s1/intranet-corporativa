@@ -1,13 +1,14 @@
 // server/src/controllers/userController.js
 import User from '../models/User.js'
 import VacationData from '../models/VacationData.js'
+
 // --- LFT MX 2023: utilidades y servicio de cómputo del ciclo vigente
 import {
   currentEntitlementDays,
   currentAnniversaryWindow,
   yearsOfService,
-} from '../utils/vacationLawMX.js';
-import { getUsedDaysInCurrentCycle } from '../services/vacationService.js';
+} from '../utils/vacationLawMX.js'
+import { getUsedDaysInCurrentCycle } from '../services/vacationService.js'
 
 /* ==============================
    Constantes para mensajes
@@ -65,10 +66,11 @@ const yearsBetween = (a, b) => (b.getTime() - a.getTime()) / (365.25 * 24 * 60 *
 ============================== */
 const ensureVacSubdoc = (user) => {
   if (!user.vacationDays) {
-    user.vacationDays = { total: 0, used: 0, lastUpdate: new Date() }
+    user.vacationDays = { total: 0, used: 0, adminExtra: 0, lastUpdate: new Date() }
   } else {
     if (typeof user.vacationDays.total !== 'number') user.vacationDays.total = 0
     if (typeof user.vacationDays.used !== 'number') user.vacationDays.used = 0
+    if (typeof user.vacationDays.adminExtra !== 'number') user.vacationDays.adminExtra = 0
   }
 }
 
@@ -97,36 +99,15 @@ const upsertVacationData = async (userDoc) => {
 }
 
 /* ==============================
-   Mapper con vacaciones + meta
+   Mapper con LFT (derecho + bono) y meta
 ============================== */
-const mapUserWithVacation = (user, vacationMap) => {
-  const vacDoc = vacationMap.get(user._id.toString()) || null
-
-  const uVac = user?.vacationDays ?? { total: 0, used: 0, lastUpdate: null }
-  const dVac = vacDoc ?? { total: 0, used: 0, lastUpdate: null }
-
-  const uDate = uVac?.lastUpdate ? new Date(uVac.lastUpdate).getTime() : 0
-  const dDate = dVac?.lastUpdate ? new Date(dVac.lastUpdate).getTime() : 0
-
-  let chosen = null
-  if (uDate > dDate) {
-    chosen = { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
-  } else if (dDate > uDate) {
-    chosen = { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
-  } else {
-    const uZero = !(toNum(uVac.total, 0) || toNum(uVac.used, 0))
-    const dZero = !(toNum(dVac.total, 0) || toNum(dVac.used, 0))
-    if (!uZero && dZero) chosen = { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
-    else if (!dZero && uZero) chosen = { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
-    else chosen = vacDoc
-      ? { total: toNum(dVac.total, 0), used: toNum(dVac.used, 0) }
-      : { total: toNum(uVac.total, 0), used: toNum(uVac.used, 0) }
-  }
-
-  const remaining =
-    vacDoc && dDate >= uDate && vacDoc.remaining != null
-      ? toNum(vacDoc.remaining, Math.max(0, chosen.total - chosen.used))
-      : Math.max(0, chosen.total - chosen.used)
+const mapUserWithVacationLFT = (user, usedInCycle = 0) => {
+  const hireOk = !!user.hireDate
+  const right = hireOk ? currentEntitlementDays(user.hireDate) : 0
+  const adminExtra = toInt(user?.vacationDays?.adminExtra ?? 0, 0)
+  const total = right + adminExtra
+  const used = hireOk ? toInt(usedInCycle, 0) : 0
+  const remaining = Math.max(0, total - used)
 
   return {
     id: user._id.toString(),
@@ -137,36 +118,33 @@ const mapUserWithVacation = (user, vacationMap) => {
     isVerified: user.isVerified,
     email_verified_at: user.email_verified_at,
     createdAt: user.createdAt,
-    // 👇 NUEVO: meta laboral
     position: user.position ?? null,
     birthDate: user.birthDate ?? null,
     hireDate: user.hireDate ?? null,
-    // vacaciones
-    vacationDays: { total: chosen.total, used: chosen.used, remaining },
+    vacationDays: { right, adminExtra, total, used, remaining },
   }
 }
 
 /* ==============================
    GET /api/users
+   -> Devuelve tabla con derecho+bono (total), usados del ciclo vigente y disponibles
 ============================== */
 export const getUsers = async (_req, res) => {
   try {
-    const [users, vacationDataList] = await Promise.all([
-      User.find()
-        // 👇 añadimos campos nuevos
-        .select('name email role isActive isVerified email_verified_at createdAt vacationDays position birthDate hireDate')
-        .lean()
-        .exec(),
-      VacationData.find().lean().exec(),
-    ])
+    const users = await User.find()
+      .select('name email role isActive isVerified email_verified_at createdAt vacationDays position birthDate hireDate')
+      .lean()
+      .exec()
 
-    const vacationMap = new Map(vacationDataList.map((v) => [v.user.toString(), v]))
+    // Calcular usados del ciclo vigente por usuario (si tiene hireDate)
+    const usedList = await Promise.all(
+      users.map(u => u.hireDate ? getUsedDaysInCurrentCycle(u._id, u.hireDate) : Promise.resolve(0))
+    )
+
+    const data = users.map((u, idx) => mapUserWithVacationLFT(u, usedList[idx]))
 
     res.set('Cache-Control', 'no-store')
-    return res.status(200).json({
-      success: true,
-      data: users.map((u) => mapUserWithVacation(u, vacationMap)),
-    })
+    return res.status(200).json({ success: true, data })
   } catch (error) {
     console.error('Error en getUsers:', error)
     return res.status(500).json({
@@ -180,7 +158,6 @@ export const getUsers = async (_req, res) => {
 
 /* ==============================
    POST /api/users   (admin)
-   Body: { name, email, password, role?, isActive?, isVerified?, availableDays?, position?, birthDate?, hireDate? }
 ============================== */
 export const createUser = async (req, res) => {
   try {
@@ -191,8 +168,7 @@ export const createUser = async (req, res) => {
       role = 'user',
       isActive = true,
       isVerified = false,
-      availableDays,
-      // 👇 nuevos campos
+      availableDays,   // compat
       position,
       birthDate,
       hireDate,
@@ -235,30 +211,33 @@ export const createUser = async (req, res) => {
       isActive,
       isVerified,
       email_verified_at: isVerified ? new Date() : undefined,
-      // 👇 meta laboral
       position: typeof position === 'string' && position.trim() ? position.trim() : undefined,
       birthDate: bd,
       hireDate: hd,
     })
 
     ensureVacSubdoc(user)
+
+    // Compatibilidad: si llega availableDays, lo guardamos en total (legacy)
     if (typeof availableDays === 'number' && availableDays >= 0) {
       user.vacationDays.total = Math.floor(availableDays)
       user.vacationDays.used = 0
     }
+    if (typeof user.vacationDays.adminExtra !== 'number') user.vacationDays.adminExtra = 0
     user.vacationDays.lastUpdate = new Date()
 
     await user.save()
     await upsertVacationData(user)
 
-    // ---- RESPUESTA
+    // Respuesta usando el mapper LFT
+    const used = user.hireDate ? await getUsedDaysInCurrentCycle(user._id, user.hireDate) : 0
     res.status(201).json({
       success: true,
       message: 'Usuario creado',
-      user: mapUserWithVacation(user.toObject(), new Map()),
+      user: mapUserWithVacationLFT(user.toObject(), used),
     })
 
-    // ---- Envío de verificación en background (solo si falta verificar)
+    // Verificación por correo en background (si aplica)
     if (!isVerified) {
       setImmediate(async () => {
         try {
@@ -269,7 +248,7 @@ export const createUser = async (req, res) => {
             console.warn('[createUser] Helper sendVerificationForUser no encontrado en authController.js')
           }
         } catch (err) {
-          console.error('[createUser] Error al enviar verificación en background:', err?.message || err)
+          console.error('[createUser] Error al enviar verificación:', err?.message || err)
         }
       })
     }
@@ -327,10 +306,11 @@ export const updateUserRole = async (req, res) => {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND })
     }
 
+    const used = user.hireDate ? await getUsedDaysInCurrentCycle(user._id, user.hireDate) : 0
     return res.json({
       success: true,
       message: 'Rol actualizado',
-      user: mapUserWithVacation(user.toObject(), new Map()),
+      user: mapUserWithVacationLFT(user.toObject(), used),
     })
   } catch (error) {
     console.error('Error actualizando rol:', error)
@@ -404,7 +384,6 @@ export const updateUserPassword = async (req, res) => {
 
 /* ==============================
    PATCH /api/users/:id  ó  /api/users/:id/name
-   Body: { name?, email? }
 ============================== */
 export const updateUserData = async (req, res) => {
   try {
@@ -428,10 +407,11 @@ export const updateUserData = async (req, res) => {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND })
     }
 
+    const used = user.hireDate ? await getUsedDaysInCurrentCycle(user._id, user.hireDate) : 0
     return res.json({
       success: true,
       message: 'Datos actualizados',
-      user: mapUserWithVacation(user.toObject(), new Map()),
+      user: mapUserWithVacationLFT(user.toObject(), used),
     })
   } catch (error) {
     console.error('Error actualizando datos:', error)
@@ -448,7 +428,6 @@ export const updateUserData = async (req, res) => {
 
 /* ==============================
    NUEVO: PATCH /api/users/:id/meta
-   Body: { position?, birthDate?, hireDate? }
 ============================== */
 export const updateUserMeta = async (req, res) => {
   try {
@@ -488,7 +467,6 @@ export const updateUserMeta = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Ingreso inconsistente con nacimiento (≥ 14 años)' })
     }
 
-    // Asignaciones
     if (position !== undefined) {
       const p = typeof position === 'string' ? position.trim() : ''
       user.position = p || undefined
@@ -498,10 +476,11 @@ export const updateUserMeta = async (req, res) => {
 
     await user.save()
 
+    const used = user.hireDate ? await getUsedDaysInCurrentCycle(user._id, user.hireDate) : 0
     return res.json({
       success: true,
       message: 'Metadata actualizada',
-      user: mapUserWithVacation(user.toObject(), new Map()),
+      user: mapUserWithVacationLFT(user.toObject(), used),
     })
   } catch (error) {
     console.error('Error actualizando metadata:', error)
@@ -514,88 +493,74 @@ export const updateUserMeta = async (req, res) => {
 }
 
 /* ==============================
-   VACACIONES
+   VACACIONES — compat (legacy)
 ============================== */
 
-/** PATCH /api/users/:id/vacation/total  { total } */
+/** PATCH /api/users/:id/vacation/total  { total }  (legacy) */
 export const setVacationTotal = async (req, res) => {
-  const { id } = req.params;
-  const rawTotal = req.body?.total;
+  const { id } = req.params
+  const rawTotal = req.body?.total
 
   try {
-    console.log('[setVacationTotal] IN', { id, body: req.body });
-
-    const total = Math.max(0, Math.floor(Number(rawTotal)));
+    const total = Math.max(0, Math.floor(Number(rawTotal)))
     if (!Number.isFinite(total)) {
-      return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' });
+      return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' })
     }
 
-    const u = await User.findById(id).select('vacationDays.used').lean();
+    const u = await User.findById(id).select('vacationDays.used').lean()
     if (!u) {
-      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' })
     }
 
-    const used = Math.max(0, Math.floor(Number(u?.vacationDays?.used ?? 0)));
+    const used = Math.max(0, Math.floor(Number(u?.vacationDays?.used ?? 0)))
     if (total < used) {
       return res
         .status(400)
-        .json({ success: false, message: 'El total no puede ser menor que los usados', meta: { total, used } });
+        .json({ success: false, message: 'El total no puede ser menor que los usados', meta: { total, used } })
     }
 
-    const upd = await User.updateOne(
+    await User.updateOne(
       { _id: id },
       { $set: { 'vacationDays.total': total, 'vacationDays.lastUpdate': new Date() } },
       { runValidators: false }
-    );
-    console.log('[setVacationTotal] User.updateOne result', upd);
+    )
 
-    const remaining = Math.max(0, total - used);
-
-    res.json({
-      success: true,
-      message: 'Días de vacaciones (total) actualizados',
-      data: { total, used, remaining },
-    });
+    const remaining = Math.max(0, total - used)
+    res.json({ success: true, message: 'Días de vacaciones (total) actualizados', data: { total, used, remaining } })
 
     setImmediate(async () => {
       try {
-        const updv = await VacationData.updateOne(
+        await VacationData.updateOne(
           { user: id },
           {
             $set: { total, used, remaining, lastUpdate: new Date() },
             $setOnInsert: { user: id },
           },
           { upsert: true, runValidators: false }
-        );
-        console.log('[setVacationTotal/bg] VacationData.updateOne OK', updv?.acknowledged, updv);
+        )
       } catch (err) {
         if (err?.code === 11000) {
-          const updv2 = await VacationData.updateOne(
+          await VacationData.updateOne(
             { user: id },
             { $set: { total, used, remaining, lastUpdate: new Date() } },
             { runValidators: false }
-          );
-          console.warn('[setVacationTotal/bg] E11000 retry OK', updv2?.acknowledged, updv2);
+          )
         } else {
-          console.error('[setVacationTotal/bg] ERROR sync VacationData:', {
-            name: err?.name, code: err?.code, msg: err?.message, stack: err?.stack?.split('\n')[0],
-          });
+          console.error('[setVacationTotal/bg] ERROR sync VacationData:', err?.message || err)
         }
       }
-    });
+    })
   } catch (error) {
-    console.error('setVacationTotal error (outer catch):', {
-      id, body: req.body, name: error?.name, code: error?.code, msg: error?.message,
-    });
+    console.error('setVacationTotal error:', error)
     return res.status(500).json({
       success: false,
       message: 'Error actualizando días',
       error: error?.message || String(error),
-    });
+    })
   }
-};
+}
 
-/** POST /api/users/:id/vacation/add  { days } */
+/** POST /api/users/:id/vacation/add  { days }  (legacy) */
 export const addVacationDays = async (req, res) => {
   try {
     const { id } = req.params
@@ -617,20 +582,14 @@ export const addVacationDays = async (req, res) => {
     await user.save()
     const sync = await upsertVacationData(user)
 
-    return res.json({
-      success: true,
-      message: 'Días añadidos',
-      data: sync,
-    })
+    return res.json({ success: true, message: 'Días añadidos', data: sync })
   } catch (error) {
     console.error('addVacationDays error:', error)
-    return res
-      .status(500)
-      .json({ success: false, message: 'Error añadiendo días', error: error.message, code: error?.code })
+    return res.status(500).json({ success: false, message: 'Error añadiendo días', error: error.message })
   }
 }
 
-/** PATCH /api/users/:id/vacation/used  { used } */
+/** PATCH /api/users/:id/vacation/used  { used }  (legacy) */
 export const setVacationUsed = async (req, res) => {
   try {
     const { id } = req.params
@@ -649,9 +608,7 @@ export const setVacationUsed = async (req, res) => {
 
     const total = toInt(user.vacationDays?.total, 0)
     if (used > total) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Los días usados no pueden exceder el total' })
+      return res.status(400).json({ success: false, message: 'Los días usados no pueden exceder el total' })
     }
 
     user.vacationDays.used = used
@@ -659,23 +616,18 @@ export const setVacationUsed = async (req, res) => {
     await user.save()
     const sync = await upsertVacationData(user)
 
-    return res.json({
-      success: true,
-      message: 'Días usados actualizados',
-      data: sync,
-    })
+    return res.json({ success: true, message: 'Días usados actualizados', data: sync })
   } catch (error) {
     console.error('setVacationUsed error:', error)
     return res.status(500).json({
       success: false,
       message: 'Error actualizando días usados',
       error: error.message,
-      code: error?.code,
     })
   }
 }
 
-/** (OPCIONAL) PATCH /api/users/:id/vacation/available  { available } */
+/** (OPCIONAL) PATCH /api/users/:id/vacation/available  { available }  (legacy) */
 export const setVacationAvailable = async (req, res) => {
   try {
     const { id } = req.params
@@ -700,54 +652,46 @@ export const setVacationAvailable = async (req, res) => {
     await user.save()
     const sync = await upsertVacationData(user)
 
-    return res.json({
-      success: true,
-      message: 'Días disponibles actualizados',
-      data: sync,
-    })
+    return res.json({ success: true, message: 'Días disponibles actualizados', data: sync })
   } catch (error) {
     console.error('setVacationAvailable error:', error)
     return res.status(500).json({
       success: false,
       message: 'Error actualizando disponibles',
       error: error.message,
-      code: error?.code,
     })
   }
 }
 
 /* ==============================
-   LFT MX 2023 — Resumen de vacaciones por usuario
-   GET /api/users/:userId/vacation/summary
+   LFT MX 2023 — Resumen por usuario
 ============================== */
 export const getUserVacationSummary = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { userId } = req.params
 
     const user = await User.findById(userId)
-      .select('name email hireDate')
+      .select('name email hireDate vacationDays')
       .lean()
-      .exec();
+      .exec()
 
     if (!user) {
-      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' })
     }
     if (!user.hireDate) {
       return res.status(400).json({
         success: false,
         message: 'El usuario no tiene fecha de ingreso (hireDate) configurada',
-      });
+      })
     }
 
-    // Total del ciclo vigente (derecho del año que se cumple)
-    const total = currentEntitlementDays(user.hireDate);
-
-    // Usados en el ciclo vigente (solicitudes aprobadas, recortadas a la ventana)
-    const used = await getUsedDaysInCurrentCycle(user._id, user.hireDate);
-
-    const remaining = Math.max(0, total - used);
-    const window = currentAnniversaryWindow(user.hireDate);
-    const yos = yearsOfService(user.hireDate);
+    const right = currentEntitlementDays(user.hireDate)
+    const adminExtra = toInt(user?.vacationDays?.adminExtra ?? 0, 0)
+    const total = right + adminExtra
+    const used = await getUsedDaysInCurrentCycle(user._id, user.hireDate)
+    const remaining = Math.max(0, total - used)
+    const window = currentAnniversaryWindow(user.hireDate)
+    const yos = yearsOfService(user.hireDate)
 
     return res.json({
       success: true,
@@ -760,6 +704,8 @@ export const getUserVacationSummary = async (req, res) => {
           yearsOfService: yos,
         },
         vacation: {
+          right,
+          adminExtra,
           total,
           used,
           remaining,
@@ -767,14 +713,72 @@ export const getUserVacationSummary = async (req, res) => {
           policy: 'LFT MX 2023',
         },
       },
-    });
+    })
   } catch (error) {
-    console.error('[getUserVacationSummary] error:', error);
+    console.error('[getUserVacationSummary] error:', error)
     return res.status(500).json({
       success: false,
       message: 'Error al obtener el resumen de vacaciones',
       error: error?.message,
-    });
+    })
   }
-};
+}
 
+/* ==============================
+   NUEVO — Bono admin (aumentar o disminuir)
+   PATCH /api/users/:id/vacation/bonus
+   Body: { delta?: number }  ó  { value?: number }
+   Regla: adminExtra >= 0  → total = derecho + adminExtra (no puede bajar del derecho)
+============================== */
+export const adjustAdminExtra = async (req, res) => {
+  try {
+    const { id } = req.params
+    const hasDelta = Number.isFinite(Number(req.body?.delta))
+    const hasValue = Number.isFinite(Number(req.body?.value))
+    if (!hasDelta && !hasValue) {
+      return res.status(400).json({ success: false, message: 'Debes enviar delta o value numérico' })
+    }
+
+    const user = await User.findById(id).select('hireDate vacationDays').lean()
+    if (!user) return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND })
+    if (!user.hireDate) {
+      return res.status(400).json({ success: false, message: 'Falta hireDate para calcular derecho' })
+    }
+
+    const right = currentEntitlementDays(user.hireDate)
+    const currentExtra = toInt(user?.vacationDays?.adminExtra ?? 0, 0)
+
+    let newExtra = hasValue
+      ? Math.floor(Number(req.body.value))
+      : currentExtra + Math.floor(Number(req.body.delta))
+
+    // Nunca por debajo del derecho: adminExtra no puede ser negativo
+    if (!Number.isFinite(newExtra)) newExtra = currentExtra
+    if (newExtra < 0) newExtra = 0
+
+    await User.updateOne(
+      { _id: id },
+      { $set: { 'vacationDays.adminExtra': newExtra, 'vacationDays.lastUpdate': new Date() } },
+      { runValidators: false }
+    )
+
+    // Sincronía de compat con VacationData (opcional)
+    const used = await getUsedDaysInCurrentCycle(id, user.hireDate)
+    const totalCompat = right + newExtra
+    try {
+      await VacationData.updateOne(
+        { user: id },
+        { $set: { total: totalCompat, used, remaining: Math.max(totalCompat - used, 0), lastUpdate: new Date() } },
+        { upsert: true, runValidators: false }
+      )
+    } catch { /* noop */ }
+
+    return res.json({
+      success: true,
+      data: { right, adminExtra: newExtra, total: right + newExtra }
+    })
+  } catch (error) {
+    console.error('[adjustAdminExtra] error:', error)
+    return res.status(500).json({ success: false, message: 'Error ajustando bono', error: error?.message })
+  }
+}

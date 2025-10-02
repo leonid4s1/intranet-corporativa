@@ -1,4 +1,4 @@
-ahora modifica UserManagement.vue: <!-- cliente/src/views/admin/UserManagement.vue -->
+<!-- cliente/src/views/admin/UserManagement.vue -->
 <template>
   <div class="user-management-container">
     <!-- Toasts -->
@@ -68,7 +68,7 @@ ahora modifica UserManagement.vue: <!-- cliente/src/views/admin/UserManagement.v
             <td>{{ dateOnly(u.hireDate) || '—' }}</td>
             <td>{{ dateOnly(u.birthDate) || '—' }}</td>
 
-            <!-- Vacaciones -->
+            <!-- Vacaciones (totales ya incluyen bono admin) -->
             <td class="p-1 text-right">{{ used(u) }}</td>
             <td class="p-1 text-right font-medium">{{ total(u) }}</td>
             <td class="p-1 text-right">
@@ -86,7 +86,7 @@ ahora modifica UserManagement.vue: <!-- cliente/src/views/admin/UserManagement.v
                   <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
                 </svg>
               </button>
-              <button class="vac-btn" @click="openVacationModal(u)" title="Editar días de vacaciones">
+              <button class="vac-btn" @click="openVacationModal(u)" title="Derecho LFT + Bono admin">
                 <svg class="icon" viewBox="0 0 24 24">
                   <path d="M12 7a5 5 0 00-5 5v5h10v-5a5 5 0 00-5-5zm0-5a3 3 0 013 3h-6a3 3 0 013-3z"/>
                 </svg>
@@ -312,34 +312,74 @@ ahora modifica UserManagement.vue: <!-- cliente/src/views/admin/UserManagement.v
       </div>
     </div>
 
-    <!-- Modal Vacaciones (establecer total) -->
+    <!-- Modal Vacaciones (LFT + Bono admin) -->
     <div v-if="showVacModal" class="modal-overlay" @click.self="closeVacModal">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>Días de vacaciones: {{ vacForm.name }}</h3>
+          <h3>Vacaciones: {{ vacForm.name }}</h3>
           <button class="close-btn" @click="closeVacModal" title="Cerrar">
             <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
           </button>
         </div>
 
         <div class="modal-body">
+          <!-- Resumen LFT -->
           <div class="grid-2">
+            <div class="stat">
+              <span class="label">Derecho (LFT)</span>
+              <span class="value">{{ vacForm.lftTotal }}</span>
+            </div>
+            <div class="stat">
+              <span class="label">Bono admin</span>
+              <span class="value">{{ vacForm.bonus }}</span>
+            </div>
+
+            <div class="stat">
+              <span class="label">Total efectivo</span>
+              <span class="value">{{ vacForm.effectiveTotal }}</span>
+            </div>
             <div class="stat">
               <span class="label">Usados</span>
               <span class="value">{{ vacForm.used }}</span>
             </div>
-            <div class="stat">
-              <span class="label">Totales actuales</span>
-              <span class="value">{{ vacForm.currentTotal }}</span>
-            </div>
+
             <div class="stat full">
               <span class="label">Disponibles</span>
-              <span class="value">{{ Math.max(0, vacForm.currentTotal - vacForm.used) }}</span>
+              <span class="value">{{ Math.max(0, vacForm.effectiveTotal - vacForm.used) }}</span>
             </div>
           </div>
 
+          <!-- Ventana LFT -->
+          <div class="modal-info" v-if="vacForm.windowStart && vacForm.windowEnd">
+            Ventana LFT vigente:
+            <strong>{{ vacForm.windowStart }}</strong> → <strong>{{ vacForm.windowEnd }}</strong>
+          </div>
+
+          <!-- Controles de Bono -->
           <div class="form-group">
-            <label>Nuevo total de días</label>
+            <label>Ajustar bono admin (no puede bajar del Derecho LFT):</label>
+            <div class="bonus-row">
+              <button class="pill-btn" @click="applyBonusDelta(-1)" :disabled="bonusWouldGoUnderLaw(-1)">-1</button>
+              <button class="pill-btn" @click="applyBonusDelta(+1)">+1</button>
+
+              <input
+                type="number"
+                class="bonus-input"
+                v-model.number="vacForm.bonusEdit"
+                step="1"
+                :min="minBonusAllowed"
+                @keyup.enter.stop.prevent="applyBonusValue()"
+              />
+              <button class="apply-btn" @click="applyBonusValue">Aplicar</button>
+            </div>
+            <small class="text-warn" v-if="vacForm.bonusEdit < minBonusAllowed">
+              El total efectivo no puede ser menor que el Derecho ({{ vacForm.lftTotal }}) ni menor que los usados ({{ vacForm.used }}).
+            </small>
+          </div>
+
+          <!-- (Opcional) Mantenimiento legacy de total absoluto -->
+          <div class="form-group">
+            <label>Fijar total manual (legacy)</label>
             <input
               type="number"
               min="0"
@@ -350,6 +390,9 @@ ahora modifica UserManagement.vue: <!-- cliente/src/views/admin/UserManagement.v
             <small v-if="vacForm.newTotal < vacForm.used" class="text-warn">
               El total no puede ser menor que los días usados ({{ vacForm.used }}).
             </small>
+            <small v-else-if="vacForm.newTotal < vacForm.lftTotal" class="text-warn">
+              El total no puede ser menor que el Derecho LFT ({{ vacForm.lftTotal }}).
+            </small>
             <small v-else-if="isSameTotal" class="text-warn">
               El nuevo total es igual al actual.
             </small>
@@ -357,13 +400,14 @@ ahora modifica UserManagement.vue: <!-- cliente/src/views/admin/UserManagement.v
         </div>
 
         <div class="modal-footer">
-          <button class="cancel-btn" @click="closeVacModal">Cancelar</button>
+          <button class="cancel-btn" @click="closeVacModal">Cerrar</button>
           <button
             class="save-btn"
-            :disabled="savingVac || vacForm.newTotal < vacForm.used || isSameTotal"
+            :disabled="savingVac || vacForm.newTotal < vacForm.used || vacForm.newTotal < vacForm.lftTotal || isSameTotal"
             @click.stop.prevent="saveVacationTotal()"
+            title="Fijar total manual respetando LFT y usados"
           >
-            {{ savingVac ? 'Guardando…' : 'Guardar' }}
+            {{ savingVac ? 'Guardando…' : 'Guardar total' }}
           </button>
         </div>
 
@@ -375,8 +419,9 @@ ahora modifica UserManagement.vue: <!-- cliente/src/views/admin/UserManagement.v
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import api from '@/services/api'
 import userService from '@/services/user.service'
-import type { User as BaseUser, Role } from '@/services/user.service'
+import type { User as BaseUser, Role, VacationDays } from '@/services/user.service'
 
 /** Usuario con meta extendida para esta vista */
 type AdminUser = BaseUser & {
@@ -385,7 +430,7 @@ type AdminUser = BaseUser & {
   birthDate?: string | null
 }
 
-/** Payload local para creación (sin any) */
+/** Payload local para creación */
 type CreatePayload = {
   name: string
   email: string
@@ -397,7 +442,7 @@ type CreatePayload = {
   birthDate?: string
 }
 
-/** Payload local para actualizar meta (sin any) */
+/** Payload local para actualizar meta */
 type UpdateMetaPayload = {
   position?: string
   hireDate?: string
@@ -428,7 +473,7 @@ function yearsBetween(a: string, b: string) {
   return (B - A) / (365.25*24*60*60*1000)
 }
 
-/* ===== Toasts ligeros ===== */
+/* ===== Toasts ===== */
 type ToastType = 'success' | 'error' | 'info' | 'warn'
 interface Toast { id: number; type: ToastType; text: string }
 const toasts = ref<Toast[]>([])
@@ -472,7 +517,7 @@ const isCreateValid = computed(() => {
   const passOk = strongPassRe.test(f.password)
   const confirmOk = f.password_confirmation.length > 0 && f.password_confirmation === f.password
 
-  // Fechas opcionales: si existen, validar formato y no futuras, y coherencia 14 años
+  // Fechas opcionales
   let datesOk = true
   if (f.hireDate && (!isoDayRe.test(f.hireDate) || isFuture(f.hireDate))) datesOk = false
   if (f.birthDate && (!isoDayRe.test(f.birthDate) || isFuture(f.birthDate))) datesOk = false
@@ -548,7 +593,6 @@ async function handleCreateUser() {
     if (createForm.value.hireDate) payload.hireDate = createForm.value.hireDate
     if (createForm.value.birthDate) payload.birthDate = createForm.value.birthDate
 
-    // Si la firma del servicio aún no incluye los campos nuevos, este cast evita "excess property"
     const { user, requiresEmailVerification } =
       await userService.createUserAsAdmin(
         payload as unknown as Parameters<typeof userService.createUserAsAdmin>[0]
@@ -592,7 +636,7 @@ const selectedUser = ref<AdminUser | null>(null)
 const newPassword = ref('')
 const modalError = ref<string | null>(null)
 
-/** Estado local para meta (evita tocar el objeto original hasta guardar) */
+/** Estado local para meta */
 const selectedUserMeta = ref<{ position: string; hireDate: string; birthDate: string }>({
   position: '',
   hireDate: '',
@@ -608,16 +652,44 @@ const vacForm = ref({
   id: '' as string,
   name: '' as string,
   email: '' as string,
+
+  // Estado actual de BD (totales/used)
   used: 0,
   currentTotal: 0,
+
+  // LFT resumen
+  lftTotal: 0,
+  windowStart: '' as string | '',
+  windowEnd: '' as string | '',
+
+  // Bono admin (derivado = total - lft)
+  bonus: 0,
+  bonusEdit: 0, // valor editable
+
+  // Total efectivo (lft + bonus)
+  effectiveTotal: 0,
+
+  // legacy setter
   newTotal: 0
 })
 
-/* Computed para habilitar/deshabilitar Guardar */
+/* Computed para habilitar/deshabilitar Guardar (legacy setter) */
 const isSameTotal = computed(() => {
   const t = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
   return t === vacForm.value.currentTotal
 })
+
+/* Borde inferior para bono: que el total efectivo >= max(LFT, usados) */
+const minBonusAllowed = computed(() => {
+  const minTotal = Math.max(vacForm.value.lftTotal, vacForm.value.used)
+  return Math.max(0, minTotal - vacForm.value.lftTotal)
+})
+
+function bonusWouldGoUnderLaw(delta: number) {
+  const nextBonus = (vacForm.value.bonus ?? 0) + delta
+  const nextTotal = vacForm.value.lftTotal + nextBonus
+  return nextTotal < Math.max(vacForm.value.lftTotal, vacForm.value.used)
+}
 
 onMounted(async () => {
   await fetchUsers()
@@ -640,6 +712,22 @@ async function fetchUsers() {
 function total(u: AdminUser) { return u.vacationDays?.total ?? 0 }
 function used(u: AdminUser) { return u.vacationDays?.used ?? 0 }
 function remaining(u: AdminUser) { return Math.max(0, total(u) - used(u)) }
+
+/* ====== LFT summary (admin) ====== */
+async function loadLFTSummary(userId: string) {
+  // GET /users/:userId/vacation/summary  -> { data: { vacation: { total, used, remaining, window } } }
+  const { data } = await api.get(`/users/${encodeURIComponent(userId)}/vacation/summary`)
+  const payload = (data && data.data) ? data.data : data
+  const vac = payload?.vacation ?? {}
+  const win = vac?.window ?? {}
+  return {
+    lftTotal: Number(vac?.total ?? 0) || 0,
+    lftUsed: Number(vac?.used ?? 0) || 0,
+    lftRemaining: Number(vac?.remaining ?? 0) || 0,
+    windowStart: win?.start ? String(win.start).slice(0,10) : '',
+    windowEnd: win?.end ? String(win.end).slice(0,10) : ''
+  }
+}
 
 function openEditModal(u: AdminUser) {
   selectedUser.value = { ...u }
@@ -664,7 +752,7 @@ function closeModal() {
   metaErrorsText.value = ''
 }
 
-/** valida meta del modal de edición; retorna true/false y setea mensaje */
+/** valida meta */
 function validateMeta(): boolean {
   const { hireDate, birthDate } = selectedUserMeta.value
   let msg = ''
@@ -696,7 +784,7 @@ async function updateUser() {
       await userService.updateUserName(selectedUser.value.id, { name: selectedUser.value.name })
     }
 
-    // Estado activo/inactivo
+    // Estado
     if (selectedUser.value.isActive !== current.isActive) {
       await userService.toggleUserLock(selectedUser.value.id)
     }
@@ -759,17 +847,57 @@ function updateSelectedUser<K extends keyof AdminUser>(key: K, value: AdminUser[
   }
 }
 
-// Vacaciones
-function openVacationModal(u: AdminUser) {
+// Vacaciones (abrir modal con LFT)
+async function openVacationModal(u: AdminUser) {
   vacError.value = null
   showVacModal.value = true
-  vacForm.value = {
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    used: used(u),
-    currentTotal: total(u),
-    newTotal: total(u)
+
+  // estado actual
+  const curTotal = total(u)
+  const curUsed = used(u)
+
+  // cargar LFT summary
+  try {
+    const s = await loadLFTSummary(u.id)
+    const bonus = curTotal - s.lftTotal
+
+    vacForm.value = {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+
+      used: curUsed,
+      currentTotal: curTotal,
+
+      lftTotal: s.lftTotal,
+      windowStart: s.windowStart,
+      windowEnd: s.windowEnd,
+
+      bonus: bonus,
+      bonusEdit: Math.max(minBonusAllowed.value, bonus),
+
+      effectiveTotal: Math.max(curTotal, Math.max(curUsed, s.lftTotal)),
+
+      newTotal: curTotal
+    }
+  } catch (e: unknown) {
+    console.error('[vacationModal] error loading LFT summary', e)
+    // fallback sin LFT
+    vacForm.value = {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      used: curUsed,
+      currentTotal: curTotal,
+      lftTotal: 0,
+      windowStart: '',
+      windowEnd: '',
+      bonus: 0,
+      bonusEdit: 0,
+      effectiveTotal: curTotal,
+      newTotal: curTotal
+    }
+    pushToast('No se pudo cargar el resumen LFT. Aún puedes ajustar el total.', 'warn')
   }
   console.log('[vacModal] open', JSON.parse(JSON.stringify(vacForm.value)))
 }
@@ -779,12 +907,75 @@ function closeVacModal() {
   vacError.value = null
 }
 
+/** Ajuste relativo del bono (+/-) */
+async function applyBonusDelta(delta: number) {
+  if (bonusWouldGoUnderLaw(delta)) return
+  try {
+    savingVac.value = true
+    const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { delta })
+    // Recalcular tras respuesta
+    const newTotal = Math.floor(Number(vd.total || 0))
+    const b = newTotal - vacForm.value.lftTotal
+    vacForm.value.currentTotal = newTotal
+    vacForm.value.bonus = b
+    vacForm.value.bonusEdit = b
+    vacForm.value.effectiveTotal = Math.max(newTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
+
+    // Refrescar en tabla
+    const idx = users.value.findIndex(u => u.id === vacForm.value.id)
+    if (idx !== -1) users.value[idx] = { ...users.value[idx], vacationDays: { ...vd } }
+
+    pushToast(`Bono actualizado. Total: ${vd.total}, Disponibles: ${vd.remaining}`, 'success')
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'No se pudo ajustar el bono'
+    vacError.value = msg
+    pushToast(msg, 'error')
+    console.error('[applyBonusDelta] ERROR', e)
+  } finally {
+    savingVac.value = false
+  }
+}
+
+/** Fijar bono a un valor específico */
+async function applyBonusValue() {
+  const b = Math.floor(Number(vacForm.value.bonusEdit ?? 0))
+  // mínimo para que total >= max(LFT, usados)
+  const minB = minBonusAllowed.value
+  const safeBonus = Math.max(b, minB)
+
+  try {
+    savingVac.value = true
+    const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { value: safeBonus })
+    const newTotal = Math.floor(Number(vd.total || 0))
+    const nb = newTotal - vacForm.value.lftTotal
+    vacForm.value.currentTotal = newTotal
+    vacForm.value.bonus = nb
+    vacForm.value.bonusEdit = nb
+    vacForm.value.effectiveTotal = Math.max(newTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
+
+    const idx = users.value.findIndex(u => u.id === vacForm.value.id)
+    if (idx !== -1) users.value[idx] = { ...users.value[idx], vacationDays: { ...vd } }
+
+    pushToast(`Bono fijado. Total: ${vd.total}, Disponibles: ${vd.remaining}`, 'success')
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'No se pudo fijar el bono'
+    vacError.value = msg
+    pushToast(msg, 'error')
+    console.error('[applyBonusValue] ERROR', e)
+  } finally {
+    savingVac.value = false
+  }
+}
+
+/** Guardado legacy de total absoluto (respetando límites LFT y usados) */
 async function saveVacationTotal() {
   try {
     savingVac.value = true
-    const newTotal = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
-    console.log('[saveVacationTotal] START', { id: vacForm.value.id, total: newTotal })
-
+    const newTotal = Math.max(
+      vacForm.value.lftTotal,              // no menor que la ley
+      vacForm.value.used,                  // no menor que usados
+      Math.floor(Number(vacForm.value.newTotal ?? 0))
+    )
     if (newTotal === vacForm.value.currentTotal) {
       pushToast('No hay cambios en el total de días', 'info')
       return closeVacModal()
@@ -799,6 +990,12 @@ async function saveVacationTotal() {
         vacationDays: { ...vd },
       }
     }
+
+    // ajustar campos locales/bono derivados
+    vacForm.value.currentTotal = vd.total
+    vacForm.value.effectiveTotal = vd.total
+    vacForm.value.bonus = vd.total - vacForm.value.lftTotal
+    vacForm.value.bonusEdit = vacForm.value.bonus
 
     closeVacModal()
     pushToast(`Días de vacaciones actualizados: total ${vd.total}, disponibles ${vd.remaining}`, 'success')
@@ -899,8 +1096,6 @@ async function saveVacationTotal() {
   align-items: center;
   justify-content: center;
   z-index: 1000;
-
-  /* Permite scroll si el modal es alto */
   overflow: auto;
   padding: 1rem;
 }
@@ -908,10 +1103,8 @@ async function saveVacationTotal() {
   background-color: white;
   border-radius: 0.5rem;
   width: 100%;
-  max-width: 560px;
+  max-width: 620px;
   box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-
-  /* Limita altura y crea layout en columna */
   max-height: 92vh;
   display: flex;
   flex-direction: column;
@@ -928,11 +1121,7 @@ async function saveVacationTotal() {
 .close-btn { color: #a0aec0; background: none; border: none; cursor: pointer; padding: 0.25rem; }
 .close-btn:hover { color: #718096; }
 
-/* Form del modal de creación (captura Enter) */
-.modal-body {
-  padding: 1.5rem;
-  overflow: auto; /* El cuerpo hace scroll */
-}
+.modal-body { padding: 1.5rem; overflow: auto; }
 .form-group { margin-bottom: 1rem; }
 .form-group label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #4a5568; }
 .form-group input, .form-group select { width: 100%; padding: 0.625rem; border: 1px solid #e2e8f0; border-radius: 0.375rem; transition: border-color 0.2s; }
@@ -946,8 +1135,6 @@ async function saveVacationTotal() {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
-
-  /* Siempre visible en la parte baja del modal */
   position: sticky;
   bottom: 0;
   background: #fff;
@@ -959,7 +1146,7 @@ async function saveVacationTotal() {
 .save-btn[disabled], .save-btn:disabled { background-color: #a0aec0; cursor: not-allowed; }
 
 .modal-error { margin: .75rem 1.5rem 1.25rem; padding: 0.75rem; background-color: #fff5f5; color: #e53e3e; border-radius: 0.375rem; font-size: 0.875rem; }
-.modal-info { margin: .75rem 1.5rem 1.25rem; padding: 0.75rem; background-color: #f0fff4; color: #2f855a; border-radius: 0.375rem; font-size: 0.875rem; }
+.modal-info { margin: .5rem 0 1rem; padding: 0.75rem; background-color: #f0fff4; color: #2f855a; border-radius: 0.375rem; font-size: 0.875rem; }
 
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; margin-bottom: .75rem; }
 .stat { background: #f7fafc; border: 1px solid #edf2f7; padding: .5rem .75rem; border-radius: .375rem; }
@@ -967,6 +1154,31 @@ async function saveVacationTotal() {
 .stat .label { font-size: .75rem; color: #4a5568; }
 .stat .value { font-weight: 600; color: #1a202c; }
 .text-warn { color: #c05621; }
+
+/* Controles de bono */
+.bonus-row {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.pill-btn {
+  border: 1px solid #cbd5e0;
+  background: #edf2f7;
+  padding: .4rem .7rem;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+.pill-btn:disabled { opacity: .5; cursor: not-allowed; }
+.bonus-input {
+  max-width: 120px;
+}
+.apply-btn {
+  background: #4299e1;
+  color: white;
+  padding: .5rem .9rem;
+  border-radius: .375rem;
+}
 
 @media (max-height: 700px) {
   .modal-content { max-height: 96vh; }
