@@ -1,4 +1,5 @@
 // server/src/controllers/userController.js
+import bcrypt from 'bcryptjs'
 import User from '../models/User.js'
 import VacationData from '../models/VacationData.js'
 
@@ -206,7 +207,7 @@ export const createUser = async (req, res) => {
     const user = new User({
       name,
       email,
-      password, // se hashea en pre('save')
+      password, // se hashea en pre('save') si lo mantienes
       role,
       isActive,
       isVerified,
@@ -355,21 +356,32 @@ export const toggleUserLock = async (req, res) => {
 ============================== */
 export const updateUserPassword = async (req, res) => {
   try {
-    const { newPassword } = req.body
-    if (!newPassword || newPassword.length < 8) {
+    const userId = req.params.id
+
+    // Acepta ambos nombres para compatibilidad (newPassword | password)
+    const raw = (req.body?.newPassword ?? req.body?.password ?? '').toString().trim()
+
+    if (!raw || raw.length < 8) {
       return res.status(400).json({
         success: false,
         message: 'La contraseña debe tener al menos 8 caracteres',
       })
     }
 
-    const user = await User.findById(req.params.id)
+    const user = await User.findById(userId).select('_id')
     if (!user) {
       return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND })
     }
 
-    user.password = newPassword // se hashea en pre('save')
-    await user.save()
+    // Hash explícito
+    const salt = await bcrypt.genSalt(10)
+    const hash = await bcrypt.hash(raw, salt)
+
+    await User.findByIdAndUpdate(
+      userId,
+      { password: hash, passwordChangedAt: new Date() },
+      { new: true, runValidators: true }
+    )
 
     return res.json({ success: true, message: 'Contraseña actualizada' })
   } catch (error) {
