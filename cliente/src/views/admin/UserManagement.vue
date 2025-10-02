@@ -43,6 +43,7 @@
             <th class="vac-col text-right">Usados</th>
             <th class="vac-col text-right">Totales</th>
             <th class="vac-col text-right">Disp.</th>
+            <th class="window-column">Ventana</th>
             <th class="actions-column">Acciones</th>
           </tr>
         </thead>
@@ -78,6 +79,21 @@
               >
                 {{ remaining(u) }}
               </span>
+            </td>
+
+            <td class="window-cell">
+              <template v-if="windowInfo(u.hireDate)">
+                <div class="win-range">
+                  {{ windowInfo(u.hireDate)!.start }} → {{ windowInfo(u.hireDate)!.end }}
+                </div>
+                <div
+                  class="win-left"
+                  :class="{ 'text-warn': windowInfo(u.hireDate)!.daysLeft <= 15 }"
+                >
+                  {{ windowInfo(u.hireDate)!.daysLeft }} días restantes
+                </div>
+              </template>
+              <span v-else>—</span>
             </td>
 
             <td class="actions-cell">
@@ -471,6 +487,50 @@ function yearsBetween(a: string, b: string) {
   const A = new Date(a).getTime()
   const B = new Date(b).getTime()
   return (B - A) / (365.25*24*60*60*1000)
+}
+
+/* ===== Helpers de VENTANA (cálculo local) ===== */
+function toDateUTC(day: string): Date | null {
+  if (!isoDayRe.test(day)) return null
+  const [y, m, d] = day.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  return Number.isNaN(dt.getTime()) ? null : dt
+}
+
+function ymd(d: Date): string {
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const da = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${da}`
+}
+
+/** Devuelve { start, end, daysLeft } o null si no hay hireDate válido */
+function windowInfo(hireDate?: string | null): { start: string; end: string; daysLeft: number } | null {
+  if (!hireDate) return null
+  const hd = toDateUTC(dateOnly(hireDate) || '')
+  if (!hd) return null
+
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+
+  // aniversario de este año con mismo mes/día que hireDate
+  const annivThisYear = new Date(Date.UTC(
+    today.getUTCFullYear(),
+    hd.getUTCMonth(),
+    hd.getUTCDate()
+  ))
+
+  // inicio: aniversario más reciente (este año o el anterior)
+  const start = (today.getTime() >= annivThisYear.getTime())
+    ? annivThisYear
+    : new Date(Date.UTC(today.getUTCFullYear() - 1, hd.getUTCMonth(), hd.getUTCDate()))
+
+  // fin = inicio + 6 meses (LFT)
+  const end = new Date(start.getTime())
+  end.setUTCMonth(end.getUTCMonth() + 6)
+
+  const daysLeft = Math.max(0, Math.ceil((end.getTime() - today.getTime()) / 86400000))
+  return { start: ymd(start), end: ymd(end), daysLeft }
 }
 
 /* ===== Toasts ===== */
@@ -1183,4 +1243,12 @@ async function saveVacationTotal() {
 @media (max-height: 700px) {
   .modal-content { max-height: 96vh; }
 }
+
+/* Ventana (tabla) */
+.window-column { width: 18%; }
+.window-cell { white-space: nowrap; }
+.win-range { font-weight: 600; color: #1a202c; }
+.win-left { font-size: .8rem; color: #4a5568; }
+.text-warn { color: #c05621; }
+
 </style>
