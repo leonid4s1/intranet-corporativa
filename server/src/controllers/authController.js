@@ -71,7 +71,11 @@ const publicUser = (u) => ({
   vacationDays: u.vacationDays,
 });
 
-// Generación de tokens con validación de secrets
+/** ==========================
+ * Generación de tokens
+ *  - Acepta ACCESS_TOKEN_SECRET o JWT_SECRET para el access token
+ *  - Usa REFRESH_TOKEN_SECRET para el refresh token
+ * ========================== */
 const generateTokens = async (user) => {
   // Si el modelo define métodos propios, úsalos
   if (
@@ -86,23 +90,29 @@ const generateTokens = async (user) => {
   }
 
   // Fallback: firmar aquí y validar secrets
-  const JWT_SECRET = getEnv("JWT_SECRET");
+  const ACCESS_SECRET =
+    getEnv("ACCESS_TOKEN_SECRET") || getEnv("JWT_SECRET"); // 👈 acepta ambas
   const REFRESH_SECRET = getEnv("REFRESH_TOKEN_SECRET");
-  if (!JWT_SECRET || !REFRESH_SECRET) {
+
+  if (!ACCESS_SECRET || !REFRESH_SECRET) {
     throw new Error(
-      "Configuración JWT faltante: define JWT_SECRET y REFRESH_TOKEN_SECRET en el servidor."
+      "Configuración JWT faltante: define ACCESS_TOKEN_SECRET (o JWT_SECRET) y REFRESH_TOKEN_SECRET en el servidor."
     );
   }
 
-  const accessToken = jwt.sign({ userId: user._id }, JWT_SECRET, {
+  const accessToken = jwt.sign({ userId: user._id }, ACCESS_SECRET, {
     expiresIn: ACCESS_TTL,
   });
-  const refreshToken = jwt.sign({ userId: user._id }, REFRESH_SECRET, {
-    expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000),
-  });
+
+  const refreshToken = jwt.sign(
+    { userId: user._id },
+    REFRESH_SECRET,
+    { expiresIn: Math.floor(REFRESH_MAX_AGE_MS / 1000) } // ~2 días
+  );
 
   user.refreshToken = refreshToken;
-  await user.save();
+  await user.save({ validateBeforeSave: false });
+
   return { accessToken, refreshToken };
 };
 
@@ -358,7 +368,10 @@ export const resendVerificationEmail = async (req, res) => {
  *  ========================== */
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // 👇 normaliza email y password
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const password = String(req.body?.password || "");
+
     if (!email || !password) {
       return res.status(400).json({
         errors: [
@@ -390,7 +403,7 @@ export const login = async (req, res) => {
         );
     }
 
-    // 🔒 NUEVO: bloquear si está inactivo (antes de comparar contraseña)
+    // 🔒 bloquear si está inactivo (antes de comparar contraseña)
     if (!user.isActive) {
       return res
         .status(403)
