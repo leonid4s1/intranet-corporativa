@@ -9,9 +9,12 @@ dayjs.extend(isSameOrBefore);
 
 /**
  * Días de derecho por años de servicio (LFT MX 2023 “vacaciones dignas”)
+ * La tabla está indexada por AÑOS COMPLETOS cumplidos.
+ * 0 => 0, 1 => 12, 2 => 14, 3 => 16, 4 => 18, 5 => 20,
+ * 6..10 => 22,24,26,28,30, 11+ => +2 cada bloque de 5 años.
  */
 export function entitlementDaysByYearsMX(years) {
-  if (years <= 0) return 0; // aún no cumple 1 año
+  if (years <= 0) return 0;          // aún no cumple 1 año
   if (years === 1) return 12;
   if (years === 2) return 14;
   if (years === 3) return 16;
@@ -35,22 +38,44 @@ export function yearsOfService(hireDate, onDate = new Date()) {
   return Math.max(0, yrs);
 }
 
-/** Ventana del ciclo vigente: aniversario actual (o último) y +6 meses */
+/**
+ * Ventana del ciclo vigente (aniversario “vigente” + 6 meses)
+ * - Antes del primer aniversario: la ventana empieza en el PRIMER aniversario (futura).
+ * - Después: toma el último aniversario que ya ocurrió y suma 6 meses.
+ */
 export function currentAnniversaryWindow(hireDate, onDate = new Date()) {
   const hd = dayjs.utc(hireDate);
   const today = dayjs.utc(onDate);
   if (!hd.isValid()) return null;
 
-  const thisYearAnniv = hd.year(today.year());
-  const start = today.isSameOrAfter(thisYearAnniv) ? thisYearAnniv : thisYearAnniv.subtract(1, 'year');
-  const end = start.add(6, 'month'); // LFT: 6 meses para disfrutarlas
+  const firstAnniv = hd.add(1, 'year');
+
+  // Si aún no llega el primer aniversario, la ventana no ha abierto;
+  // devolvemos [primer aniversario, +6 meses] (ambas futuras).
+  if (today.isBefore(firstAnniv, 'day')) {
+    return {
+      start: firstAnniv.toDate(),
+      end: firstAnniv.add(6, 'month').toDate(),
+    };
+  }
+
+  // Ya pasó el primer aniversario: usamos el último aniversario ocurrido (este año o el pasado)
+  let start = hd.year(today.year()); // aniversario de este año
+  if (today.isBefore(start, 'day')) {
+    start = start.subtract(1, 'year'); // todavía no llega el de este año ⇒ usar el del año pasado
+  }
+  const end = start.add(6, 'month');
   return { start: start.toDate(), end: end.toDate() };
 }
 
-/** Días de derecho del ciclo vigente (del año que se cumple) */
+/**
+ * Días de derecho del ciclo vigente.
+ * IMPORTANTE: NO sumar +1. El derecho es por AÑOS COMPLETOS cumplidos.
+ * Antes del primer aniversario => 0.
+ */
 export function currentEntitlementDays(hireDate, onDate = new Date()) {
-  const years = yearsOfService(hireDate, onDate) + 1; // derecho del año que se cumple
-  return entitlementDaysByYearsMX(years);
+  const yos = yearsOfService(hireDate, onDate); // 0 si aún no cumple 1 año
+  return entitlementDaysByYearsMX(yos);
 }
 
 /** ¿El rango [startDate, endDate] está dentro de la ventana de 6 meses del ciclo vigente? */
