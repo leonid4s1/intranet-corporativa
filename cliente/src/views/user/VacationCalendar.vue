@@ -8,6 +8,7 @@
 
     <!-- KPIs -->
     <div class="kpi-grid">
+      <!-- Días disponibles -->
       <div class="kpi-card">
         <div class="kpi-value">{{ availableDays }}</div>
         <div class="kpi-label">Días disponibles</div>
@@ -19,16 +20,33 @@
         </div>
       </div>
 
+      <!-- Días usados -->
       <div class="kpi-card">
         <div class="kpi-value">{{ usedDays }}</div>
         <div class="kpi-label">Días usados</div>
         <small v-if="totalAnnualDays">{{ Math.round((usedDays / totalAnnualDays) * 100) }}% del total</small>
       </div>
 
+      <!-- Días anuales -->
       <div class="kpi-card">
         <div class="kpi-value">{{ totalAnnualDays }}</div>
         <div class="kpi-label">Días anuales</div>
         <small>{{ availableDays }} días restantes</small>
+      </div>
+
+      <!-- Periodo vigente (NUEVO) -->
+      <div class="kpi-card kpi-period">
+        <div class="kpi-value">
+          <template v-if="windowStart && windowEnd">
+            {{ windowStart }} → {{ windowEnd }}
+          </template>
+          <template v-else>—</template>
+        </div>
+        <div class="kpi-label">Periodo vigente</div>
+        <small class="badge-soft" v-if="windowEnd">{{ daysLeft }} días restantes</small>
+        <div class="kpi-bar">
+          <div class="kpi-bar-fill" :style="{ width: periodPct + '%' }" />
+        </div>
       </div>
     </div>
 
@@ -72,7 +90,7 @@
             @click="onClickDay(day)"
             @mouseenter="onHoverDay(day)"
           >
-            <!-- Badges SIEMPRE visibles -->
+            <!-- Badges -->
             <div class="badges">
               <span
                 v-if="day.isHoliday"
@@ -98,7 +116,7 @@
 
             <div class="day-number">{{ day.day }}</div>
 
-            <!-- Nombres: hasta 2 chips y luego +N -->
+            <!-- Chips nombres -->
             <div class="labels" v-if="day.hasTeamApproved">
               <span
                 v-for="(n, i) in day.topTwoNames"
@@ -113,7 +131,7 @@
               >+{{ day.extraCount }}</span>
             </div>
 
-            <!-- Indicador inferior (estado) -->
+            <!-- Indicador inferior -->
             <span
               v-if="day.isFull || day.isHoliday || day.isWeekend || day.inSelection || day.isAvailable"
               class="dot"
@@ -238,8 +256,10 @@ import {
   getTeamVacations,
   getUnavailableDates,
   cancelVacationRequest,
-  requestVacation
+  requestVacation,
+  getVacationSummary,
 } from '@/services/vacation.service'
+import type { VacationSummary } from '@/services/vacation.service'
 
 /** ===== Tipos ===== */
 type UserRef = { id?: string; _id?: string; name?: string }
@@ -267,6 +287,10 @@ const currentDate = ref<Dayjs>(dayjs())
 const availableDays = ref(0)
 const usedDays = ref(0)
 const totalAnnualDays = ref(0)
+
+// Ventana vigente (NUEVO)
+const windowStart = ref<string>('') // YYYY-MM-DD
+const windowEnd   = ref<string>('') // YYYY-MM-DD
 
 const holidays = ref<Holiday[]>([])
 const holidaysSet = computed(() => new Set(holidays.value.map(h => h.date)))
@@ -302,10 +326,9 @@ const teamCountByDate = computed<Record<string, number>>(() => {
 })
 
 /** ===== Utils ===== */
-// Weekend robusto por Y-M-D en UTC (Sábado=6 y Domingo=0)
 function isWeekendYMD(ymd: string): boolean {
   const d = new Date(`${ymd}T00:00:00Z`)
-  const dow = d.getUTCDay() // 0=Dom, 6=Sáb
+  const dow = d.getUTCDay()
   return dow === 0 || dow === 6
 }
 
@@ -330,7 +353,6 @@ function countBusinessDays(startISO: string, endISO: string): number {
   return count
 }
 
-/** Abreviador de nombres: "Enrique Meneses Anguiano" => "Enrique A." */
 function abbrevName(full: string): string {
   const parts = full.trim().split(/\s+/).filter(Boolean)
   if (parts.length === 0) return full
@@ -339,7 +361,7 @@ function abbrevName(full: string): string {
   return last && last !== first ? `${first} ${last[0]}.` : first
 }
 
-/** Reglas de selección (festivos/fines se permiten) */
+/** Reglas de selección */
 function canPickDay(d: dayjs.Dayjs): boolean {
   const key = d.format('YYYY-MM-DD')
   if (!d.isAfter(today.value, 'day')) return false
@@ -431,9 +453,9 @@ const calendarDays = computed<CalendarDay[]>(() => {
   const startOfMonth = currentDate.value.startOf('month')
   const endOfMonth = currentDate.value.endOf('month')
 
-  // 🔧 Forzar grid Domingo–Sábado (independiente del locale)
-  const startGrid = startOfMonth.subtract(startOfMonth.day(), 'day') // domingo previo o mismo día
-  const endGrid   = endOfMonth.add(6 - endOfMonth.day(), 'day')      // sábado siguiente o mismo día
+  // Grid Domingo–Sábado
+  const startGrid = startOfMonth.subtract(startOfMonth.day(), 'day')
+  const endGrid   = endOfMonth.add(6 - endOfMonth.day(), 'day')
 
   const out: CalendarDay[] = []
   let d = startGrid
@@ -465,7 +487,6 @@ const calendarDays = computed<CalendarDay[]>(() => {
         ? approvedNamesFull
         : `${uniqueNames[0]}, ${uniqueNames[1]} +${uniqueNames.length - 2}`
 
-    // chips visibles
     const topTwoNames = uniqueNames.slice(0, 2).map(abbrevName)
     const extraCount = Math.max(uniqueNames.length - 2, 0)
 
@@ -628,6 +649,22 @@ async function loadUserRequests() {
   rejectedRequests.value = rejected as unknown as VacationRequest[]
 }
 
+// NUEVO: Cargar resumen con ventana vigente (start/end)
+async function loadSummary() {
+  try {
+    const s: VacationSummary = await getVacationSummary()
+    const start = s.vacation.window?.start ?? ''
+    const end   = s.vacation.window?.end   ?? ''
+
+    // normaliza a YYYY-MM-DD
+    windowStart.value = start ? String(start).slice(0, 10) : ''
+    windowEnd.value   = end   ? String(end).slice(0, 10)   : ''
+  } catch {
+    windowStart.value = ''
+    windowEnd.value   = ''
+  }
+}
+
 /** Diálogo */
 async function submitVacationRequest(reason: string) {
   if (!selectedStart.value || !selectedEnd.value) return
@@ -635,7 +672,7 @@ async function submitVacationRequest(reason: string) {
     await requestVacation({ startDate: selectedStart.value, endDate: selectedEnd.value, reason })
     requestOpen.value = false
     resetSelection()
-    await Promise.all([loadUserRequests(), loadBalance(), loadCalendarData()])
+    await Promise.all([loadUserRequests(), loadBalance(), loadCalendarData(), loadSummary()])
   } catch {}
 }
 function handleDialogCancel() {
@@ -645,22 +682,54 @@ function handleDialogCancel() {
 async function cancel(id: string) {
   try {
     await cancelVacationRequest(id)
-    await Promise.all([loadUserRequests(), loadBalance(), loadCalendarData()])
+    await Promise.all([loadUserRequests(), loadBalance(), loadCalendarData(), loadSummary()])
   } catch {}
 }
 
+/** Computadas del periodo (NUEVO) */
+const daysLeft = computed(() => {
+  if (!windowEnd.value) return 0
+  const today = new Date(); today.setUTCHours(0,0,0,0)
+  const end   = new Date(`${windowEnd.value}T00:00:00Z`)
+  const ms    = Math.max(0, end.getTime() - today.getTime())
+  return Math.ceil(ms / 86400000)
+})
+
+const periodPct = computed(() => {
+  if (!windowStart.value || !windowEnd.value) return 0
+  const start = new Date(`${windowStart.value}T00:00:00Z`)
+  const end   = new Date(`${windowEnd.value}T00:00:00Z`)
+  const today = new Date(); today.setUTCHours(0,0,0,0)
+
+  const totalDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000))
+  const leftDays  = Math.max(0, Math.ceil((end.getTime() - today.getTime())  / 86400000))
+  const pct = (leftDays / totalDays) * 100 // % restante
+  return Math.max(0, Math.min(100, Math.round(pct)))
+})
+
 /** Init */
 onMounted(async () => {
-  await Promise.all([loadBalance(), loadCalendarData(), loadUserRequests()])
+  await Promise.all([loadBalance(), loadCalendarData(), loadUserRequests(), loadSummary()])
 })
 </script>
 
 <style scoped>
 /* ===== Paleta ===== */
 :root{
-  --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0; /* más contraste */
+  --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
   --brand:#2563eb; --ring:rgba(37,99,235,.25);
   --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#3b82f6;
+}
+
+/* Oculta posibles FAB/Debug flotantes negros */
+.tweak-fab,
+.debug-fab,
+.ui-tweak-toggle,
+.fab-settings,
+.fab-debug,
+.debug-box,
+.meta-debug{
+  display:none !important;
 }
 
 /* Toast */
@@ -670,7 +739,10 @@ onMounted(async () => {
 .vacations-page{ display:flex; flex-direction:column; gap:1rem; color:var(--text); background:var(--bg); }
 
 /* KPIs */
-.kpi-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; }
+.kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; } /* ← 4 columnas */
+@media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(2,1fr) } }
+@media (max-width:640px){ .kpi-grid{ grid-template-columns:1fr } }
+
 .kpi-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .kpi-value{ font-size:2rem; font-weight:700; }
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
@@ -678,6 +750,22 @@ onMounted(async () => {
 .kpi-card:first-child .kpi-bar-fill{ height:100%; background:linear-gradient(90deg,#16a34a,#22c55e,#86efac); transition:width .35s; }
 .kpi-card:nth-child(2) small{ display:inline-block; margin-top:.4rem; font-weight:700; padding:.2rem .55rem; border-radius:999px; color:#fff; background:linear-gradient(90deg,#3b82f6,#6366f1); box-shadow:0 6px 16px rgba(99,102,241,.18); }
 .kpi-card:nth-child(3) small{ display:inline-block; margin-top:.4rem; color:#065f46; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:999px; padding:.18rem .55rem; }
+
+/* KPI Periodo (NUEVO) */
+.kpi-card.kpi-period .kpi-bar{
+  margin-top:.6rem; height:8px; width:100%;
+  background:#f1f5f9; border-radius:999px; overflow:hidden; border:1px solid #eef2f7;
+}
+.kpi-card.kpi-period .kpi-bar-fill{
+  height:100%;
+  background:linear-gradient(90deg,#16a34a,#22c55e,#86efac);
+  transition:width .35s;
+}
+.badge-soft{
+  display:inline-block; margin-top:.4rem;
+  padding:.18rem .55rem; border-radius:999px; font-size:.8rem;
+  background:#ecfeff; color:#0ea5e9; border:1px solid #bae6fd;
+}
 
 /* Layout principal */
 .content-grid{ display:grid; grid-template-columns:1fr 320px; gap:1rem; }

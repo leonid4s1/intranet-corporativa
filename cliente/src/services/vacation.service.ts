@@ -84,6 +84,26 @@ export type EntitlementResponse = {
   cycle: EntitlementCycle;
 };
 
+/** Resumen LFT (endpoint /users/:id/vacation/summary) */
+export type VacationSummary = {
+  user: {
+    id: string;
+    name?: string;
+    email?: string;
+    hireDate?: string | Date;
+    yearsOfService?: number;
+  };
+  vacation: {
+    right: number;                // días por ley
+    adminExtra: number;           // bono admin
+    total: number;                // right + adminExtra
+    used: number;                 // usados en ciclo vigente
+    remaining: number;            // total - used
+    window: { start: string; end: string }; // YYYY-MM-DD
+    policy: string;               // 'LFT MX 2023'
+  };
+};
+
 /* =========================
  * Helpers seguros / type guards
  * ========================= */
@@ -342,6 +362,77 @@ export async function getUserEntitlementAdmin(userId: string): Promise<Entitleme
 }
 
 /* =========================
+ * Resumen LFT vigente (nuevo)
+ * ========================= */
+
+// Helper: obtener el id del usuario autenticado desde /auth/me (sin any)
+type MeUser = { id?: string; _id?: string };
+type MeEnvelope =
+  | { user?: MeUser }
+  | { data?: { user?: MeUser } };
+
+async function getCurrentUserId(): Promise<string> {
+  const { data } = await api.get('/auth/me');
+  const payload = data as MeEnvelope;
+
+  // soporta { user } o { data: { user } }
+  const userNode: MeUser | undefined =
+    (payload as { user?: MeUser }).user ??
+    ((payload as { data?: { user?: MeUser } }).data?.user);
+
+  const id = userNode?.id ?? userNode?._id;
+  if (!id) throw new Error('No se pudo resolver el userId del usuario autenticado');
+  return String(id);
+}
+
+/** GET /users/:userId/vacation/summary
+ *  Si no se pasa userId, se resuelve con /auth/me
+ */
+export async function getVacationSummary(userId?: string): Promise<VacationSummary> {
+  const id = userId || (await getCurrentUserId());
+  const { data } = await api.get(`/users/${id}/vacation/summary`, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
+
+  // El backend responde { success, data: {...} }
+  const root = unwrapData<unknown>(data, {});
+  const rec = isRecord(root) ? root : {};
+
+  const uObj = getRec(rec, 'user') ?? {};
+  const vObj = getRec(rec, 'vacation') ?? {};
+
+  const windowObj = getRec(vObj, 'window') ?? {};
+  const summary: VacationSummary = {
+    user: {
+      id: getStr(uObj, 'id') ?? getStr(uObj, '_id') ?? '',
+      name: getStr(uObj, 'name'),
+      email: getStr(uObj, 'email'),
+      hireDate: ((): string | undefined => {
+        const hd = uObj['hireDate'];
+        if (isString(hd)) return hd;
+        if (hd instanceof Date) return hd.toISOString();
+        return undefined;
+      })(),
+      yearsOfService: getNum(uObj, 'yearsOfService'),
+    },
+    vacation: {
+      right: getNum(vObj, 'right') ?? 0,
+      adminExtra: getNum(vObj, 'adminExtra') ?? 0,
+      total: getNum(vObj, 'total') ?? 0,
+      used: getNum(vObj, 'used') ?? 0,
+      remaining: getNum(vObj, 'remaining') ?? 0,
+      window: {
+        start: getStr(windowObj, 'start') ?? '',
+        end: getStr(windowObj, 'end') ?? '',
+      },
+      policy: getStr(vObj, 'policy') ?? 'LFT MX 2023',
+    },
+  };
+
+  return summary;
+}
+
+/* =========================
  * Endpoints de admin
  * ========================= */
 
@@ -506,6 +597,7 @@ export default {
   // Derecho vigente (LFT)
   getMyEntitlement,
   getUserEntitlementAdmin,
+  getVacationSummary, // ← también en default por conveniencia
 
   // Admin
   getPendingRequests,
