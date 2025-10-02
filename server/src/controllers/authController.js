@@ -72,6 +72,29 @@ const publicUser = (u) => ({
 });
 
 /** ==========================
+ *  Normalizador de vacationDays (evita used > total)
+ *  ========================== */
+const normalizeVacForSave = (user) => {
+  try {
+    if (!user.vacationDays) {
+      user.vacationDays = { total: 0, used: 0, adminExtra: 0, lastUpdate: new Date() };
+      return;
+    }
+    const vd = user.vacationDays;
+    vd.total = Math.max(0, Math.floor(Number(vd.total ?? 0)));
+    vd.used = Math.max(0, Math.floor(Number(vd.used ?? 0)));
+    vd.adminExtra = Math.max(0, Math.floor(Number(vd.adminExtra ?? 0)));
+
+    // Regla de esquema: used <= total
+    if (vd.used > vd.total) vd.total = vd.used;
+
+    vd.lastUpdate = new Date();
+  } catch {
+    // no-op: nunca bloqueamos el login por normalización
+  }
+};
+
+/** ==========================
  * Generación de tokens
  *  - Acepta ACCESS_TOKEN_SECRET o JWT_SECRET para el access token
  *  - Usa REFRESH_TOKEN_SECRET para el refresh token
@@ -85,7 +108,10 @@ const generateTokens = async (user) => {
     const accessToken = user.generateAuthToken();
     const refreshToken = user.generateRefreshToken();
     user.refreshToken = refreshToken;
+
+    normalizeVacForSave(user); // 👈 NUEVO
     await user.save();
+
     return { accessToken, refreshToken };
   }
 
@@ -111,7 +137,9 @@ const generateTokens = async (user) => {
   );
 
   user.refreshToken = refreshToken;
-  await user.save({ validateBeforeSave: false });
+
+  normalizeVacForSave(user); // 👈 NUEVO
+  await user.save();
 
   return { accessToken, refreshToken };
 };
@@ -143,6 +171,8 @@ export const sendVerificationForUser = async (userId) => {
   const verificationToken = crypto.randomBytes(32).toString("hex");
   user.emailVerificationToken = verificationToken;
   user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000); // 1h
+
+  normalizeVacForSave(user); // 👈 por consistencia
   await user.save();
 
   const link = buildVerificationLink(verificationToken);
@@ -229,6 +259,8 @@ export const register = async (req, res) => {
     const verificationToken = crypto.randomBytes(32).toString("hex");
     user.emailVerificationToken = verificationToken;
     user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000); // 1h
+
+    normalizeVacForSave(user);
     await user.save();
 
     // crea doc de VacationData (el post-save también lo upsertea; esto es por compat)
@@ -310,6 +342,8 @@ export const verifyEmail = async (req, res) => {
     user.email_verified_at = new Date();
     user.emailVerificationToken = undefined;
     user.emailVerificationExpires = undefined;
+
+    normalizeVacForSave(user);
     await user.save();
 
     return res.redirect(`${front}/#/verify-email?success=true`);
@@ -342,6 +376,8 @@ export const resendVerificationEmail = async (req, res) => {
     const verificationToken = crypto.randomBytes(32).toString("hex");
     user.emailVerificationToken = verificationToken;
     user.emailVerificationExpires = new Date(Date.now() + 3600 * 1000);
+
+    normalizeVacForSave(user);
     await user.save();
 
     const verificationLink = buildVerificationLink(verificationToken);
@@ -430,6 +466,8 @@ export const login = async (req, res) => {
           await user.incrementLoginAttempts();
         } else {
           user.loginAttempts = (user.loginAttempts || 0) + 1;
+
+          normalizeVacForSave(user); // 👈 NUEVO
           await user.save();
         }
       } catch (incErr) {
@@ -456,6 +494,8 @@ export const login = async (req, res) => {
         user.loginAttempts = 0;
         user.lockUntil = undefined;
         user.lastLogin = new Date();
+
+        normalizeVacForSave(user); // 👈 NUEVO
         await user.save();
       }
     } catch (rstErr) {
@@ -492,6 +532,8 @@ export const logout = async (req, res) => {
       const user = await User.findOne({ refreshToken: token });
       if (user) {
         user.refreshToken = null;
+
+        normalizeVacForSave(user); // 👈 NUEVO
         await user.save();
       }
     }
@@ -540,7 +582,10 @@ export const refreshToken = async (req, res) => {
       await generateTokens(user);
 
     user.refreshToken = newRefreshToken;
+
+    normalizeVacForSave(user); // 👈 NUEVO
     await user.save();
+
     setRefreshCookie(res, newRefreshToken);
 
     // Compat exacta con AuthService.refreshToken()
