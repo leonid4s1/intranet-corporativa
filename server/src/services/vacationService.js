@@ -4,44 +4,99 @@ import utc from 'dayjs/plugin/utc.js';
 dayjs.extend(utc);
 
 import VacationRequest from '../models/VacationRequest.js';
+import Holiday from '../models/Holiday.js';
 import { currentAnniversaryWindow } from '../utils/vacationLawMX.js';
 
+/* =========================
+   Helpers de fechas en UTC
+========================= */
+const toDateUTC = (input) => {
+  const d = new Date(input);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+};
+const toYMDUTC = (date) => {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+};
+const eachDayYMDUTC = (startUTC, endUTC) => {
+  const out = [];
+  const cur = new Date(startUTC);
+  const end = new Date(endUTC);
+  cur.setUTCHours(0, 0, 0, 0);
+  end.setUTCHours(0, 0, 0, 0);
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return out;
+};
+const isBusinessDay = (ymd, holidaySet) => {
+  const d = toDateUTC(ymd);
+  const dow = d.getUTCDay(); // 0=Dom, 6=Sáb
+  return dow !== 0 && dow !== 6 && !holidaySet.has(toYMDUTC(d));
+};
+const businessDaysInRange = (startUTC, endUTC, holidaySet) => {
+  let n = 0;
+  for (const ymd of eachDayYMDUTC(startUTC, endUTC)) {
+    if (isBusinessDay(ymd, holidaySet)) n++;
+  }
+  return n;
+};
+
 /**
- * Suma de días usados en el ciclo vigente (LFT) por usuario
- * - Cuenta solicitudes 'approved' que crucen con la ventana actual.
- * - Recorta rangos a la ventana.
- * - Usa r.days si existe; si no, calcula por días naturales.
+ * Días USADOS en el ciclo vigente (LFT) por usuario
+ * - SOLO solicitudes del usuario, estado 'approved'
+ * - Intersección (solicitud ∩ ventana actual)
+ * - Cuenta **días hábiles** (excluye sábados, domingos y festivos)
  */
-export async function getUsedDaysInCurrentCycle(userId, hireDate, { preferFieldDays = true } = {}) {
-  const win = currentAnniversaryWindow(hireDate);
+export async function getUsedDaysInCurrentCycle(
+  userId,
+  hireDate
+) {
+  if (!userId || !hireDate) return 0;
+
+  const win = currentAnniversaryWindow(hireDate); // { start: Date, end: Date }
   if (!win) return 0;
 
-  const q = {
-    userId,
+  const winStart = toDateUTC(win.start);
+  const winEnd   = toDateUTC(win.end);
+
+  // 1) Traer SOLO solicitudes del USUARIO que traslapan la ventana
+  const reqs = await VacationRequest.find({
+    user: userId,                    // ⬅️ ¡campo correcto!
     status: 'approved',
-    startDate: { $lte: win.end }, // comienzan antes de que termine la ventana
-    endDate: { $gte: win.start }, // terminan después de que comienza la ventana
-  };
+    startDate: { $lte: winEnd },
+    endDate:   { $gte: winStart },
+  })
+    .select('startDate endDate daysRequested') // usamos daysRequested si lo necesitas en otro sitio
+    .lean();
 
-  const reqs = await VacationRequest.find(q).lean();
+  if (!reqs.length) return 0;
 
-  let sum = 0;
+  // 2) Festivos dentro de la ventana
+  const holidays = await Holiday.find({
+    date: { $gte: winStart, $lte: winEnd },
+  })
+    .select('date')
+    .lean();
+
+  const holidaySet = new Set(holidays.map(h => toYMDUTC(h.date)));
+
+  // 3) Sumar días hábiles en la intersección
+  let used = 0;
   for (const r of reqs) {
-    const sFull = dayjs.utc(r.startDate);
-    const eFull = dayjs.utc(r.endDate);
-    const s = sFull.isBefore(win.start) ? dayjs.utc(win.start) : sFull;
-    const e = eFull.isAfter(win.end) ? dayjs.utc(win.end) : eFull;
-    if (e.isBefore(s, 'day')) continue;
+    const rs = toDateUTC(r.startDate);
+    const re = toDateUTC(r.endDate);
 
-    if (preferFieldDays && r.days != null) {
-      // Ajuste proporcional si recortamos el rango original
-      const naturalRecortado = e.diff(s, 'day') + 1;
-      const naturalOriginal = eFull.diff(sFull, 'day') + 1;
-      const factor = naturalOriginal > 0 ? naturalRecortado / naturalOriginal : 1;
-      sum += Math.round(r.days * factor);
-    } else {
-      sum += e.diff(s, 'day') + 1; // naturales
-    }
+    // Intersección con ventana
+    const isecStart = rs > winStart ? rs : winStart;
+    const isecEnd   = re < winEnd   ? re : winEnd;
+    if (isecStart > isecEnd) continue;
+
+    used += businessDaysInRange(isecStart, isecEnd, holidaySet);
   }
-  return sum;
+
+  return used;
 }
