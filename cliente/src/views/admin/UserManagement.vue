@@ -82,15 +82,15 @@
             </td>
 
             <td class="window-cell">
-              <template v-if="windowInfo(u.hireDate)">
+              <template v-if="win(u)">
                 <div class="win-range">
-                  {{ windowInfo(u.hireDate)!.start }} → {{ windowInfo(u.hireDate)!.end }}
+                  {{ win(u)!.start }} → {{ win(u)!.end }}
                 </div>
                 <div
                   class="win-left"
-                  :class="{ 'text-warn': windowInfo(u.hireDate)!.daysLeft <= 15 }"
+                  :class="{ 'text-warn': (win(u)!.daysLeft ?? 0) <= 15 }"
                 >
-                  {{ windowInfo(u.hireDate)!.daysLeft }} días restantes
+                  {{ win(u)!.daysLeft }} días restantes
                 </div>
               </template>
               <span v-else>—</span>
@@ -489,48 +489,70 @@ function yearsBetween(a: string, b: string) {
   return (B - A) / (365.25*24*60*60*1000)
 }
 
-/* ===== Helpers de VENTANA (cálculo local) ===== */
-function toDateUTC(day: string): Date | null {
-  if (!isoDayRe.test(day)) return null
-  const [y, m, d] = day.split('-').map(Number)
-  const dt = new Date(Date.UTC(y, m - 1, d))
-  return Number.isNaN(dt.getTime()) ? null : dt
+/* ===== Helpers LFT para mostrar ventana en la tabla ===== */
+
+/** Años de servicio completos al `onDate` */
+function yearsOfServiceLocal(hireDate: string | null | undefined, onDate = new Date()): number {
+  if (!hireDate) return 0
+  const hd = new Date(hireDate)
+  if (Number.isNaN(hd.getTime())) return 0
+  const d = new Date(onDate)
+  let yrs = d.getUTCFullYear() - hd.getUTCFullYear()
+  const annivThisYear = new Date(Date.UTC(d.getUTCFullYear(), hd.getUTCMonth(), hd.getUTCDate()))
+  if (d < annivThisYear) yrs -= 1
+  return Math.max(0, yrs)
 }
 
-function ymd(d: Date): string {
-  const y = d.getUTCFullYear()
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const da = String(d.getUTCDate()).padStart(2, '0')
-  return `${y}-${m}-${da}`
+/** Ajuste para aniversarios en meses con menos días (p.ej. 29-feb -> 28-feb en años no bisiestos) */
+function safeAnniversaryBase(hire: Date, year: number): Date {
+  const month = hire.getUTCMonth()
+  const day = hire.getUTCDate()
+  const candidate = new Date(Date.UTC(year, month, 1))
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+  candidate.setUTCDate(Math.min(day, lastDay))
+  return candidate
 }
 
-/** Devuelve { start, end, daysLeft } o null si no hay hireDate válido */
-function windowInfo(hireDate?: string | null): { start: string; end: string; daysLeft: number } | null {
+/**
+ * Ventana visible:
+ * - Si aún no cumple 1 año => usa PRÓXIMO aniversario (+6 meses).
+ * - Si ya cumplió >=1 => usa aniversario vigente (este año si ya pasó; si no, el anterior) (+6 meses).
+ */
+function lftWindowForHireDate(
+  hireDate?: string | null
+): { start: string; end: string; daysLeft: number } | null {
   if (!hireDate) return null
-  const hd = toDateUTC(dateOnly(hireDate) || '')
-  if (!hd) return null
+  const hd = new Date(hireDate)
+  if (Number.isNaN(hd.getTime())) return null
 
   const today = new Date()
-  today.setUTCHours(0, 0, 0, 0)
+  today.setUTCHours(0,0,0,0)
 
-  // aniversario de este año con mismo mes/día que hireDate
-  const annivThisYear = new Date(Date.UTC(
-    today.getUTCFullYear(),
-    hd.getUTCMonth(),
-    hd.getUTCDate()
-  ))
+  const yos = yearsOfServiceLocal(hireDate, today)
 
-  // inicio: aniversario más reciente (este año o el anterior)
-  const start = (today.getTime() >= annivThisYear.getTime())
-    ? annivThisYear
-    : new Date(Date.UTC(today.getUTCFullYear() - 1, hd.getUTCMonth(), hd.getUTCDate()))
+  let start: Date
+  if (yos === 0) {
+    // Próximo aniversario (a 1 año de ingreso)
+    start = safeAnniversaryBase(hd, hd.getUTCFullYear() + 1)
+  } else {
+    // Vigente: este año si ya pasó, si no el anterior
+    const annivThisYear = safeAnniversaryBase(hd, today.getUTCFullYear())
+    start = (today >= annivThisYear)
+      ? annivThisYear
+      : safeAnniversaryBase(hd, today.getUTCFullYear() - 1)
+  }
 
-  // fin = inicio + 6 meses (LFT)
-  const end = new Date(start.getTime())
+  const end = new Date(start)
   end.setUTCMonth(end.getUTCMonth() + 6)
 
-  const daysLeft = Math.max(0, Math.ceil((end.getTime() - today.getTime()) / 86400000))
-  return { start: ymd(start), end: ymd(end), daysLeft }
+  const msLeft = Math.max(0, end.getTime() - today.getTime())
+  const daysLeft = Math.ceil(msLeft / (24*60*60*1000))
+
+  return {
+    start: start.toISOString().slice(0,10),
+    end:   end.toISOString().slice(0,10),
+    daysLeft
+  }
 }
 
 /* ===== Toasts ===== */
@@ -772,6 +794,9 @@ async function fetchUsers() {
 function total(u: AdminUser) { return u.vacationDays?.total ?? 0 }
 function used(u: AdminUser) { return u.vacationDays?.used ?? 0 }
 function remaining(u: AdminUser) { return Math.max(0, total(u) - used(u)) }
+function win(u: AdminUser): { start: string; end: string; daysLeft: number } | null {
+  return lftWindowForHireDate(u.hireDate)
+}
 
 /* ====== LFT summary (admin) ====== */
 async function loadLFTSummary(userId: string) {
@@ -1115,7 +1140,14 @@ async function saveVacationTotal() {
 .create-btn:hover { background: #38a169; }
 .create-btn .icon { width: 1.1rem; height: 1.1rem; fill: currentColor; }
 
-.table-container { background-color: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; }
+.table-container {
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  overflow-x: auto;   /* <— permite scroll si no cabe */
+  overflow-y: hidden;
+}
+
 .user-table { width: 100%; border-collapse: collapse; }
 .user-table th { padding: 1rem; text-align: left; background-color: #f7fafc; color: #4a5568; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
 .user-table td { padding: 1rem; border-top: 1px solid #edf2f7; }
@@ -1250,5 +1282,12 @@ async function saveVacationTotal() {
 .win-range { font-weight: 600; color: #1a202c; }
 .win-left { font-size: .8rem; color: #4a5568; }
 .text-warn { color: #c05621; }
+
+/* La columna de acciones no se encoge y mantiene los botones a la vista */
+.actions-column { width: 140px; min-width: 140px; }
+.actions-cell { display: flex; gap: 0.5rem; white-space: nowrap; }
+
+/* La celda de Ventana usa tipografía pequeña y puede partir línea */
+.window-cell small { display: block; color: #718096; margin-top: .125rem; }
 
 </style>
