@@ -3,9 +3,6 @@
     <!-- Toast -->
     <div v-if="toastMsg" class="toast">{{ toastMsg }}</div>
 
-    <!-- Derecho vigente (LFT) -->
-    <EntitlementBar :compact="true" />
-
     <!-- KPIs -->
     <div class="kpi-grid">
       <!-- Días disponibles -->
@@ -34,18 +31,20 @@
         <small>{{ availableDays }} días restantes</small>
       </div>
 
-      <!-- Periodo vigente (NUEVO) -->
+      <!-- Periodo vigente (mejorado) -->
       <div class="kpi-card kpi-period">
-        <div class="kpi-value">
+        <div class="period-dates">
           <template v-if="windowStart && windowEnd">
-            {{ windowStart }} → {{ windowEnd }}
+            <span class="date">{{ windowStartFmt }}</span>
+            <span class="arrow">→</span>
+            <span class="date">{{ windowEndFmt }}</span>
           </template>
           <template v-else>—</template>
         </div>
         <div class="kpi-label">Periodo vigente</div>
         <small class="badge-soft" v-if="windowEnd">{{ daysLeft }} días restantes</small>
-        <div class="kpi-bar">
-          <div class="kpi-bar-fill" :style="{ width: periodPct + '%' }" />
+        <div class="kpi-bar period-bar">
+          <div class="kpi-bar-fill period-fill" :style="{ width: periodPct + '%' }" />
         </div>
       </div>
     </div>
@@ -90,7 +89,6 @@
             @click="onClickDay(day)"
             @mouseenter="onHoverDay(day)"
           >
-            <!-- Badges -->
             <div class="badges">
               <span
                 v-if="day.isHoliday"
@@ -116,7 +114,6 @@
 
             <div class="day-number">{{ day.day }}</div>
 
-            <!-- Chips nombres -->
             <div class="labels" v-if="day.hasTeamApproved">
               <span
                 v-for="(n, i) in day.topTwoNames"
@@ -131,7 +128,6 @@
               >+{{ day.extraCount }}</span>
             </div>
 
-            <!-- Indicador inferior -->
             <span
               v-if="day.isFull || day.isHoliday || day.isWeekend || day.inSelection || day.isAvailable"
               class="dot"
@@ -247,8 +243,8 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted } from 'vue'
 import dayjs, { Dayjs } from 'dayjs'
+import 'dayjs/locale/es' // para formato en español
 import VacationRequestDialog from '@/components/vacations/VacationRequestDialog.vue'
-import EntitlementBar from '@/components/vacations/EntitlementBar.vue'
 import {
   getVacationBalance,
   getHolidays,
@@ -257,11 +253,11 @@ import {
   getUnavailableDates,
   cancelVacationRequest,
   requestVacation,
-  getVacationSummary,
+  getMyEntitlement,
 } from '@/services/vacation.service'
-import type { VacationSummary } from '@/services/vacation.service'
 
-/** ===== Tipos ===== */
+dayjs.locale('es')
+
 type UserRef = { id?: string; _id?: string; name?: string }
 type TeamVacation = { startDate: string; endDate: string; user?: UserRef }
 type Holiday = { date: string; name?: string }
@@ -278,39 +274,36 @@ type VacationRequest = {
 }
 type VacationBalance = { availableDays: number; usedDays: number; totalAnnualDays: number }
 
-/** ===== Constantes ===== */
 const MAX_PER_DAY = 3
 const weekDayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
-/** ===== Estado ===== */
 const currentDate = ref<Dayjs>(dayjs())
 const availableDays = ref(0)
 const usedDays = ref(0)
 const totalAnnualDays = ref(0)
 
-// Ventana vigente (NUEVO)
+// Ventana vigente
 const windowStart = ref<string>('') // YYYY-MM-DD
 const windowEnd   = ref<string>('') // YYYY-MM-DD
+const windowStartFmt = computed(() => windowStart.value ? dayjs(windowStart.value).format('DD MMM YYYY') : '')
+const windowEndFmt   = computed(() => windowEnd.value   ? dayjs(windowEnd.value).format('DD MMM YYYY')   : '')
 
 const holidays = ref<Holiday[]>([])
 const holidaysSet = computed(() => new Set(holidays.value.map(h => h.date)))
 const teamVacations = ref<TeamVacation[]>([])
 const unavailable = ref<string[]>([])
 
-/** Selección */
 const selectedStart = ref<string | null>(null)
 const selectedEnd = ref<string | null>(null)
 const hoverDate = ref<string | null>(null)
 const requestOpen = ref(false)
 
-/** Toast */
 const toastMsg = ref<string | null>(null)
 function notify(msg: string) {
   toastMsg.value = msg
   setTimeout(() => (toastMsg.value = null), 3500)
 }
 
-/** Conteo equipo por fecha */
 const teamCountByDate = computed<Record<string, number>>(() => {
   const map: Record<string, number> = {}
   for (const tv of teamVacations.value) {
@@ -325,7 +318,6 @@ const teamCountByDate = computed<Record<string, number>>(() => {
   return map
 })
 
-/** ===== Utils ===== */
 function isWeekendYMD(ymd: string): boolean {
   const d = new Date(`${ymd}T00:00:00Z`)
   const dow = d.getUTCDay()
@@ -361,15 +353,12 @@ function abbrevName(full: string): string {
   return last && last !== first ? `${first} ${last[0]}.` : first
 }
 
-/** Reglas de selección */
 function canPickDay(d: dayjs.Dayjs): boolean {
   const key = d.format('YYYY-MM-DD')
   if (!d.isAfter(today.value, 'day')) return false
-
   const weekend = isWeekendYMD(key)
   const holiday = isHoliday(key)
   if (weekend || holiday) return true
-
   if (isFull(key)) return false
   if (isUnavailable(key)) return false
   return true
@@ -389,15 +378,11 @@ function getSingleDayBlockReason(d: dayjs.Dayjs): string {
 function validateRangeSelection(startISO: string, endISO: string): { ok: boolean; reason?: string } {
   let d = dayjs(startISO)
   const end = dayjs(endISO)
-
   while (d.isSame(end, 'day') || d.isBefore(end, 'day')) {
     const key = d.format('YYYY-MM-DD')
     const weekend = isWeekendYMD(key)
     const holiday = isHoliday(key)
-
-    if (!d.isAfter(today.value, 'day')) {
-      return { ok: false, reason: `No puedes seleccionar fechas pasadas (incluye ${formatDate(key)}).` }
-    }
+    if (!d.isAfter(today.value, 'day')) return { ok: false, reason: `No puedes seleccionar fechas pasadas (incluye ${formatDate(key)}).` }
     if (!(weekend || holiday)) {
       if (isFull(key)) return { ok: false, reason: `Cupo lleno el ${formatDate(key)} (máximo ${MAX_PER_DAY} personas).` }
       if (isUnavailable(key)) return { ok: false, reason: `Día no disponible: ${formatDate(key)}.` }
@@ -413,14 +398,12 @@ function normalizeRange(aISO: string, bISO: string): { start: string; end: strin
   return { start: a.format('YYYY-MM-DD'), end: b.format('YYYY-MM-DD') }
 }
 
-/** Cancelable hasta 1 día antes */
 const canCancel = (startISO: string) => {
   const t = dayjs().startOf('day')
   const s = dayjs(startISO).startOf('day')
   return s.isAfter(t, 'day')
 }
 
-/** Vista previa de selección */
 const previewEnd = ref<string | null>(null)
 
 const selectedBusinessDays = computed(() => {
@@ -429,7 +412,6 @@ const selectedBusinessDays = computed(() => {
   return start && end ? countBusinessDays(start, end) : 0
 })
 
-/** ===== Calendario ===== */
 type CalendarDay = {
   date: string
   day: number
@@ -453,7 +435,6 @@ const calendarDays = computed<CalendarDay[]>(() => {
   const startOfMonth = currentDate.value.startOf('month')
   const endOfMonth = currentDate.value.endOf('month')
 
-  // Grid Domingo–Sábado
   const startGrid = startOfMonth.subtract(startOfMonth.day(), 'day')
   const endGrid   = endOfMonth.add(6 - endOfMonth.day(), 'day')
 
@@ -544,10 +525,8 @@ function getDayTooltip(day: CalendarDay): string {
   return parts.join(' | ')
 }
 
-/** Interacción */
 function onClickDay(day: CalendarDay) {
   const d = dayjs(day.date)
-
   if (!selectedStart.value || selectedEnd.value) {
     if (!canPickDay(d)) { notify(getSingleDayBlockReason(d)); return }
     selectedStart.value = day.date
@@ -584,11 +563,9 @@ function resetSelection() {
   hoverDate.value = null
 }
 
-/** Navegación */
 function goPrevMonth() { currentDate.value = currentDate.value.subtract(1, 'month'); loadCalendarData() }
 function goNextMonth() { currentDate.value = currentDate.value.add(1, 'month'); loadCalendarData() }
 
-/** Datos remotos */
 const pendingRequests = ref<VacationRequest[]>([])
 const approvedRequests = ref<VacationRequest[]>([])
 const rejectedRequests = ref<VacationRequest[]>([])
@@ -649,23 +626,18 @@ async function loadUserRequests() {
   rejectedRequests.value = rejected as unknown as VacationRequest[]
 }
 
-// NUEVO: Cargar resumen con ventana vigente (start/end)
+// Cargar resumen (ventana vigente)
 async function loadSummary() {
   try {
-    const s: VacationSummary = await getVacationSummary()
-    const start = s.vacation.window?.start ?? ''
-    const end   = s.vacation.window?.end   ?? ''
-
-    // normaliza a YYYY-MM-DD
-    windowStart.value = start ? String(start).slice(0, 10) : ''
-    windowEnd.value   = end   ? String(end).slice(0, 10)   : ''
+    const s = await getMyEntitlement()
+    windowStart.value = s.cycle.window.start?.slice(0,10) || ''
+    windowEnd.value   = s.cycle.window.end?.slice(0,10)   || ''
   } catch {
     windowStart.value = ''
     windowEnd.value   = ''
   }
 }
 
-/** Diálogo */
 async function submitVacationRequest(reason: string) {
   if (!selectedStart.value || !selectedEnd.value) return
   try {
@@ -686,7 +658,6 @@ async function cancel(id: string) {
   } catch {}
 }
 
-/** Computadas del periodo (NUEVO) */
 const daysLeft = computed(() => {
   if (!windowEnd.value) return 0
   const today = new Date(); today.setUTCHours(0,0,0,0)
@@ -703,94 +674,78 @@ const periodPct = computed(() => {
 
   const totalDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000))
   const leftDays  = Math.max(0, Math.ceil((end.getTime() - today.getTime())  / 86400000))
-  const pct = (leftDays / totalDays) * 100 // % restante
+  const pct = (leftDays / totalDays) * 100
   return Math.max(0, Math.min(100, Math.round(pct)))
 })
 
-/** Init */
 onMounted(async () => {
   await Promise.all([loadBalance(), loadCalendarData(), loadUserRequests(), loadSummary()])
 })
 </script>
 
 <style scoped>
-/* ===== Paleta ===== */
 :root{
   --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e2e8f0;
   --brand:#2563eb; --ring:rgba(37,99,235,.25);
   --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#3b82f6;
 }
 
-/* Oculta posibles FAB/Debug flotantes negros */
-.tweak-fab,
-.debug-fab,
-.ui-tweak-toggle,
-.fab-settings,
-.fab-debug,
-.debug-box,
-.meta-debug{
-  display:none !important;
-}
+/* Oculta posibles widgets/debug flotantes */
+.tweak-fab,.debug-fab,.ui-tweak-toggle,.fab-settings,.fab-debug,.debug-box,.meta-debug{ display:none!important; }
 
 /* Toast */
 .toast{ position:fixed; right:16px; bottom:16px; background:#111827; color:#fff; padding:.6rem .9rem; border-radius:10px; box-shadow:0 8px 20px rgba(0,0,0,.25); z-index:99; max-width:80vw; }
 
-/* Página */
 .vacations-page{ display:flex; flex-direction:column; gap:1rem; color:var(--text); background:var(--bg); }
 
 /* KPIs */
-.kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; } /* ← 4 columnas */
+.kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; }
 @media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(2,1fr) } }
 @media (max-width:640px){ .kpi-grid{ grid-template-columns:1fr } }
 
 .kpi-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .kpi-value{ font-size:2rem; font-weight:700; }
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
+
+/* “Disponibles” barra en verde */
 .kpi-card:first-child .kpi-bar{ margin-top:.6rem; height:8px; width:100%; background:#f1f5f9; border-radius:999px; overflow:hidden; border:1px solid #eef2f7; }
 .kpi-card:first-child .kpi-bar-fill{ height:100%; background:linear-gradient(90deg,#16a34a,#22c55e,#86efac); transition:width .35s; }
+
 .kpi-card:nth-child(2) small{ display:inline-block; margin-top:.4rem; font-weight:700; padding:.2rem .55rem; border-radius:999px; color:#fff; background:linear-gradient(90deg,#3b82f6,#6366f1); box-shadow:0 6px 16px rgba(99,102,241,.18); }
 .kpi-card:nth-child(3) small{ display:inline-block; margin-top:.4rem; color:#065f46; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:999px; padding:.18rem .55rem; }
 
-/* KPI Periodo (NUEVO) */
-.kpi-card.kpi-period .kpi-bar{
-  margin-top:.6rem; height:8px; width:100%;
-  background:#f1f5f9; border-radius:999px; overflow:hidden; border:1px solid #eef2f7;
-}
-.kpi-card.kpi-period .kpi-bar-fill{
-  height:100%;
-  background:linear-gradient(90deg,#16a34a,#22c55e,#86efac);
-  transition:width .35s;
-}
-.badge-soft{
+/* Periodo vigente (azules) */
+.kpi-card.kpi-period .period-dates{ font-size:1.25rem; font-weight:700; display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+.kpi-card.kpi-period .date{ white-space:nowrap; }
+.kpi-card.kpi-period .arrow{ opacity:.6; }
+.kpi-card.kpi-period .badge-soft{
   display:inline-block; margin-top:.4rem;
   padding:.18rem .55rem; border-radius:999px; font-size:.8rem;
-  background:#ecfeff; color:#0ea5e9; border:1px solid #bae6fd;
+  background:#eef2ff; color:#1e40af; border:1px solid #c7d2fe;
 }
+.kpi-card.kpi-period .period-bar{ margin-top:.6rem; height:8px; width:100%; background:#f1f5f9; border-radius:999px; overflow:hidden; border:1px solid #eef2f7; }
+.kpi-card.kpi-period .period-fill{ height:100%; background:linear-gradient(90deg,#0ea5e9,#60a5fa,#93c5fd); transition:width .35s; }
 
 /* Layout principal */
 .content-grid{ display:grid; grid-template-columns:1fr 320px; gap:1rem; }
 @media (max-width:1100px){ .content-grid{ grid-template-columns:1fr } }
 
-/* Calendario */
+/* Calendario y resto (sin cambios de color) */
 .calendar-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .calendar-header{ display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; }
 .month-title{ flex:1; text-align:center; text-transform:capitalize; font-weight:700; }
 .nav-btn{ width:40px; height:40px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center; background:#f8fafc; border:1.5px solid var(--line); cursor:pointer; }
 .nav-btn:hover{ outline:2px solid var(--ring); }
 
-/* Leyenda */
 .legend{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; color:var(--muted); font-size:.92rem; padding:.25rem 0 .75rem 0; }
 .legend .dot{ width:10px; height:10px; border-radius:999px; display:inline-block; margin-right:.35rem; }
 .dot--green{ background:var(--ok) } .dot--yellow{ background:var(--warn) } .dot--red{ background:var(--danger) } .dot--blue{ background:var(--info) }
 
-/* Semanas */
 .weekday-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; padding:0 .1rem; }
 .weekday-cell{ text-align:center; color:var(--muted); font-size:.9rem; }
 
-/* Grilla */
 .calendar-grid{ --cell:82px; display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; margin-top:.35rem; }
 
-/* Celdas */
 .day-cell{
   position:relative; min-height:var(--cell);
   background:#fff; border:1.5px solid var(--line); border-radius:12px;
@@ -802,21 +757,13 @@ onMounted(async () => {
 .day-cell.is-other-month{ opacity:.45 }
 .day-cell.is-today{ box-shadow:inset 0 0 0 2px var(--brand) }
 
-/* Badges */
-.badges{
-  position:absolute; top:6px; left:6px; right:6px;
-  display:flex; gap:6px; flex-wrap:wrap; align-items:center; pointer-events:none;
-}
-.badge{
-  font-size:.68rem; line-height:1; padding:.12rem .38rem; border-radius:8px; border:1px solid;
-  background:#f8fafc; color:#334155; border-color:var(--line); box-shadow:0 1px 0 rgba(0,0,0,.02);
-}
+.badges{ position:absolute; top:6px; left:6px; right:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; pointer-events:none; }
+.badge{ font-size:.68rem; line-height:1; padding:.12rem .38rem; border-radius:8px; border:1px solid; background:#f8fafc; color:#334155; border-color:var(--line); box-shadow:0 1px 0 rgba(0,0,0,.02); }
 .badge--holiday{ background:#eef6ff; color:#1d4ed8; border-color:#bfdbfe }
 .badge--weekend{ background:#f3f4f6; color:#475569; border-color: var(--line); }
 .badge--count{ margin-left:auto; background:#e7f9ef; color:#166534; border-color:#86efac; font-weight:700 }
 .badge--count.is-full{ background:#fff1f2; color:#991b1b; border-color:#fecaca }
 
-/* Selección */
 .day-cell.is-selected{
   background:linear-gradient(180deg,#eff6ff 0%,#fff 80%);
   border-color:#bfdbfe;
@@ -824,27 +771,18 @@ onMounted(async () => {
 }
 .day-cell.is-selected .day-number{ color:#1e3a8a }
 
-/* Estados */
 .day-cell.is-full{ background:#fff7ed; border-color:#fed7aa }
 .day-cell.is-holiday:not(.is-full){ background:#eff6ff; border-color:#bfdbfe }
 .day-cell.is-weekend:not(.is-full):not(.is-holiday){ background:#fafafa }
 
-/* Numero del día */
 .day-number{ font-weight:600 }
-
-/* Punto de estado */
 .dot{ position:absolute; right:8px; bottom:8px; width:9px; height:9px; border-radius:999px }
 
-/* Chips con nombres */
-.labels{
-  position:absolute; top:28px; right:6px;
-  display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 12px);
-}
+.labels{ position:absolute; top:28px; right:6px; display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 12px); }
 .chip{ font-size:.68rem; line-height:1; padding:.05rem .35rem; border-radius:8px; border:1px solid; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .chip--approved{ background:#e7f9ef; color:#166534; border-color:#86efac }
 .chip.more{ font-weight:700 }
 
-/* Panel derecho */
 .side-panels{ display:flex; flex-direction:column; gap:1rem }
 .panel{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem }
 .panel h3{ margin:.25rem 0 .75rem; font-size:1rem }
