@@ -43,7 +43,7 @@
             <th class="vac-col text-right">Usados</th>
             <th class="vac-col text-right">Totales</th>
             <th class="vac-col text-right">Disp.</th>
-            <th class="window-column">Ventana</th>
+            <th class="window-column">Saldo</th>
             <th class="actions-column">Acciones</th>
           </tr>
         </thead>
@@ -81,19 +81,14 @@
               </span>
             </td>
 
+            <!-- Botón para ver saldo por ventanas en la pantalla de Vacaciones -->
             <td class="window-cell">
-              <template v-if="win(u)">
-                <div class="win-range">
-                  {{ win(u)!.start }} → {{ win(u)!.end }}
-                </div>
-                <div
-                  class="win-left"
-                  :class="{ 'text-warn': (win(u)!.daysLeft ?? 0) <= 15 }"
-                >
-                  {{ win(u)!.daysLeft }} días restantes
-                </div>
-              </template>
-              <span v-else>—</span>
+              <button class="balance-btn" @click="goToWindows(u)" title="Ver saldo por ventanas">
+                <svg class="icon" viewBox="0 0 24 24">
+                  <path d="M12 4.5c5.5 0 9.5 4.5 9.5 7.5s-4 7.5-9.5 7.5S2.5 15 2.5 12 6.5 4.5 12 4.5zm0 2c-4.1 0-7.3 3.2-7.3 5.5S7.9 18 12 18s7.3-3.2 7.3-5.5S16.1 6.5 12 6.5zm0 2.5a3 3 0 110 6 3 3 0 010-6z"/>
+                </svg>
+                Ver saldo
+              </button>
             </td>
 
             <td class="actions-cell">
@@ -435,6 +430,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import userService from '@/services/user.service'
 import type { User as BaseUser, Role, VacationDays } from '@/services/user.service'
@@ -468,6 +464,7 @@ type UpdateMetaPayload = {
 const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const router = useRouter()
 
 /* ===== Utils ===== */
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -487,72 +484,6 @@ function yearsBetween(a: string, b: string) {
   const A = new Date(a).getTime()
   const B = new Date(b).getTime()
   return (B - A) / (365.25*24*60*60*1000)
-}
-
-/* ===== Helpers LFT para mostrar ventana en la tabla ===== */
-
-/** Años de servicio completos al `onDate` */
-function yearsOfServiceLocal(hireDate: string | null | undefined, onDate = new Date()): number {
-  if (!hireDate) return 0
-  const hd = new Date(hireDate)
-  if (Number.isNaN(hd.getTime())) return 0
-  const d = new Date(onDate)
-  let yrs = d.getUTCFullYear() - hd.getUTCFullYear()
-  const annivThisYear = new Date(Date.UTC(d.getUTCFullYear(), hd.getUTCMonth(), hd.getUTCDate()))
-  if (d < annivThisYear) yrs -= 1
-  return Math.max(0, yrs)
-}
-
-/** Ajuste para aniversarios en meses con menos días (p.ej. 29-feb -> 28-feb en años no bisiestos) */
-function safeAnniversaryBase(hire: Date, year: number): Date {
-  const month = hire.getUTCMonth()
-  const day = hire.getUTCDate()
-  const candidate = new Date(Date.UTC(year, month, 1))
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
-  candidate.setUTCDate(Math.min(day, lastDay))
-  return candidate
-}
-
-/**
- * Ventana visible:
- * - Si aún no cumple 1 año => usa PRÓXIMO aniversario (+6 meses).
- * - Si ya cumplió >=1 => usa aniversario vigente (este año si ya pasó; si no, el anterior) (+6 meses).
- */
-function lftWindowForHireDate(
-  hireDate?: string | null
-): { start: string; end: string; daysLeft: number } | null {
-  if (!hireDate) return null
-  const hd = new Date(hireDate)
-  if (Number.isNaN(hd.getTime())) return null
-
-  const today = new Date()
-  today.setUTCHours(0,0,0,0)
-
-  const yos = yearsOfServiceLocal(hireDate, today)
-
-  let start: Date
-  if (yos === 0) {
-    // Próximo aniversario (a 1 año de ingreso)
-    start = safeAnniversaryBase(hd, hd.getUTCFullYear() + 1)
-  } else {
-    // Vigente: este año si ya pasó, si no el anterior
-    const annivThisYear = safeAnniversaryBase(hd, today.getUTCFullYear())
-    start = (today >= annivThisYear)
-      ? annivThisYear
-      : safeAnniversaryBase(hd, today.getUTCFullYear() - 1)
-  }
-
-  const end = new Date(start)
-  end.setUTCMonth(end.getUTCMonth() + 6)
-
-  const msLeft = Math.max(0, end.getTime() - today.getTime())
-  const daysLeft = Math.ceil(msLeft / (24*60*60*1000))
-
-  return {
-    start: start.toISOString().slice(0,10),
-    end:   end.toISOString().slice(0,10),
-    daysLeft
-  }
 }
 
 /* ===== Toasts ===== */
@@ -794,9 +725,6 @@ async function fetchUsers() {
 function total(u: AdminUser) { return u.vacationDays?.total ?? 0 }
 function used(u: AdminUser) { return u.vacationDays?.used ?? 0 }
 function remaining(u: AdminUser) { return Math.max(0, total(u) - used(u)) }
-function win(u: AdminUser): { start: string; end: string; daysLeft: number } | null {
-  return lftWindowForHireDate(u.hireDate)
-}
 
 /* ====== LFT summary (admin) ====== */
 async function loadLFTSummary(userId: string) {
@@ -806,7 +734,7 @@ async function loadLFTSummary(userId: string) {
   const vac = payload?.vacation ?? {}
   const win = vac?.window ?? {}
   return {
-    // DERECHO (LFT) — ¡ojo! usamos 'right' (no 'total')
+    // DERECHO (LFT)
     lftTotal: Number(vac?.right ?? 0) || 0,
     lftUsed: Number(vac?.used ?? 0) || 0,
     lftRemaining: Number(vac?.remaining ?? 0) || 0,
@@ -931,6 +859,14 @@ function updateSelectedUser<K extends keyof AdminUser>(key: K, value: AdminUser[
   if (selectedUser.value) {
     selectedUser.value[key] = value
   }
+}
+
+// Navega a la vista de vacaciones con el usuario preseleccionado
+function goToWindows(u: AdminUser) {
+  router.push({
+    path: '/admin/vacations',
+    query: { uid: u.id, view: 'balance' }
+  })
 }
 
 // Vacaciones (abrir modal con LFT)
@@ -1274,9 +1210,23 @@ async function saveVacationTotal() {
   .modal-content { max-height: 96vh; }
 }
 
-/* Ventana (tabla) */
+/* Ventana / Saldo (tabla) */
 .window-column { width: 18%; }
 .window-cell { white-space: nowrap; }
+
+/* Botón "Ver saldo" */
+.balance-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .35rem .6rem;
+  border-radius: .375rem;
+  background: #edf2f7;
+  color: #2b6cb0;
+  font-weight: 600;
+}
+.balance-btn:hover { background: #e2e8f0; }
+
 .win-range { font-weight: 600; color: #1a202c; }
 .win-left { font-size: .8rem; color: #4a5568; }
 .text-warn { color: #c05621; }
