@@ -81,9 +81,9 @@
               </span>
             </td>
 
-            <!-- Reemplazamos el contenido por un botón que abre el modal de saldo -->
+            <!-- Botón que abre el modal "Saldo por ventanas" -->
             <td class="window-cell">
-              <button class="saldo-btn" @click="openSaldoModal(u)">
+              <button class="win-btn" @click="openWindowsModal(u)">
                 Ver saldo
               </button>
             </td>
@@ -122,7 +122,6 @@
           </button>
         </div>
 
-        <!-- Form soporta Enter -->
         <form class="modal-body" @submit.prevent="handleCreateUser">
           <div class="form-group">
             <label>Nombre completo</label>
@@ -411,7 +410,7 @@
           <button class="cancel-btn" @click="closeVacModal">Cerrar</button>
           <button
             class="save-btn"
-            :disabled="savingVac || vacForm.newTotal < vacForm.used || vacForm.newTotal < vacForm.lftTotal || isSameTotal"
+            :disabled="savingVac || vacForm.newTotal < vacForm.lftTotal || vacForm.newTotal < vacForm.used || isSameTotal"
             @click.stop.prevent="saveVacationTotal()"
             title="Fijar total manual respetando LFT y usados"
           >
@@ -423,65 +422,64 @@
       </div>
     </div>
 
-    <!-- Modal SALDO por ventanas (como en AdminVacationManagement) -->
-    <div v-if="showSaldoModal" class="modal-overlay" @click.self="closeSaldoModal">
-      <div class="modal-content modal-wide">
+    <!-- Modal: Saldo por ventanas -->
+    <div v-if="showWindowsModal" class="modal-overlay" @click.self="closeWindowsModal">
+      <div class="modal-content">
         <div class="modal-header">
           <h3>Saldo por ventanas</h3>
-          <button class="close-btn" @click="closeSaldoModal" title="Cerrar">
+          <button class="close-btn" @click="closeWindowsModal" title="Cerrar">
             <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
           </button>
         </div>
 
         <div class="modal-body">
-          <div class="saldo-user">
-            <span class="muted">Usuario:</span>
-            <strong>{{ saldoUser.name }}</strong>
-            <span class="muted">— {{ saldoUser.email }}</span>
+          <div style="margin-bottom:.5rem;">
+            <strong>Usuario:</strong>
+            {{ winModal.userName }} — {{ winModal.userEmail }}
           </div>
 
-          <table class="saldo-table">
-            <thead>
-              <tr>
-                <th>Ventana</th>
-                <th>Rango</th>
-                <th>Expira</th>
-                <th>Días</th>
-                <th>Usados</th>
-                <th>Restantes</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="w in saldoWindows" :key="w.label" :class="{ 'row-muted': w.days === 0 }">
-                <td>
-                  <span class="pill" :class="w.label === 'current' ? 'pill-yellow' : 'pill-blue'">
-                    {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
-                  </span>
-                  <div class="row-sub">Año: {{ w.year }}</div>
-                </td>
-                <td>{{ w.start }} — {{ w.end }}</td>
-                <td>{{ w.expiresAt }}</td>
-                <td>{{ w.days }}</td>
-                <td>{{ w.used }}</td>
-                <td class="text-right"><strong>{{ w.remaining }}</strong></td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="saldo-footer">
-            <div class="saldo-bonus">Bono admin: <strong>{{ saldoBonus }}</strong></div>
-            <div class="saldo-available">
-              <span class="badge">Disponible total: {{ saldoAvailable }}</span>
-            </div>
+          <div class="table-container" style="box-shadow:none;">
+            <table class="user-table">
+              <thead>
+                <tr>
+                  <th>Ventana</th>
+                  <th>Rango</th>
+                  <th>Expira</th>
+                  <th>Días</th>
+                  <th>Usados</th>
+                  <th>Restantes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="w in winModal.windows" :key="w.label">
+                  <td>
+                    <span class="badge" :class="w.label === 'current' ? 'badge-gold' : 'badge-blue'">
+                      {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
+                    </span>
+                    <div class="subtle">Año: {{ w.year }}</div>
+                  </td>
+                  <td>{{ w.range }}</td>
+                  <td>{{ w.expire }}</td>
+                  <td class="text-right">{{ w.days }}</td>
+                  <td class="text-right">{{ w.used }}</td>
+                  <td class="text-right">{{ w.remaining }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <small class="note">
+          <div class="modal-info" style="display:flex;align-items:center;justify-content:space-between;">
+            <div>Bono admin: <strong>{{ winModal.bonusAdmin }}</strong></div>
+            <div class="pill total-pill">Disponible total: {{ winModal.available }}</div>
+          </div>
+
+          <small class="text-warn" style="display:block;margin-top:.5rem;">
             * Los días no gozados de la primera ventana expiran a los 18 meses (se eliminan de disponibles).
           </small>
         </div>
 
         <div class="modal-footer">
-          <button class="cancel-btn" @click="closeSaldoModal">Cerrar</button>
+          <button class="cancel-btn" @click="closeWindowsModal">Cerrar</button>
         </div>
       </div>
     </div>
@@ -518,6 +516,43 @@ type UpdateMetaPayload = {
   position?: string
   hireDate?: string
   birthDate?: string
+}
+
+/** Ventana normalizada para el modal "Saldo por ventanas" */
+type WindowRow = {
+  label: 'current' | 'next'
+  year: number
+  range: string
+  expire: string
+  days: number
+  used: number
+  remaining: number
+}
+
+/** Summary para el modal de ventanas */
+type ApiWindow = {
+  label?: string
+  start: string | Date
+  end: string | Date
+  expiresAt?: string | Date
+  days?: number
+  used?: number
+}
+type ApiSummary = {
+  bonusAdmin?: number
+  available?: number
+  windows?: ApiWindow[]
+  vacation?: { windows?: ApiWindow[] }
+}
+
+/** Summary para el modal LFT (vacation window simple) */
+type ApiSummaryLFT = {
+  vacation?: {
+    right?: number
+    used?: number
+    remaining?: number
+    window?: { start?: string | Date; end?: string | Date }
+  }
 }
 
 const users = ref<AdminUser[]>([])
@@ -715,7 +750,7 @@ const selectedUserMeta = ref<{ position: string; hireDate: string; birthDate: st
 })
 const metaErrorsText = ref('')
 
-/* Vacaciones (BONO/LFT) */
+/* Vacaciones */
 const showVacModal = ref(false)
 const savingVac = ref(false)
 const vacError = ref<string | null>(null)
@@ -737,7 +772,7 @@ const vacForm = ref({
   bonus: 0,
   bonusEdit: 0, // valor editable
 
-  // Total efectivo (lft + bonus)
+  // Total efectivo (lft + bono)
   effectiveTotal: 0,
 
   // legacy setter
@@ -786,16 +821,20 @@ function remaining(u: AdminUser) { return Math.max(0, total(u) - used(u)) }
 
 /* ====== LFT summary (admin) ====== */
 async function loadLFTSummary(userId: string) {
-  // GET /users/:userId/vacation/summary  -> { data: { vacation: { right, adminExtra, total, used, remaining, window } } }
   const { data } = await api.get(`/users/${encodeURIComponent(userId)}/vacation/summary`)
-  const payload = (data && data.data) ? data.data : data
-  const vac = payload?.vacation ?? {}
-  const win = vac?.window ?? {}
+
+  type Envelope = ApiSummaryLFT | { data?: ApiSummaryLFT }
+  const env = data as Envelope
+  const payload: ApiSummaryLFT =
+    ('data' in env && env.data) ? env.data! : (env as ApiSummaryLFT)
+
+  const vac = payload.vacation ?? {}
+  const win = vac.window ?? {}
+
   return {
-    // DERECHO (LFT) — ¡ojo! usamos 'right' (no 'total')
-    lftTotal: Number(vac?.right ?? 0) || 0,
-    lftUsed: Number(vac?.used ?? 0) || 0,
-    lftRemaining: Number(vac?.remaining ?? 0) || 0,
+    lftTotal: Number(vac.right ?? 0) || 0,
+    lftUsed: Number(vac.used ?? 0) || 0,
+    lftRemaining: Number(vac.remaining ?? 0) || 0,
     windowStart: win?.start ? String(win.start).slice(0,10) : '',
     windowEnd: win?.end ? String(win.end).slice(0,10) : ''
   }
@@ -928,7 +967,6 @@ async function openVacationModal(u: AdminUser) {
   const curTotal = total(u)
   const curUsed = used(u)
 
-  // cargar LFT summary
   try {
     const s = await loadLFTSummary(u.id)
     const bonus = curTotal - s.lftTotal
@@ -948,14 +986,12 @@ async function openVacationModal(u: AdminUser) {
       bonus: bonus,
       bonusEdit: Math.max(minBonusAllowed.value, bonus),
 
-      // para mostrar, mantenemos consistencia con restricciones
       effectiveTotal: Math.max(curTotal, Math.max(curUsed, s.lftTotal)),
 
       newTotal: curTotal
     }
   } catch (e: unknown) {
     console.error('[vacationModal] error loading LFT summary', e)
-    // fallback sin LFT
     vacForm.value = {
       id: u.id,
       name: u.name,
@@ -972,7 +1008,6 @@ async function openVacationModal(u: AdminUser) {
     }
     pushToast('No se pudo cargar el resumen LFT. Aún puedes ajustar el total.', 'warn')
   }
-  console.log('[vacModal] open', JSON.parse(JSON.stringify(vacForm.value)))
 }
 
 function closeVacModal() {
@@ -986,7 +1021,6 @@ async function applyBonusDelta(delta: number) {
   try {
     savingVac.value = true
     const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { delta })
-    // Recalcular tras respuesta
     const newTotal = Math.floor(Number(vd.total || 0))
     const b = newTotal - vacForm.value.lftTotal
     vacForm.value.currentTotal = newTotal
@@ -994,7 +1028,6 @@ async function applyBonusDelta(delta: number) {
     vacForm.value.bonusEdit = b
     vacForm.value.effectiveTotal = Math.max(newTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
 
-    // Refrescar en tabla
     const idx = users.value.findIndex(u => u.id === vacForm.value.id)
     if (idx !== -1) users.value[idx] = { ...users.value[idx], vacationDays: { ...vd } }
 
@@ -1012,7 +1045,6 @@ async function applyBonusDelta(delta: number) {
 /** Fijar bono a un valor específico */
 async function applyBonusValue() {
   const b = Math.floor(Number(vacForm.value.bonusEdit ?? 0))
-  // mínimo para que total >= max(LFT, usados)
   const minB = minBonusAllowed.value
   const safeBonus = Math.max(b, minB)
 
@@ -1045,8 +1077,8 @@ async function saveVacationTotal() {
   try {
     savingVac.value = true
     const newTotal = Math.max(
-      vacForm.value.lftTotal,              // no menor que la ley (DERECHO)
-      vacForm.value.used,                  // no menor que usados
+      vacForm.value.lftTotal,
+      vacForm.value.used,
       Math.floor(Number(vacForm.value.newTotal ?? 0))
     )
     if (newTotal === vacForm.value.currentTotal) {
@@ -1064,7 +1096,6 @@ async function saveVacationTotal() {
       }
     }
 
-    // ajustar campos locales/bono derivados
     vacForm.value.currentTotal = vd.total
     vacForm.value.effectiveTotal = vd.total
     vacForm.value.bonus = vd.total - vacForm.value.lftTotal
@@ -1082,75 +1113,73 @@ async function saveVacationTotal() {
   }
 }
 
-/* ====== SALDO por ventanas ====== */
-const showSaldoModal = ref(false)
-const saldoUser = ref<{ name: string; email: string }>({ name: '', email: '' })
-const saldoWindows = ref<Array<{
-  label: 'current' | 'next' | string
-  year: number
-  start: string
-  end: string
-  expiresAt: string
-  days: number
-  used: number
-  remaining: number
-}>>([])
-const saldoBonus = ref(0)
-const saldoAvailable = ref(0)
+/* ========= Modal "Saldo por ventanas" ========= */
+const showWindowsModal = ref(false)
+const winModal = ref<{
+  userName: string
+  userEmail: string
+  bonusAdmin: number
+  available: number
+  windows: WindowRow[]
+}>({
+  userName: '',
+  userEmail: '',
+  bonusAdmin: 0,
+  available: 0,
+  windows: []
+})
 
-type BackendWindow = Partial<{
-  label: string
-  start: string | Date
-  end: string | Date
-  expiresAt: string | Date
-  days: number
-  used: number
-}>
+async function openWindowsModal(u: AdminUser) {
+  showWindowsModal.value = true
+  winModal.value.userName = u.name
+  winModal.value.userEmail = u.email
+  winModal.value.bonusAdmin = 0
+  winModal.value.available = 0
+  winModal.value.windows = []
 
-function toYMD(d: string | Date | undefined): string {
-  if (!d) return ''
-  const dt = typeof d === 'string' ? new Date(d) : d
-  dt.setUTCHours(0,0,0,0)
-  return dt.toISOString().slice(0,10)
-}
-function normalizeWindow(w: BackendWindow) {
-  const startYMD = toYMD(w.start)
-  return {
-    label: (w.label as ('current'|'next')) || 'current',
-    year: startYMD ? Number(startYMD.slice(0,4)) : 0,
-    start: startYMD,
-    end: toYMD(w.end),
-    expiresAt: toYMD(w.expiresAt),
-    days: Number(w.days ?? 0),
-    used: Number(w.used ?? 0),
-    remaining: Math.max(0, Number(w.days ?? 0) - Number(w.used ?? 0))
-  }
-}
-
-async function openSaldoModal(u: AdminUser) {
   try {
     const { data } = await api.get(`/users/${encodeURIComponent(u.id)}/vacation/summary`)
-    const payload = (data && data.data) ? data.data : data
-    const vac = payload?.vacation ?? payload
 
-    const rawWins = (vac?.windows ?? []) as BackendWindow[]
-    saldoWindows.value = rawWins.map(normalizeWindow)
+    const env = data as ApiSummary | { data?: ApiSummary }
+    const payload: ApiSummary =
+      ('data' in env && env.data) ? env.data! : (env as ApiSummary)
 
-    saldoBonus.value = Number(vac?.bonusAdmin ?? 0)
-    // el backend devuelve available; si no, intenta remaining
-    const avail = vac?.available ?? vac?.remaining ?? 0
-    saldoAvailable.value = Number(avail)
+    const rawWins: ApiWindow[] =
+      Array.isArray(payload.windows)
+        ? payload.windows!
+        : (payload.vacation?.windows ?? [])
 
-    saldoUser.value = { name: u.name, email: u.email }
-    showSaldoModal.value = true
-  } catch (e: unknown) {
+    const wins: WindowRow[] = rawWins.map((w) => {
+      const s = new Date(w.start)
+      const e = new Date(w.end)
+      const exp = w.expiresAt ? new Date(w.expiresAt) : null
+      const days = Number(w.days ?? 0)
+      const used = Number(w.used ?? 0)
+      return {
+        label: (w.label === 'next' ? 'next' : 'current'),
+        year: s.getUTCFullYear(),
+        range: `${s.toISOString().slice(0,10)} — ${e.toISOString().slice(0,10)}`,
+        expire: exp ? exp.toISOString().slice(0,10) : '',
+        days,
+        used,
+        remaining: Math.max(0, days - used)
+      }
+    })
+
+    // Orden: current primero, next después (sin warning no-unused-vars)
+    const order = { current: 0, next: 1 } as const
+    wins.sort((x, y) => order[x.label] - order[y.label])
+
+    winModal.value.windows = wins
+    winModal.value.bonusAdmin = Number(payload.bonusAdmin ?? 0)
+    winModal.value.available  = Number(payload.available ?? 0)
+  } catch (e) {
     pushToast('No se pudo cargar el saldo por ventanas', 'error')
-    console.error('[openSaldoModal] ERROR', e)
+    console.error('[openWindowsModal] error', e)
   }
 }
-
-function closeSaldoModal() {
-  showSaldoModal.value = false
+function closeWindowsModal() {
+  showWindowsModal.value = false
 }
 </script>
 
@@ -1187,7 +1216,6 @@ function closeSaldoModal() {
 .toast--info    { background: #ebf8ff; color: #2a4365; border-color: #bee3f8; }
 .toast--info .toast-dot { background: #3182ce; }
 .toast--warn    { background: #fffaf0; color: #744210; border-color: #feebc8; }
-.toast--warn .toast-dot { background: #dd6b20; }
 
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
 .header-actions { display: flex; align-items: center; gap: .75rem; }
@@ -1238,17 +1266,7 @@ function closeSaldoModal() {
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
 .empty-state { padding: 2rem; text-align: center; color: #718096; }
 
-/* Botón Ver saldo en tabla */
-.saldo-btn {
-  padding: .4rem .75rem;
-  border-radius: .375rem;
-  background: #edf2f7;
-  border: 1px solid #cbd5e0;
-  font-weight: 600;
-  color: #2d3748;
-}
-.saldo-btn:hover { background: #e2e8f0; }
-
+/* Modal base — con scroll interno y footer fijo */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1270,7 +1288,6 @@ function closeSaldoModal() {
   display: flex;
   flex-direction: column;
 }
-.modal-wide { max-width: 780px; }
 .modal-header {
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid #edf2f7;
@@ -1317,51 +1334,75 @@ function closeSaldoModal() {
 .stat .value { font-weight: 600; color: #1a202c; }
 .text-warn { color: #c05621; }
 
-/* Saldos */
-.saldo-user { margin-bottom: .75rem; color: #2d3748; }
-.saldo-user .muted { color: #718096; }
-
-.saldo-table { width: 100%; border-collapse: collapse; }
-.saldo-table th, .saldo-table td { padding: .65rem .75rem; border-top: 1px solid #edf2f7; }
-.saldo-table thead th { text-transform: uppercase; font-size: .75rem; letter-spacing: .05em; color: #4a5568; background: #f7fafc; }
-.row-sub { font-size: .8rem; color: #718096; }
-.row-muted { color: #a0aec0; }
-
-.pill {
-  padding: .2rem .55rem;
-  border-radius: 9999px;
-  font-size: .75rem;
-  font-weight: 700;
-  display: inline-block;
-}
-.pill-yellow { background: #fffaf0; color: #b7791f; border: 1px solid #fbd38d; }
-.pill-blue   { background: #ebf8ff; color: #2b6cb0; border: 1px solid #90cdf4; }
-
-.saldo-footer {
-  margin-top: .75rem;
+/* Controles de bono */
+.bonus-row {
   display: flex;
-  justify-content: space-between;
+  gap: .5rem;
   align-items: center;
+  flex-wrap: wrap;
 }
-.badge {
-  display: inline-block;
-  padding: .35rem .6rem;
-  border-radius: .375rem;
-  background: #edf2f7;
+.pill-btn {
   border: 1px solid #cbd5e0;
-  font-weight: 700;
+  background: #edf2f7;
+  padding: .4rem .7rem;
+  border-radius: 9999px;
+  font-weight: 600;
 }
-.note { display: block; margin-top: .5rem; color: #718096; }
+.pill-btn:disabled { opacity: .5; cursor: not-allowed; }
+.bonus-input { max-width: 120px; }
+.apply-btn {
+  background: #4299e1;
+  color: white;
+  padding: .5rem .9rem;
+  border-radius: .375rem;
+}
 
-/* Responsive modal height */
 @media (max-height: 700px) {
   .modal-content { max-height: 96vh; }
 }
 
-/* Mantengo clases previas por compat */
+/* Ventana (tabla) */
 .window-column { width: 18%; }
 .window-cell { white-space: nowrap; }
+.win-range { font-weight: 600; color: #1a202c; }
+.win-left { font-size: .8rem; color: #4a5568; }
+.text-warn { color: #c05621; }
 
+/* La columna de acciones no se encoge y mantiene los botones a la vista */
 .actions-column { width: 140px; min-width: 140px; }
 .actions-cell { display: flex; gap: 0.5rem; white-space: nowrap; }
+
+/* La celda de Ventana usa tipografía pequeña y puede partir línea */
+.window-cell small { display: block; color: #718096; margin-top: .125rem; }
+
+/* Botón "Ver saldo" */
+.win-btn {
+  padding: .375rem .75rem;
+  border-radius: .375rem;
+  background: #edf2f7;
+  color: #2d3748;
+  font-weight: 600;
+}
+.win-btn:hover { background: #e2e8f0; }
+
+/* Chips y pill del modal de ventanas */
+.badge {
+  display:inline-block;
+  padding:.2rem .55rem;
+  border-radius:9999px;
+  font-size:.775rem;
+  font-weight:600;
+}
+.badge-gold { background:#fffaf0; color:#b7791f; border:1px solid #fbd38d; }
+.badge-blue { background:#ebf8ff; color:#2b6cb0; border:1px solid #bee3f8; }
+.subtle { font-size:.8rem; color:#718096; }
+
+.pill.total-pill {
+  background:#edf2f7;
+  border:1px solid #cbd5e0;
+  border-radius:9999px;
+  padding:.35rem .7rem;
+  font-weight:700;
+  color:#2d3748;
+}
 </style>
