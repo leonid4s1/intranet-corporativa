@@ -8,7 +8,7 @@ import Holiday from '../models/Holiday.js'
 import VacationData from '../models/VacationData.js'
 
 // Exportado por tu utils actual (ya usabas currentAnniversaryWindow)
-import { currentAnniversaryWindow, getAnnualEntitlement /* <= renombra si tu util expone otro nombre */ } from '../utils/vacationLawMX.js'
+import { currentAnniversaryWindow, currentEntitlementDays /* <= renombra si tu util expone otro nombre */ } from '../utils/vacationLawMX.js'
 
 /* =========================
    Helpers de fechas en UTC
@@ -121,8 +121,8 @@ function buildWindow({ label, start, end, hireDate }) {
   const expiresAt = startD.add(18, 'month').endOf('day').toDate()
   const yearsOfServiceAtStart = Math.max(0, startD.diff(dayjs(hireDate), 'year'))
 
-  // ⚠️ Cambia getAnnualEntitlement si tu util usa otro nombre
-  const days = Number(getAnnualEntitlement ? getAnnualEntitlement(yearsOfServiceAtStart) : 0)
+  // ⚠️ Cambia currentEntitlementDays si tu util usa otro nombre
+  const days = Number(currentEntitlementDays ? currentEntitlementDays(yearsOfServiceAtStart) : 0)
 
   return {
     year: startD.year(),
