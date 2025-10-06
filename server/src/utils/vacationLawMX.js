@@ -7,51 +7,64 @@ dayjs.extend(utc);
 dayjs.extend(isSameOrAfter);
 dayjs.extend(isSameOrBefore);
 
+/* =========================
+ * Helpers
+ * ========================= */
+
+/** Devuelve el “aniversario seguro” en UTC para un año dado (ajusta 29-feb en no bisiestos). */
+function safeAnniversaryUTC(hire, year) {
+  const hd = dayjs.utc(hire);
+  // base = primer día del mes de ingreso en 'year'
+  const base = dayjs.utc(new Date(Date.UTC(year, hd.month(), 1)));
+  const lastDay = base.endOf('month').date();
+  const day = Math.min(hd.date(), lastDay);
+  return base.date(day); // Dayjs (UTC)
+}
+
+/* =========================
+ * LFT MX 2023
+ * ========================= */
+
 /**
- * Días de derecho por años de servicio (LFT MX 2023 “vacaciones dignas”)
- * La tabla está indexada por AÑOS COMPLETOS cumplidos.
+ * Días de derecho por años de servicio completados.
  * 0 => 0, 1 => 12, 2 => 14, 3 => 16, 4 => 18, 5 => 20,
  * 6..10 => 22,24,26,28,30, 11+ => +2 cada bloque de 5 años.
  */
 export function entitlementDaysByYearsMX(years) {
-  if (years <= 0) return 0;          // aún no cumple 1 año
+  if (years <= 0) return 0;
   if (years === 1) return 12;
   if (years === 2) return 14;
   if (years === 3) return 16;
   if (years === 4) return 18;
   if (years === 5) return 20;
-  if (years <= 10) return 20 + (years - 5) * 2; // 6..10 => 22,24,26,28,30
-  // 11+ aumenta 2 días cada 5 años (11–15 =>32; 16–20 =>34; etc.)
+  if (years <= 10) return 20 + (years - 5) * 2; // 6..10 => 22..30
   const blocksAfter10 = Math.floor((years - 11) / 5) + 1; // 11–15 -> 1; 16–20 -> 2; ...
-  return 30 + blocksAfter10 * 2;
+  return 30 + blocksAfter10 * 2; // 11–15 => 32; 16–20 => 34; …
 }
 
-/** Años de servicio completos al 'onDate' */
+/** Años de servicio completos al 'onDate' (comparación por día en UTC). */
 export function yearsOfService(hireDate, onDate = new Date()) {
   const hd = dayjs.utc(hireDate);
   const d = dayjs.utc(onDate);
   if (!hd.isValid() || !d.isValid()) return 0;
 
   let yrs = d.year() - hd.year();
-  const annivThisYear = hd.year(d.year());
-  if (d.isBefore(annivThisYear)) yrs -= 1;
+  // aniversario “seguro” de este año
+  const annivThisYear = safeAnniversaryUTC(hd, d.year());
+  if (d.isBefore(annivThisYear, 'day')) yrs -= 1;
   return Math.max(0, yrs);
 }
 
 /**
- * Ventana del ciclo vigente (aniversario “vigente” + 6 meses)
- * - Antes del primer aniversario: la ventana empieza en el PRIMER aniversario (futura).
- * - Después: toma el último aniversario que ya ocurrió y suma 6 meses.
+ * Ventana del ciclo vigente (aniversario + 6 meses).
+ * Antes del primer aniversario: devuelve [primer aniversario, +6 meses] (ambas futuras).
  */
 export function currentAnniversaryWindow(hireDate, onDate = new Date()) {
   const hd = dayjs.utc(hireDate);
   const today = dayjs.utc(onDate);
   if (!hd.isValid()) return null;
 
-  const firstAnniv = hd.add(1, 'year');
-
-  // Si aún no llega el primer aniversario, la ventana no ha abierto;
-  // devolvemos [primer aniversario, +6 meses] (ambas futuras).
+  const firstAnniv = safeAnniversaryUTC(hd, hd.year() + 1);
   if (today.isBefore(firstAnniv, 'day')) {
     return {
       start: firstAnniv.toDate(),
@@ -59,26 +72,24 @@ export function currentAnniversaryWindow(hireDate, onDate = new Date()) {
     };
   }
 
-  // Ya pasó el primer aniversario: usamos el último aniversario ocurrido (este año o el pasado)
-  let start = hd.year(today.year()); // aniversario de este año
-  if (today.isBefore(start, 'day')) {
-    start = start.subtract(1, 'year'); // todavía no llega el de este año ⇒ usar el del año pasado
-  }
+  // último aniversario que ya ocurrió (este año o el pasado)
+  let start = safeAnniversaryUTC(hd, today.year());
+  if (today.isBefore(start, 'day')) start = safeAnniversaryUTC(hd, today.year() - 1);
+
   const end = start.add(6, 'month');
   return { start: start.toDate(), end: end.toDate() };
 }
 
 /**
- * Días de derecho del ciclo vigente.
- * IMPORTANTE: NO sumar +1. El derecho es por AÑOS COMPLETOS cumplidos.
+ * Derecho del ciclo vigente (en el aniversario N corresponde el derecho N).
  * Antes del primer aniversario => 0.
  */
 export function currentEntitlementDays(hireDate, onDate = new Date()) {
-  const yos = yearsOfService(hireDate, onDate); // 0 si aún no cumple 1 año
+  const yos = yearsOfService(hireDate, onDate);
   return entitlementDaysByYearsMX(yos);
 }
 
-/** ¿El rango [startDate, endDate] está dentro de la ventana de 6 meses del ciclo vigente? */
+/** ¿[startDate, endDate] está dentro de la ventana vigente (6 meses)? */
 export function isWithinCurrentWindow(hireDate, startDate, endDate, onDate = new Date()) {
   const win = currentAnniversaryWindow(hireDate, onDate);
   if (!win) return false;

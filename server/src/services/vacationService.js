@@ -7,8 +7,12 @@ import VacationRequest from '../models/VacationRequest.js'
 import Holiday from '../models/Holiday.js'
 import VacationData from '../models/VacationData.js'
 
-// Exportado por tu utils actual (ya usabas currentAnniversaryWindow)
-import { currentAnniversaryWindow, currentEntitlementDays /* <= renombra si tu util expone otro nombre */ } from '../utils/vacationLawMX.js'
+// Utils LFT MX
+import {
+  currentAnniversaryWindow,
+  entitlementDaysByYearsMX,
+  yearsOfService,
+} from '../utils/vacationLawMX.js'
 
 /* =========================
    Helpers de fechas en UTC
@@ -90,15 +94,12 @@ async function getUsedDaysInWindow(userId, winStart, winEnd) {
 }
 
 /**
- * Días USADOS en el ciclo vigente (LFT) por usuario (conservar por compatibilidad)
- * - usa la ventana devuelta por currentAnniversaryWindow(hireDate)
+ * Días USADOS en el ciclo vigente (LFT) por usuario (compatibilidad)
  */
 export async function getUsedDaysInCurrentCycle(userId, hireDate) {
   if (!userId || !hireDate) return 0
-
   const win = currentAnniversaryWindow(hireDate) // { start: Date, end: Date }
   if (!win) return 0
-
   return getUsedDaysInWindow(userId, win.start, win.end)
 }
 
@@ -107,22 +108,28 @@ export async function getUsedDaysInCurrentCycle(userId, hireDate) {
 ========================= */
 
 function computeNextWindowFromCurrent(currentWin) {
-  const start = dayjs(currentWin.start).add(1, 'year').toDate()
-  const end = dayjs(currentWin.end).add(1, 'year').toDate()
+  const start = dayjs.utc(currentWin.start).add(1, 'year').toDate()
+  // el fin de la siguiente es 6 meses después del nuevo start (equivale a end + 1 año)
+  const end = dayjs.utc(start).add(6, 'month').toDate()
   return { start, end }
 }
 
 /**
- * Construye un objeto "ventana" con días por LFT para la antigüedad al inicio
+ * Construye un objeto "ventana" con días según LFT para la antigüedad al inicio.
+ * Si la ventana aún NO comienza, días = 0 (y por tanto restantes = 0).
  */
 function buildWindow({ label, start, end, hireDate }) {
-  const startD = dayjs(start)
-  const endD = dayjs(end)
+  const startD = dayjs.utc(start)
+  const endD = dayjs.utc(end)
+  const nowUTC = dayjs.utc()
   const expiresAt = startD.add(18, 'month').endOf('day').toDate()
-  const yearsOfServiceAtStart = Math.max(0, startD.diff(dayjs(hireDate), 'year'))
 
-  // ⚠️ Cambia currentEntitlementDays si tu util usa otro nombre
-  const days = Number(currentEntitlementDays ? currentEntitlementDays(yearsOfServiceAtStart) : 0)
+  // Antigüedad EXACTA al inicio de la ventana (usa helper con aniversarios seguros)
+  const yosAtStart = yearsOfService(hireDate, startD.toDate())
+
+  // Solo otorgamos días cuando la ventana ya comenzó
+  const started = !startD.isAfter(nowUTC, 'day')
+  const days = started ? entitlementDaysByYearsMX(yosAtStart) : 0
 
   return {
     year: startD.year(),
@@ -135,31 +142,31 @@ function buildWindow({ label, start, end, hireDate }) {
   }
 }
 
-const remainingOfWindow = (w, now = dayjs()) => {
+const remainingOfWindow = (w, now = dayjs.utc()) => {
   if (!w) return 0
-  if (now.isAfter(dayjs(w.expiresAt))) return 0
+  if (now.isAfter(dayjs.utc(w.expiresAt), 'day')) return 0
   return Math.max(0, (w.days || 0) - (w.used || 0))
 }
 
 /**
  * Asegura/actualiza las dos ventanas del usuario y devuelve el summary
- * - current: aniversario más reciente <= hoy
+ * - current: aniversario más reciente (puede ser futura si aún no cumple 1 año)
  * - next:    siguiente aniversario
  * - ambas expiran a los 18 meses de su start
  * - "used" se recalcula a partir de solicitudes aprobadas
  * - "available" = sum(remaining no expiradas) + bonusAdmin
- * - también rellena campos legacy (total/used/remaining) para compat con UI
+ * - rellena campos legacy (total/used/remaining) para compat con UI
  */
 export async function ensureWindowsAndCompute(userId, hireDate) {
   if (!userId || !hireDate) throw new Error('ensureWindowsAndCompute: userId y hireDate son requeridos')
 
-  const now = dayjs()
+  const now = dayjs.utc()
 
-  // Ventana actual segun tu util (ya probada en tu código)
-  const cur = currentAnniversaryWindow(hireDate) // { start, end }
+  // Ventana actual según util LFT
+  const cur = currentAnniversaryWindow(hireDate)
   if (!cur) throw new Error('No se pudo calcular la ventana actual LFT')
 
-  // Siguiente ventana a partir de la actual
+  // Siguiente ventana
   const nxt = computeNextWindowFromCurrent(cur)
 
   // Cargar/crear documento
@@ -175,9 +182,9 @@ export async function ensureWindowsAndCompute(userId, hireDate) {
   const byLabel = Object.fromEntries((vac.windows || []).map((w) => [w.label, w]))
   function upsertWin(target, tpl) {
     if (!target) return { ...tpl }
-    const sameStart = dayjs(target.start).isSame(dayjs(tpl.start), 'day')
+    const sameStart = dayjs.utc(target.start).isSame(dayjs.utc(tpl.start), 'day')
     if (!sameStart) return { ...tpl } // cambio de ciclo; reinicia used
-    // mismo ciclo: mantén used, pero actualiza días por si cambió tabla LFT
+    // mismo ciclo: mantén used, pero actualiza días por si cambió la tabla LFT
     return { ...tpl, used: target.used || 0 }
   }
   const newCurrent = upsertWin(byLabel.current, tplCurrent)
@@ -195,11 +202,15 @@ export async function ensureWindowsAndCompute(userId, hireDate) {
   const bonus = vac.bonusAdmin || 0
   const available = remCur + remNxt + bonus
 
-  // Campos legacy (para pantallas que aún los lean)
-  // total efectivo visible: suma del año en curso + (si ya comenzó la siguiente) + bono
-  const nextStarted = now.isSame(dayjs(newNext.start)) || now.isAfter(dayjs(newNext.start))
-  const totalEffective = (newCurrent.days || 0) + (nextStarted ? (newNext.days || 0) : 0) + bonus
-  const usedEffective = (newCurrent.used || 0) + (nextStarted ? (newNext.used || 0) : 0)
+  // Campos legacy para vistas antiguas:
+  const nextStarted = !dayjs.utc(newNext.start).isAfter(now, 'day')
+  const totalEffective =
+    (newCurrent.days || 0) +
+    (nextStarted ? (newNext.days || 0) : 0) +
+    bonus
+  const usedEffective =
+    (newCurrent.used || 0) +
+    (nextStarted ? (newNext.used || 0) : 0)
 
   vac.total = totalEffective
   vac.used = usedEffective
@@ -217,9 +228,7 @@ export async function ensureWindowsAndCompute(userId, hireDate) {
   }
 }
 
-/**
- * Atajo para obtener summary (útil en controladores)
- */
+/** Atajo */
 export async function getVacationSummary(userId, hireDate) {
   return ensureWindowsAndCompute(userId, hireDate)
 }
