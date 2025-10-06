@@ -435,47 +435,53 @@
         <div class="modal-body">
           <div style="margin-bottom:.5rem;">
             <strong>Usuario:</strong>
-            {{ winModal.userName }} — {{ winModal.userEmail }}
+            {{ winModal.userName }}
+            <span v-if="winModal.userEmail"> — {{ winModal.userEmail }}</span>
           </div>
 
-          <div class="table-container" style="box-shadow:none;">
-            <table class="user-table">
-              <thead>
-                <tr>
-                  <th>Ventana</th>
-                  <th>Rango</th>
-                  <th>Expira</th>
-                  <th>Días</th>
-                  <th>Usados</th>
-                  <th>Restantes</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="w in winModal.windows" :key="w.label">
-                  <td>
-                    <span class="badge" :class="w.label === 'current' ? 'badge-gold' : 'badge-blue'">
-                      {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
-                    </span>
-                    <div class="subtle">Año: {{ w.year }}</div>
-                  </td>
-                  <td>{{ w.range }}</td>
-                  <td>{{ w.expire }}</td>
-                  <td class="text-right">{{ w.days }}</td>
-                  <td class="text-right">{{ w.used }}</td>
-                  <td class="text-right">{{ w.remaining }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <div v-if="winModal.loading" class="muted">Cargando ventanas…</div>
+          <div v-else-if="winModal.error" class="modal-error">{{ winModal.error }}</div>
 
-          <div class="modal-info" style="display:flex;align-items:center;justify-content:space-between;">
-            <div>Bono admin: <strong>{{ winModal.bonusAdmin }}</strong></div>
-            <div class="pill total-pill">Disponible total: {{ winModal.available }}</div>
-          </div>
+          <template v-else-if="winModal.summary">
+            <div class="table-container" style="box-shadow:none;">
+              <table class="user-table">
+                <thead>
+                  <tr>
+                    <th>Ventana</th>
+                    <th>Rango</th>
+                    <th>Expira</th>
+                    <th class="text-right">Días</th>
+                    <th class="text-right">Usados</th>
+                    <th class="text-right">Restantes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="w in winModal.summary.windows" :key="w.label + '-' + w.year">
+                    <td>
+                      <span class="badge" :class="w.label === 'current' ? 'badge-gold' : 'badge-blue'">
+                        {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
+                      </span>
+                      <div class="subtle">Año: {{ w.year }}</div>
+                    </td>
+                    <td>{{ formatISO(w.start) }} — {{ formatISO(w.end) }}</td>
+                    <td>{{ formatISO(w.expiresAt) }}</td>
+                    <td class="text-right">{{ w.days }}</td>
+                    <td class="text-right">{{ w.used }}</td>
+                    <td class="text-right"><strong>{{ remainingOf(w) }}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-          <small class="text-warn" style="display:block;margin-top:.5rem;">
-            * Los días no gozados de la primera ventana expiran a los 18 meses (se eliminan de disponibles).
-          </small>
+            <div class="modal-info" style="display:flex;align-items:center;justify-content:space-between;">
+              <div>Bono admin: <strong>{{ winModal.summary.bonusAdmin }}</strong></div>
+              <div class="pill total-pill">Disponible total: {{ winModal.summary.available }}</div>
+            </div>
+
+            <small class="text-warn" style="display:block;margin-top:.5rem;">
+              * Los días no gozados de la primera ventana expiran a los 18 meses (se eliminan de disponibles).
+            </small>
+          </template>
         </div>
 
         <div class="modal-footer">
@@ -488,8 +494,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import dayjs from 'dayjs'
 import api from '@/services/api'
 import userService from '@/services/user.service'
+import vacationService, { type WindowsSummary, type VacationWindow } from '@/services/vacation.service'
 import type { User as BaseUser, Role, VacationDays } from '@/services/user.service'
 
 /** Usuario con meta extendida para esta vista */
@@ -518,43 +526,6 @@ type UpdateMetaPayload = {
   birthDate?: string
 }
 
-/** Ventana normalizada para el modal "Saldo por ventanas" */
-type WindowRow = {
-  label: 'current' | 'next'
-  year: number
-  range: string
-  expire: string
-  days: number
-  used: number
-  remaining: number
-}
-
-/** Tipos de respuestas posibles para "ventanas" */
-type ApiWindow = {
-  label?: string
-  start: string | Date
-  end: string | Date
-  expiresAt?: string | Date
-  days?: number
-  used?: number
-}
-type ApiSummaryCore = {
-  bonusAdmin?: number
-  available?: number
-  windows?: ApiWindow[] | { current?: ApiWindow; next?: ApiWindow }
-}
-type ApiSummaryEnvelope = ApiSummaryCore | { data?: ApiSummaryCore }
-
-/** Summary para el modal LFT (derecho simple) */
-type ApiSummaryLFT = {
-  vacation?: {
-    right?: number
-    used?: number
-    remaining?: number
-    window?: { start?: string | Date; end?: string | Date }
-  }
-}
-
 const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -578,7 +549,11 @@ function yearsBetween(a: string, b: string) {
   const B = new Date(b).getTime()
   return (B - A) / (365.25*24*60*60*1000)
 }
-function iso(d: Date) { return d.toISOString().slice(0,10) }
+function formatISO(iso: string | Date | undefined): string {
+  if (!iso) return ''
+  const s = typeof iso === 'string' ? iso : iso.toString()
+  return dayjs(s).format('DD/MM/YYYY')
+}
 
 /* ===== Toasts ===== */
 type ToastType = 'success' | 'error' | 'info' | 'warn'
@@ -823,6 +798,15 @@ function remaining(u: AdminUser) { return Math.max(0, total(u) - used(u)) }
 /* ====== LFT summary (admin) ====== */
 async function loadLFTSummary(userId: string) {
   const { data } = await api.get(`/users/${encodeURIComponent(userId)}/vacation/summary`)
+
+  type ApiSummaryLFT = {
+    vacation?: {
+      right?: number
+      used?: number
+      remaining?: number
+      window?: { start?: string | Date; end?: string | Date }
+    }
+  }
 
   type Envelope = ApiSummaryLFT | { data?: ApiSummaryLFT }
   const env = data as Envelope
@@ -1119,137 +1103,47 @@ const showWindowsModal = ref(false)
 const winModal = ref<{
   userName: string
   userEmail: string
-  bonusAdmin: number
-  available: number
-  windows: WindowRow[]
+  loading: boolean
+  error: string | null
+  summary: WindowsSummary | null
 }>({
   userName: '',
   userEmail: '',
-  bonusAdmin: 0,
-  available: 0,
-  windows: []
+  loading: false,
+  error: null,
+  summary: null
 })
 
-/** Normaliza posibles formas del payload de “ventanas” */
-function normalizeWindowsPayload(core: ApiSummaryCore): {
-  windows: WindowRow[],
-  bonusAdmin: number,
-  available?: number
-} {
-  const out: WindowRow[] = []
-
-  // 1) windows como array
-  if (Array.isArray(core.windows)) {
-    for (const w of core.windows) {
-      const s = new Date(w.start)
-      const e = new Date(w.end)
-      const exp = w.expiresAt ? new Date(w.expiresAt) : new Date(s)
-      const days = Number(w.days ?? 0)
-      const used = Number(w.used ?? 0)
-      out.push({
-        label: (w.label === 'next' ? 'next' : 'current'),
-        year: s.getUTCFullYear(),
-        range: `${iso(s)} — ${iso(e)}`,
-        expire: iso(exp),
-        days,
-        used,
-        remaining: Math.max(0, days - used)
-      })
-    }
-  }
-
-  // 2) windows como objeto { current, next }
-  if (!out.length && core.windows && !Array.isArray(core.windows)) {
-    const maybe = core.windows as { current?: ApiWindow; next?: ApiWindow }
-    const list: Array<{ lab: 'current' | 'next'; item?: ApiWindow }> = [
-      { lab: 'current', item: maybe.current },
-      { lab: 'next',    item: maybe.next },
-    ]
-    for (const { lab, item } of list) {
-      if (!item) continue
-      const s = new Date(item.start)
-      const e = new Date(item.end)
-      const exp = item.expiresAt ? new Date(item.expiresAt) : new Date(s)
-      const days = Number(item.days ?? 0)
-      const used = Number(item.used ?? 0)
-      out.push({
-        label: lab,
-        year: s.getUTCFullYear(),
-        range: `${iso(s)} — ${iso(e)}`,
-        expire: iso(exp),
-        days,
-        used,
-        remaining: Math.max(0, days - used)
-      })
-    }
-  }
-
-  return {
-    windows: out.sort((a, b) => (a.label === 'current' ? 0 : 1) - (b.label === 'current' ? 0 : 1)),
-    bonusAdmin: Number(core.bonusAdmin ?? 0),
-    available: typeof core.available === 'number' ? core.available : undefined
-  }
-}
-
-/** Si el backend no envía `available`, lo calculamos */
-function computeAvailableFrom(wins: WindowRow[], bonus: number): number {
-  const today = new Date()
-  today.setUTCHours(0,0,0,0)
-  let sum = 0
-  for (const w of wins) {
-    const exp = new Date(`${w.expire}T00:00:00.000Z`)
-    if (exp >= today) sum += Math.max(0, w.remaining)
-  }
-  return sum + Math.max(0, bonus)
-}
-
-/** Intenta varios endpoints de “ventanas” hasta obtener datos */
-async function fetchWindowsSummary(userId: string): Promise<{wins: WindowRow[], bonusAdmin: number, available: number}> {
-  const candidates = [
-    `/vacations/windows?userId=${encodeURIComponent(userId)}`,
-    `/admin/vacations/windows?userId=${encodeURIComponent(userId)}`,
-    `/users/${encodeURIComponent(userId)}/vacation/windows`,
-  ]
-
-  for (const path of candidates) {
-    try {
-      const { data } = await api.get(path)
-      const env = data as ApiSummaryEnvelope
-      const core: ApiSummaryCore = ('data' in env && env.data) ? env.data! : (env as ApiSummaryCore)
-      const norm = normalizeWindowsPayload(core)
-      if (norm.windows.length) {
-        const available = norm.available ?? computeAvailableFrom(norm.windows, norm.bonusAdmin)
-        return { wins: norm.windows, bonusAdmin: norm.bonusAdmin, available }
-      }
-    } catch {
-      // Continua con el siguiente candidato
-    }
-  }
-
-  // Fallback sin datos de ventanas
-  return { wins: [], bonusAdmin: 0, available: 0 }
+function remainingOf(w: VacationWindow): number {
+  return Math.max((w?.days ?? 0) - (w?.used ?? 0), 0)
 }
 
 async function openWindowsModal(u: AdminUser) {
   showWindowsModal.value = true
   winModal.value.userName = u.name
   winModal.value.userEmail = u.email
-  winModal.value.bonusAdmin = 0
-  winModal.value.available = 0
-  winModal.value.windows = []
+  winModal.value.loading = true
+  winModal.value.error = null
+  winModal.value.summary = null
 
   try {
-    const { wins, bonusAdmin, available } = await fetchWindowsSummary(u.id)
-    winModal.value.windows = wins
-    winModal.value.bonusAdmin = bonusAdmin
-    winModal.value.available = available
-  } catch (e) {
-    pushToast('No se pudo cargar el saldo por ventanas', 'error')
-    console.error('[openWindowsModal] error', e)
+    // MISMO servicio y misma forma que en Administración de Vacaciones
+    const sum = await vacationService.getWindowsSummaryByUserId(u.id)
+    winModal.value.summary = sum
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'No se pudo cargar el saldo por ventanas'
+    winModal.value.error = msg
+    pushToast(msg, 'error')
+  } finally {
+    winModal.value.loading = false
   }
 }
+
 function closeWindowsModal() {
   showWindowsModal.value = false
+  winModal.value.loading = false
+  winModal.value.summary = null
+  winModal.value.error = null
 }
 </script>
 
