@@ -529,7 +529,7 @@ type WindowRow = {
   remaining: number
 }
 
-/** Summary para el modal de ventanas */
+/** Tipos de respuestas posibles para "ventanas" */
 type ApiWindow = {
   label?: string
   start: string | Date
@@ -538,14 +538,14 @@ type ApiWindow = {
   days?: number
   used?: number
 }
-type ApiSummary = {
+type ApiSummaryCore = {
   bonusAdmin?: number
   available?: number
-  windows?: ApiWindow[]
-  vacation?: { windows?: ApiWindow[] }
+  windows?: ApiWindow[] | { current?: ApiWindow; next?: ApiWindow }
 }
+type ApiSummaryEnvelope = ApiSummaryCore | { data?: ApiSummaryCore }
 
-/** Summary para el modal LFT (vacation window simple) */
+/** Summary para el modal LFT (derecho simple) */
 type ApiSummaryLFT = {
   vacation?: {
     right?: number
@@ -578,6 +578,7 @@ function yearsBetween(a: string, b: string) {
   const B = new Date(b).getTime()
   return (B - A) / (365.25*24*60*60*1000)
 }
+function iso(d: Date) { return d.toISOString().slice(0,10) }
 
 /* ===== Toasts ===== */
 type ToastType = 'success' | 'error' | 'info' | 'warn'
@@ -1022,10 +1023,10 @@ async function applyBonusDelta(delta: number) {
     savingVac.value = true
     const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { delta })
     const newTotal = Math.floor(Number(vd.total || 0))
-    const b = newTotal - vacForm.value.lftTotal
+    const newBonus = newTotal - vacForm.value.lftTotal
     vacForm.value.currentTotal = newTotal
-    vacForm.value.bonus = b
-    vacForm.value.bonusEdit = b
+    vacForm.value.bonus = newBonus
+    vacForm.value.bonusEdit = newBonus
     vacForm.value.effectiveTotal = Math.max(newTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
 
     const idx = users.value.findIndex(u => u.id === vacForm.value.id)
@@ -1129,6 +1130,106 @@ const winModal = ref<{
   windows: []
 })
 
+/** Normaliza posibles formas del payload de “ventanas” */
+function normalizeWindowsPayload(core: ApiSummaryCore): {
+  windows: WindowRow[],
+  bonusAdmin: number,
+  available?: number
+} {
+  const out: WindowRow[] = []
+
+  // 1) windows como array
+  if (Array.isArray(core.windows)) {
+    for (const w of core.windows) {
+      const s = new Date(w.start)
+      const e = new Date(w.end)
+      const exp = w.expiresAt ? new Date(w.expiresAt) : new Date(s)
+      const days = Number(w.days ?? 0)
+      const used = Number(w.used ?? 0)
+      out.push({
+        label: (w.label === 'next' ? 'next' : 'current'),
+        year: s.getUTCFullYear(),
+        range: `${iso(s)} — ${iso(e)}`,
+        expire: iso(exp),
+        days,
+        used,
+        remaining: Math.max(0, days - used)
+      })
+    }
+  }
+
+  // 2) windows como objeto { current, next }
+  if (!out.length && core.windows && !Array.isArray(core.windows)) {
+    const maybe = core.windows as { current?: ApiWindow; next?: ApiWindow }
+    const list: Array<{ lab: 'current' | 'next'; item?: ApiWindow }> = [
+      { lab: 'current', item: maybe.current },
+      { lab: 'next',    item: maybe.next },
+    ]
+    for (const { lab, item } of list) {
+      if (!item) continue
+      const s = new Date(item.start)
+      const e = new Date(item.end)
+      const exp = item.expiresAt ? new Date(item.expiresAt) : new Date(s)
+      const days = Number(item.days ?? 0)
+      const used = Number(item.used ?? 0)
+      out.push({
+        label: lab,
+        year: s.getUTCFullYear(),
+        range: `${iso(s)} — ${iso(e)}`,
+        expire: iso(exp),
+        days,
+        used,
+        remaining: Math.max(0, days - used)
+      })
+    }
+  }
+
+  return {
+    windows: out.sort((a, b) => (a.label === 'current' ? 0 : 1) - (b.label === 'current' ? 0 : 1)),
+    bonusAdmin: Number(core.bonusAdmin ?? 0),
+    available: typeof core.available === 'number' ? core.available : undefined
+  }
+}
+
+/** Si el backend no envía `available`, lo calculamos */
+function computeAvailableFrom(wins: WindowRow[], bonus: number): number {
+  const today = new Date()
+  today.setUTCHours(0,0,0,0)
+  let sum = 0
+  for (const w of wins) {
+    const exp = new Date(`${w.expire}T00:00:00.000Z`)
+    if (exp >= today) sum += Math.max(0, w.remaining)
+  }
+  return sum + Math.max(0, bonus)
+}
+
+/** Intenta varios endpoints de “ventanas” hasta obtener datos */
+async function fetchWindowsSummary(userId: string): Promise<{wins: WindowRow[], bonusAdmin: number, available: number}> {
+  const candidates = [
+    `/vacations/windows?userId=${encodeURIComponent(userId)}`,
+    `/admin/vacations/windows?userId=${encodeURIComponent(userId)}`,
+    `/users/${encodeURIComponent(userId)}/vacation/windows`,
+  ]
+
+  for (const path of candidates) {
+    try {
+      const { data } = await api.get(path)
+      const env = data as ApiSummaryEnvelope
+      const core: ApiSummaryCore = ('data' in env && env.data) ? env.data! : (env as ApiSummaryCore)
+      const norm = normalizeWindowsPayload(core)
+      if (norm.windows.length) {
+        const available = norm.available ?? computeAvailableFrom(norm.windows, norm.bonusAdmin)
+        return { wins: norm.windows, bonusAdmin: norm.bonusAdmin, available }
+      }
+    } catch {
+      // Continua con el siguiente candidato
+    }
+  }
+
+  // Fallback sin datos de ventanas
+  return { wins: [], bonusAdmin: 0, available: 0 }
+}
+
 async function openWindowsModal(u: AdminUser) {
   showWindowsModal.value = true
   winModal.value.userName = u.name
@@ -1138,41 +1239,10 @@ async function openWindowsModal(u: AdminUser) {
   winModal.value.windows = []
 
   try {
-    const { data } = await api.get(`/users/${encodeURIComponent(u.id)}/vacation/summary`)
-
-    const env = data as ApiSummary | { data?: ApiSummary }
-    const payload: ApiSummary =
-      ('data' in env && env.data) ? env.data! : (env as ApiSummary)
-
-    const rawWins: ApiWindow[] =
-      Array.isArray(payload.windows)
-        ? payload.windows!
-        : (payload.vacation?.windows ?? [])
-
-    const wins: WindowRow[] = rawWins.map((w) => {
-      const s = new Date(w.start)
-      const e = new Date(w.end)
-      const exp = w.expiresAt ? new Date(w.expiresAt) : null
-      const days = Number(w.days ?? 0)
-      const used = Number(w.used ?? 0)
-      return {
-        label: (w.label === 'next' ? 'next' : 'current'),
-        year: s.getUTCFullYear(),
-        range: `${s.toISOString().slice(0,10)} — ${e.toISOString().slice(0,10)}`,
-        expire: exp ? exp.toISOString().slice(0,10) : '',
-        days,
-        used,
-        remaining: Math.max(0, days - used)
-      }
-    })
-
-    // Orden: current primero, next después (sin warning no-unused-vars)
-    const order = { current: 0, next: 1 } as const
-    wins.sort((x, y) => order[x.label] - order[y.label])
-
+    const { wins, bonusAdmin, available } = await fetchWindowsSummary(u.id)
     winModal.value.windows = wins
-    winModal.value.bonusAdmin = Number(payload.bonusAdmin ?? 0)
-    winModal.value.available  = Number(payload.available ?? 0)
+    winModal.value.bonusAdmin = bonusAdmin
+    winModal.value.available = available
   } catch (e) {
     pushToast('No se pudo cargar el saldo por ventanas', 'error')
     console.error('[openWindowsModal] error', e)
@@ -1210,11 +1280,8 @@ function closeWindowsModal() {
 }
 .toast-dot { width: .5rem; height: .5rem; border-radius: 9999px; display: inline-block; }
 .toast--success { background: #f0fff4; color: #22543d; border-color: #c6f6d5; }
-.toast--success .toast-dot { background: #38a169; }
 .toast--error   { background: #fff5f5; color: #742a2a; border-color: #fed7d7; }
-.toast--error .toast-dot { background: #e53e3e; }
 .toast--info    { background: #ebf8ff; color: #2a4365; border-color: #bee3f8; }
-.toast--info .toast-dot { background: #3182ce; }
 .toast--warn    { background: #fffaf0; color: #744210; border-color: #feebc8; }
 
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
@@ -1266,7 +1333,7 @@ function closeWindowsModal() {
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
 .empty-state { padding: 2rem; text-align: center; color: #718096; }
 
-/* Modal base — con scroll interno y footer fijo */
+/* Modal base */
 .modal-overlay {
   position: fixed;
   inset: 0;
