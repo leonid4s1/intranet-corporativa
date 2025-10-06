@@ -1,16 +1,39 @@
 // server/src/models/VacationData.js
 import mongoose from 'mongoose'
 
+// === Helpers ===
 const clampInt = (v) => Math.max(0, Math.floor(Number(v ?? 0)))
+
+// === Subdocumento de ventana ===
+const WindowSchema = new mongoose.Schema(
+  {
+    year: { type: Number, required: true },                   // p.ej. 2025
+    label: { type: String, enum: ['current', 'next'], required: true },
+    start: { type: Date, required: true },                    // inicio del ciclo (aniversario)
+    end: { type: Date, required: true },                      // fin nominal del año (start + 1y - 1d)
+    expiresAt: { type: Date, required: true },                // vigencia (start + 18m)
+    days: { type: Number, required: true, min: 0, set: clampInt },
+    used: { type: Number, default: 0, min: 0, set: clampInt },
+  },
+  { _id: false }
+)
 
 const VacationDataSchema = new mongoose.Schema(
   {
+    // ===== Clave del usuario (conserva tu nombre de campo) =====
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
-      // unique: true, // ❌ no aquí, para evitar índice duplicado
+      // unique: true, // ❌ no aquí, para evitar índice duplicado; se define abajo
     },
+
+    // ===== Nuevo modelo por ventanas =====
+    lftBaseDate: { type: Date, required: false },             // fecha de ingreso / base LFT
+    bonusAdmin: { type: Number, default: 0, min: 0, set: clampInt },
+    windows: { type: [WindowSchema], default: [] },
+
+    // ===== Campos legacy para compatibilidad UI actual =====
     total: {
       type: Number,
       default: 0,
@@ -34,10 +57,8 @@ const VacationDataSchema = new mongoose.Schema(
       default: 0,
       min: [0, 'remaining no puede ser negativo'],
     },
-    lastUpdate: {
-      type: Date,
-      default: Date.now,
-    },
+
+    lastUpdate: { type: Date, default: Date.now },
   },
   {
     timestamps: true,
@@ -49,14 +70,14 @@ const VacationDataSchema = new mongoose.Schema(
 // Índice único explícito alineado con Atlas
 VacationDataSchema.index({ user: 1 }, { unique: true, name: 'uniq_user' })
 
-// Recalcular en save directo
+// Recalcular en save directo (mantén compat con legacy)
 VacationDataSchema.pre('save', function (next) {
   this.remaining = clampInt(this.total - this.used)
   this.lastUpdate = new Date()
   next()
 })
 
-// Validaciones + lastUpdate en updates
+// Validaciones + lastUpdate en updates (mantén compat con legacy)
 VacationDataSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function (next) {
   this.setOptions({ runValidators: true })
 

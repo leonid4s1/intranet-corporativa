@@ -84,7 +84,7 @@ export type EntitlementResponse = {
   cycle: EntitlementCycle;
 };
 
-/** Resumen LFT (endpoint /users/:id/vacation/summary) */
+/** Resumen LFT (legacy; mantiene compat) */
 export type VacationSummary = {
   user: {
     id: string;
@@ -102,6 +102,24 @@ export type VacationSummary = {
     window: { start: string; end: string }; // YYYY-MM-DD
     policy: string;               // 'LFT MX 2023'
   };
+};
+
+/** === NUEVO: Ventanas (current / next) con vigencia 18 meses === */
+export type WindowLabel = 'current' | 'next';
+export type VacationWindow = {
+  year: number;
+  label: WindowLabel;
+  start: string;     // ISO
+  end: string;       // ISO
+  expiresAt: string; // ISO
+  days: number;
+  used: number;
+};
+export type WindowsSummary = {
+  available: number;          // suma de remaining de ventanas no expiradas + bonus
+  bonusAdmin: number;
+  windows: VacationWindow[];
+  now: string;                // ISO “ahora” backend
 };
 
 /* =========================
@@ -303,7 +321,7 @@ export async function cancelVacationRequest(id: string) {
 }
 
 /* =========================
- * Derecho vigente (LFT)
+ * Derecho vigente (LFT, legacy)
  * ========================= */
 
 function parseEntitlement(payload: unknown): EntitlementResponse {
@@ -362,7 +380,61 @@ export async function getUserEntitlementAdmin(userId: string): Promise<Entitleme
 }
 
 /* =========================
- * Resumen LFT vigente (nuevo)
+ * NUEVO: Summary por ventanas (current/next + 18m)
+ * ========================= */
+
+function parseWindowsSummary(payload: unknown): WindowsSummary {
+  const root = unwrapData<unknown>(payload, {});
+  const rec = isRecord(root) ? root : {};
+
+  const available = getNum(rec, 'available') ?? 0;
+  const bonusAdmin = getNum(rec, 'bonusAdmin') ?? 0;
+  const now = getStr(rec, 'now') ?? new Date().toISOString();
+
+  const winsRaw = getArr(rec, 'windows') ?? [];
+  const windows: VacationWindow[] = winsRaw
+    .map((w): VacationWindow | null => {
+      if (!isRecord(w)) return null;
+      const rw = w as Record<string, unknown>;
+      const year = getNum(rw, 'year') ?? 0;
+      const label = (getStr(rw, 'label') as WindowLabel) ?? 'current';
+      const start = getStr(rw, 'start') ?? '';
+      const end = getStr(rw, 'end') ?? '';
+      const expiresAt = getStr(rw, 'expiresAt') ?? '';
+      const days = getNum(rw, 'days') ?? 0;
+      const used = getNum(rw, 'used') ?? 0;
+      if (!start || !end || !expiresAt) return null;
+      return { year, label, start, end, expiresAt, days, used };
+    })
+    .filter((x): x is VacationWindow => !!x);
+
+  return { available, bonusAdmin, windows, now };
+}
+
+/** GET /vacations/users/me/summary */
+export async function getMyWindowsSummary(): Promise<WindowsSummary> {
+  const { data } = await api.get('/vacations/users/me/summary', {
+    headers: { 'Cache-Control': 'no-store' },
+  });
+  return parseWindowsSummary(data);
+}
+
+/** GET /vacations/users/:userId/summary (admin) */
+export async function getWindowsSummaryByUserId(userId: string): Promise<WindowsSummary> {
+  const { data } = await api.get(`/vacations/users/${userId}/summary`, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
+  return parseWindowsSummary(data);
+}
+
+/** Azúcar: si pasas userId usa admin, si no usa “self” */
+export async function getWindowsSummary(userId?: string): Promise<WindowsSummary> {
+  if (userId) return getWindowsSummaryByUserId(userId);
+  return getMyWindowsSummary();
+}
+
+/* =========================
+ * Resumen LFT (legacy) — mantenido para compat
  * ========================= */
 
 // Helper: obtener el id del usuario autenticado desde /auth/me (sin any)
@@ -385,51 +457,38 @@ async function getCurrentUserId(): Promise<string> {
   return String(id);
 }
 
-/** GET /users/:userId/vacation/summary
- *  Si no se pasa userId, se resuelve con /auth/me
+/** LEGACY: Resumen “LFT simple” basado en entitlement
+ *  (Si lo usabas en otros componentes, sigue funcionando.)
+ *  Para las dos ventanas, usa getWindowsSummary() de arriba.
  */
 export async function getVacationSummary(userId?: string): Promise<VacationSummary> {
   const id = userId || (await getCurrentUserId());
-  const { data } = await api.get(`/users/${id}/vacation/summary`, {
+  const { data } = await api.get(`/vacations/users/${id}/entitlement`, {
     headers: { 'Cache-Control': 'no-store' },
   });
 
-  // El backend responde { success, data: {...} }
-  const root = unwrapData<unknown>(data, {});
-  const rec = isRecord(root) ? root : {};
-
-  const uObj = getRec(rec, 'user') ?? {};
-  const vObj = getRec(rec, 'vacation') ?? {};
-
-  const windowObj = getRec(vObj, 'window') ?? {};
-  const summary: VacationSummary = {
+  // Transformamos el entitlement a tu VacationSummary legacy
+  const ent = parseEntitlement(data);
+  const s: VacationSummary = {
     user: {
-      id: getStr(uObj, 'id') ?? getStr(uObj, '_id') ?? '',
-      name: getStr(uObj, 'name'),
-      email: getStr(uObj, 'email'),
-      hireDate: ((): string | undefined => {
-        const hd = uObj['hireDate'];
-        if (isString(hd)) return hd;
-        if (hd instanceof Date) return hd.toISOString();
-        return undefined;
-      })(),
-      yearsOfService: getNum(uObj, 'yearsOfService'),
+      id: ent.user.id,
+      name: ent.user.name,
+      email: ent.user.email,
+      hireDate: ent.user.hireDate,
+      yearsOfService: ent.cycle.yearsOfService,
     },
     vacation: {
-      right: getNum(vObj, 'right') ?? 0,
-      adminExtra: getNum(vObj, 'adminExtra') ?? 0,
-      total: getNum(vObj, 'total') ?? 0,
-      used: getNum(vObj, 'used') ?? 0,
-      remaining: getNum(vObj, 'remaining') ?? 0,
-      window: {
-        start: getStr(windowObj, 'start') ?? '',
-        end: getStr(windowObj, 'end') ?? '',
-      },
-      policy: getStr(vObj, 'policy') ?? 'LFT MX 2023',
+      right: ent.cycle.entitlementDays,
+      adminExtra: 0, // el endpoint de entitlement ya devuelve total/remaining; si quieres el adminExtra exacto cámbialo en backend y léelo aquí.
+      total: ent.cycle.entitlementDays,
+      used: ent.cycle.usedDays,
+      remaining: ent.cycle.remainingDays,
+      window: ent.cycle.window,
+      policy: ent.cycle.policy,
     },
   };
 
-  return summary;
+  return s;
 }
 
 /* =========================
@@ -597,7 +656,14 @@ export default {
   // Derecho vigente (LFT)
   getMyEntitlement,
   getUserEntitlementAdmin,
-  getVacationSummary, // ← también en default por conveniencia
+
+  // Ventanas (current/next + 18m)
+  getMyWindowsSummary,
+  getWindowsSummaryByUserId,
+  getWindowsSummary,
+
+  // Legacy summary (compat)
+  getVacationSummary,
 
   // Admin
   getPendingRequests,

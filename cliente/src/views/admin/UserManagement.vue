@@ -739,12 +739,12 @@ const vacForm = ref({
   used: 0,
   currentTotal: 0,
 
-  // LFT resumen
+  // LFT resumen (DERECHO)
   lftTotal: 0,
   windowStart: '' as string | '',
   windowEnd: '' as string | '',
 
-  // Bono admin (derivado = total - lft)
+  // Bono admin (derivado = total - LFT)
   bonus: 0,
   bonusEdit: 0, // valor editable
 
@@ -800,13 +800,14 @@ function win(u: AdminUser): { start: string; end: string; daysLeft: number } | n
 
 /* ====== LFT summary (admin) ====== */
 async function loadLFTSummary(userId: string) {
-  // GET /users/:userId/vacation/summary  -> { data: { vacation: { total, used, remaining, window } } }
+  // GET /users/:userId/vacation/summary  -> { data: { vacation: { right, adminExtra, total, used, remaining, window } } }
   const { data } = await api.get(`/users/${encodeURIComponent(userId)}/vacation/summary`)
   const payload = (data && data.data) ? data.data : data
   const vac = payload?.vacation ?? {}
   const win = vac?.window ?? {}
   return {
-    lftTotal: Number(vac?.total ?? 0) || 0,
+    // DERECHO (LFT) — ¡ojo! usamos 'right' (no 'total')
+    lftTotal: Number(vac?.right ?? 0) || 0,
     lftUsed: Number(vac?.used ?? 0) || 0,
     lftRemaining: Number(vac?.remaining ?? 0) || 0,
     windowStart: win?.start ? String(win.start).slice(0,10) : '',
@@ -961,6 +962,7 @@ async function openVacationModal(u: AdminUser) {
       bonus: bonus,
       bonusEdit: Math.max(minBonusAllowed.value, bonus),
 
+      // para mostrar, mantenemos consistencia con restricciones
       effectiveTotal: Math.max(curTotal, Math.max(curUsed, s.lftTotal)),
 
       newTotal: curTotal
@@ -1057,7 +1059,7 @@ async function saveVacationTotal() {
   try {
     savingVac.value = true
     const newTotal = Math.max(
-      vacForm.value.lftTotal,              // no menor que la ley
+      vacForm.value.lftTotal,              // no menor que la ley (DERECHO)
       vacForm.value.used,                  // no menor que usados
       Math.floor(Number(vacForm.value.newTotal ?? 0))
     )
@@ -1144,7 +1146,7 @@ async function saveVacationTotal() {
   background-color: white;
   border-radius: 0.5rem;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  overflow-x: auto;   /* <— permite scroll si no cabe */
+  overflow-x: auto;
   overflow-y: hidden;
 }
 
@@ -1179,7 +1181,6 @@ async function saveVacationTotal() {
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
 .empty-state { padding: 2rem; text-align: center; color: #718096; }
 
-/* Modal base — con scroll interno y footer fijo */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1247,7 +1248,6 @@ async function saveVacationTotal() {
 .stat .value { font-weight: 600; color: #1a202c; }
 .text-warn { color: #c05621; }
 
-/* Controles de bono */
 .bonus-row {
   display: flex;
   gap: .5rem;
@@ -1262,9 +1262,7 @@ async function saveVacationTotal() {
   font-weight: 600;
 }
 .pill-btn:disabled { opacity: .5; cursor: not-allowed; }
-.bonus-input {
-  max-width: 120px;
-}
+.bonus-input { max-width: 120px; }
 .apply-btn {
   background: #4299e1;
   color: white;
@@ -1289,5 +1287,4 @@ async function saveVacationTotal() {
 
 /* La celda de Ventana usa tipografía pequeña y puede partir línea */
 .window-cell small { display: block; color: #718096; margin-top: .125rem; }
-
 </style>

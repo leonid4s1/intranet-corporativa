@@ -16,9 +16,12 @@ import {
   getAllUsersVacationDays,
   getUnavailableDatesForCalendar,
   getApprovedVacationsAdmin,
-  // ⬇️ NUEVOS handlers (derecho vigente LFT)
+  // ⬇️ Derecho vigente LFT (existentes)
   getMyCurrentEntitlement,
   getUserCurrentEntitlementAdmin,
+  // ⬇️ NUEVOS handlers: ventanas current/next con vigencia 18m
+  getVacationSummarySelf,
+  getVacationSummaryByUserId,
 } from '../controllers/vacationController.js';
 import { validateDateRange, validateDateParams } from '../middleware/validation.js';
 import * as holidayController from '../controllers/holidayController.js';
@@ -86,10 +89,14 @@ const validateStatusChange = (req, res, next) => {
 
 /* -------------------------------- Usuarios -------------------------------- */
 
+// Balance “compat” (LFT + adminExtra)
 router.get('/balance', authenticate, noStore, getVacationBalance);
 
 // Derecho vigente (LFT) del usuario autenticado
 router.get('/my/entitlement', authenticate, noStore, getMyCurrentEntitlement);
+
+// ⬇️ NUEVO: summary de ventanas (current/next) del usuario autenticado
+router.get('/users/me/summary', authenticate, noStore, getVacationSummarySelf);
 
 router.route('/requests')
   .post(
@@ -186,6 +193,16 @@ router.get(
   validateId('userId'),
   noStore,
   getUserCurrentEntitlementAdmin
+);
+
+// ⬇️ NUEVO: summary de ventanas (current/next) por usuario
+router.get(
+  '/users/:userId/summary',
+  authenticate,
+  authorize('admin'),
+  validateId('userId'),
+  noStore,
+  getVacationSummaryByUserId
 );
 
 // Gestionar días (legacy)

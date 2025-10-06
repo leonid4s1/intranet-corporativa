@@ -17,6 +17,13 @@ import {
   currentAnniversaryWindow,
   yearsOfService,
 } from '../utils/vacationLawMX.js';
+
+// Ventanas (current/next) con vigencia 18m
+import {
+  getVacationSummary as getWindowsSummary,
+  ensureWindowsAndCompute,
+} from '../services/vacationService.js';
+
 import { getUsedDaysInCurrentCycle } from '../services/vacationService.js';
 
 /* ===========================
@@ -166,7 +173,7 @@ const recomputeUserVacationUsed = async (userId) => {
     { new: true }
   );
 
-  // Actualiza VacationData
+  // Actualiza VacationData (legacy)
   await VacationData.findOneAndUpdate(
     { user: userId },
     { total: totalCompat, used, remaining: remainingCompat, lastUpdate: new Date() },
@@ -177,7 +184,35 @@ const recomputeUserVacationUsed = async (userId) => {
 };
 
 /* ===========================
-   Handlers HTTP
+   Handlers HTTP — Ventanas
+=========================== */
+
+// GET /vacations/users/me/summary  (self)
+export const getVacationSummarySelf = async (req, res, next) => {
+  try {
+    const me = await User.findById(req.user.id).select('hireDate').lean();
+    if (!me) return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+    if (!me.hireDate) return res.status(400).json({ success: false, error: 'Falta fecha de ingreso (hireDate)' });
+
+    const summary = await getWindowsSummary(req.user.id, me.hireDate);
+    return res.json({ success: true, data: summary });
+  } catch (e) { next(e); }
+};
+
+// GET /vacations/users/:userId/summary  (admin/otros)
+export const getVacationSummaryByUserId = async (req, res, next) => {
+  try {
+    const u = await User.findById(req.params.userId).select('hireDate').lean();
+    if (!u) return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+    if (!u.hireDate) return res.status(400).json({ success: false, error: 'Falta fecha de ingreso (hireDate)' });
+
+    const summary = await getWindowsSummary(u._id, u.hireDate);
+    return res.json({ success: true, data: summary });
+  } catch (e) { next(e); }
+};
+
+/* ===========================
+   Handlers HTTP — Legacy/UX
 =========================== */
 
 // GET /vacations/balance  -> LFT + adminExtra
@@ -641,11 +676,17 @@ export const updateVacationRequestStatus = async (req, res, next) => {
         }
       }
 
-      // Recalcular usados
+      // Recalcular usados (legacy) y sincronizar ventanas
       try {
         await recomputeUserVacationUsed(uidFinal);
       } catch (err) {
         console.error('[vacations] Error en recomputeUserVacationUsed:', err?.message || err);
+      }
+      try {
+        const u = await User.findById(uidFinal).select('hireDate').lean();
+        if (u?.hireDate) await ensureWindowsAndCompute(uidFinal, u.hireDate);
+      } catch (err) {
+        console.error('[vacations] Error sincronizando ventanas:', err?.message || err);
       }
 
       // Emails
@@ -732,12 +773,18 @@ export const cancelVacationRequest = async (req, res) => {
       data: { id: String(request._id), status: request.status }
     });
 
-    // background: recompute
+    // background: recompute + ventanas
     process.nextTick(async () => {
       try {
         await recomputeUserVacationUsed(userId);
       } catch (err) {
         console.error('[vacations] Error al recomputar usados tras cancelar:', err?.message || err);
+      }
+      try {
+        const u = await User.findById(userId).select('hireDate').lean();
+        if (u?.hireDate) await ensureWindowsAndCompute(userId, u.hireDate);
+      } catch (err) {
+        console.error('[vacations] Error sincronizando ventanas tras cancelar:', err?.message || err);
       }
     });
 
@@ -774,6 +821,13 @@ export const manageVacationDays = async (req, res, next) => {
       { total: t, used: u, remaining: Math.max(t - u, 0), lastUpdate: new Date() },
       { upsert: true, new: true, runValidators: true }
     );
+
+    // mantener ventanas al día por si t/u cambian políticas de vista (no afecta el cálculo real de ventanas)
+    try {
+      if (user?.hireDate) await ensureWindowsAndCompute(user._id, user.hireDate);
+    } catch (err) {
+      console.error('[vacations] manageVacationDays → ensureWindowsAndCompute:', err?.message || err);
+    }
 
     const remaining = Math.max(t - u, 0);
     return res.json({

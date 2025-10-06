@@ -111,6 +111,17 @@
                 <span class="badge warn">Pendiente</span>
               </td>
               <td class="center">
+                <!-- NUEVO: Botón Ver saldo (ventanas) -->
+                <button
+                  class="btn sm"
+                  title="Ver saldo (ventanas)"
+                  :disabled="isActionLoading === r.id"
+                  @click="openWindowsModal(r.user)"
+                  style="margin-right:6px;"
+                >
+                  Ver saldo
+                </button>
+
                 <button
                   class="btn success"
                   :disabled="isActionLoading === r.id"
@@ -153,6 +164,75 @@
           >
             {{ reject.loading ? 'Rechazando…' : 'Rechazar solicitud' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========= MODAL VENTANAS (current / next, vigencia 18m) ========= -->
+    <div v-if="winModal.open" class="modal-backdrop" @click.self="closeWindowsModal">
+      <div class="modal">
+        <h3>Saldo por ventanas</h3>
+        <p class="muted" v-if="winModal.user">
+          Usuario: <strong>{{ winModal.user.name }}</strong>
+          <span v-if="winModal.user.email"> — {{ winModal.user.email }}</span>
+        </p>
+
+        <div v-if="winModal.loading" class="muted">Cargando ventanas…</div>
+        <div v-else-if="winModal.error" class="error">{{ winModal.error }}</div>
+
+        <template v-else-if="winModal.summary">
+          <div class="table-wrap" style="margin-top:8px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>VENTANA</th>
+                  <th>RANGO</th>
+                  <th>EXPIRA</th>
+                  <th class="center">DÍAS</th>
+                  <th class="center">USADOS</th>
+                  <th class="center">RESTANTES</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="w in winModal.summary.windows"
+                  :key="w.label + '-' + w.year"
+                >
+                  <td>
+                    <span class="badge" :class="w.label === 'current' ? 'warn' : 'next'">
+                      {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
+                    </span>
+                    <div class="muted" style="font-size:.85rem;">Año: {{ w.year }}</div>
+                  </td>
+                  <td>
+                    {{ formatISO(w.start) }} — {{ formatISO(w.end) }}
+                  </td>
+                  <td>{{ formatISO(w.expiresAt) }}</td>
+                  <td class="center">{{ w.days }}</td>
+                  <td class="center">{{ w.used }}</td>
+                  <td class="center"><strong>{{ remainingOf(w) }}</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <div class="muted">
+              Bono admin: <strong>{{ winModal.summary.bonusAdmin }}</strong>
+            </div>
+            <div>
+              <span class="badge">
+                Disponible total: <strong>{{ winModal.summary.available }}</strong>
+              </span>
+            </div>
+          </div>
+          <small class="muted" style="display:block; margin-top:6px;">
+            * Los días no gozados de la primera ventana expiran a los 18 meses (se eliminan de disponibles).
+          </small>
+        </template>
+
+        <div class="modal-actions" style="margin-top:12px;">
+          <button class="btn" @click="closeWindowsModal" :disabled="winModal.loading">Cerrar</button>
         </div>
       </div>
     </div>
@@ -237,7 +317,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import dayjs from 'dayjs';
-import vacationService from '@/services/vacation.service';
+import vacationService, { type WindowsSummary, type VacationWindow } from '@/services/vacation.service';
 import holidayService, {
   type Holiday as ApiHoliday,
   type HolidayCreateData,
@@ -314,6 +394,21 @@ const reject = ref<{ open: boolean; id: string | null; text: string; loading: bo
   loading: false
 });
 
+/* ========= MODAL VENTANAS (current/next) ========= */
+const winModal = ref<{
+  open: boolean;
+  loading: boolean;
+  user?: UserRef | null;
+  summary?: WindowsSummary | null;
+  error?: string | null;
+}>({
+  open: false,
+  loading: false,
+  user: null,
+  summary: null,
+  error: null,
+});
+
 /* ========= ALERTAS ========= */
 const alert = ref<{ visible: boolean; type: 'success' | 'error' | 'warning' | 'info'; message: string }>({
   visible: false,
@@ -329,12 +424,18 @@ function showAlert(type: 'success' | 'error' | 'warning' | 'info', message: stri
 function formatDate(ymd: string): string {
   return dayjs(ymd).format('DD/MM/YYYY');
 }
+function formatISO(iso: string): string {
+  return dayjs(iso).format('DD/MM/YYYY');
+}
 function spanDays(start: string, end: string): number {
   return dayjs(end).diff(dayjs(start), 'day') + 1;
 }
 function getErrMsg(err: unknown): string {
   if (err instanceof Error) return err.message;
   try { return JSON.stringify(err); } catch { return 'Error desconocido'; }
+}
+function remainingOf(w: VacationWindow): number {
+  return Math.max((w?.days ?? 0) - (w?.used ?? 0), 0);
 }
 
 /* ========= LOADERS ========= */
@@ -412,6 +513,28 @@ async function confirmReject() {
     reject.value.loading = false;
     isActionLoading.value = null;
   }
+}
+
+/* ========= Ventanas: abrir/cerrar ========= */
+async function openWindowsModal(user: UserRef) {
+  try {
+    winModal.value = { open: true, loading: true, user, summary: null, error: null };
+    const sum = await vacationService.getWindowsSummaryByUserId(user.id);
+    winModal.value.summary = sum;
+  } catch (err) {
+    console.error('Error cargando ventanas:', err);
+    winModal.value.error = getErrMsg(err);
+  } finally {
+    winModal.value.loading = false;
+  }
+}
+
+function closeWindowsModal() {
+  if (winModal.value.loading) return;
+  winModal.value.open = false;
+  winModal.value.user = null;
+  winModal.value.summary = null;
+  winModal.value.error = null;
 }
 
 /* ========= FESTIVOS (CRUD) ========= */
@@ -591,6 +714,10 @@ tbody td {
 .center { text-align: center; }
 .muted { color: #6b7280; }
 
+/* mini helper */
+.error { color: #b91c1c; }
+
+/* user cell */
 .user-cell .name { font-weight: 600; }
 .user-cell .email { font-size: .85rem; color: #6b7280; }
 
@@ -631,6 +758,8 @@ tbody td {
 }
 .badge.warn { background: #fff9c4; color: #9a6700; }
 .badge.recurrent { background: #e9e5ff; color: #3b2db8; }
+/* NUEVO: para la ventana next */
+.badge.next { background: #e0f2fe; color: #075985; }
 
 /* ===== Modal base ===== */
 .modal-backdrop {
@@ -677,7 +806,6 @@ tbody td {
 }
 .form-grid textarea { resize: vertical; grid-column: 1 / -1; }
 .invalid { border-color: #ef4444 !important; }
-.error { color: #b91c1c; font-size: .85rem; }
 
 .modal-actions {
   display: flex;
