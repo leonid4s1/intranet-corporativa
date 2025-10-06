@@ -43,7 +43,7 @@
             <th class="vac-col text-right">Usados</th>
             <th class="vac-col text-right">Totales</th>
             <th class="vac-col text-right">Disp.</th>
-            <th class="window-column">Saldo</th>
+            <th class="window-column">Ventana</th>
             <th class="actions-column">Acciones</th>
           </tr>
         </thead>
@@ -81,12 +81,9 @@
               </span>
             </td>
 
-            <!-- Botón para ver saldo por ventanas en la pantalla de Vacaciones -->
+            <!-- Reemplazamos el contenido por un botón que abre el modal de saldo -->
             <td class="window-cell">
-              <button class="balance-btn" @click="goToWindows(u)" title="Ver saldo por ventanas">
-                <svg class="icon" viewBox="0 0 24 24">
-                  <path d="M12 4.5c5.5 0 9.5 4.5 9.5 7.5s-4 7.5-9.5 7.5S2.5 15 2.5 12 6.5 4.5 12 4.5zm0 2c-4.1 0-7.3 3.2-7.3 5.5S7.9 18 12 18s7.3-3.2 7.3-5.5S16.1 6.5 12 6.5zm0 2.5a3 3 0 110 6 3 3 0 010-6z"/>
-                </svg>
+              <button class="saldo-btn" @click="openSaldoModal(u)">
                 Ver saldo
               </button>
             </td>
@@ -425,12 +422,74 @@
         <div v-if="vacError" class="modal-error">{{ vacError }}</div>
       </div>
     </div>
+
+    <!-- Modal SALDO por ventanas (como en AdminVacationManagement) -->
+    <div v-if="showSaldoModal" class="modal-overlay" @click.self="closeSaldoModal">
+      <div class="modal-content modal-wide">
+        <div class="modal-header">
+          <h3>Saldo por ventanas</h3>
+          <button class="close-btn" @click="closeSaldoModal" title="Cerrar">
+            <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div class="saldo-user">
+            <span class="muted">Usuario:</span>
+            <strong>{{ saldoUser.name }}</strong>
+            <span class="muted">— {{ saldoUser.email }}</span>
+          </div>
+
+          <table class="saldo-table">
+            <thead>
+              <tr>
+                <th>Ventana</th>
+                <th>Rango</th>
+                <th>Expira</th>
+                <th>Días</th>
+                <th>Usados</th>
+                <th>Restantes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="w in saldoWindows" :key="w.label" :class="{ 'row-muted': w.days === 0 }">
+                <td>
+                  <span class="pill" :class="w.label === 'current' ? 'pill-yellow' : 'pill-blue'">
+                    {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
+                  </span>
+                  <div class="row-sub">Año: {{ w.year }}</div>
+                </td>
+                <td>{{ w.start }} — {{ w.end }}</td>
+                <td>{{ w.expiresAt }}</td>
+                <td>{{ w.days }}</td>
+                <td>{{ w.used }}</td>
+                <td class="text-right"><strong>{{ w.remaining }}</strong></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="saldo-footer">
+            <div class="saldo-bonus">Bono admin: <strong>{{ saldoBonus }}</strong></div>
+            <div class="saldo-available">
+              <span class="badge">Disponible total: {{ saldoAvailable }}</span>
+            </div>
+          </div>
+
+          <small class="note">
+            * Los días no gozados de la primera ventana expiran a los 18 meses (se eliminan de disponibles).
+          </small>
+        </div>
+
+        <div class="modal-footer">
+          <button class="cancel-btn" @click="closeSaldoModal">Cerrar</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import api from '@/services/api'
 import userService from '@/services/user.service'
 import type { User as BaseUser, Role, VacationDays } from '@/services/user.service'
@@ -464,7 +523,6 @@ type UpdateMetaPayload = {
 const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
-const router = useRouter()
 
 /* ===== Utils ===== */
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -657,7 +715,7 @@ const selectedUserMeta = ref<{ position: string; hireDate: string; birthDate: st
 })
 const metaErrorsText = ref('')
 
-/* Vacaciones */
+/* Vacaciones (BONO/LFT) */
 const showVacModal = ref(false)
 const savingVac = ref(false)
 const vacError = ref<string | null>(null)
@@ -734,7 +792,7 @@ async function loadLFTSummary(userId: string) {
   const vac = payload?.vacation ?? {}
   const win = vac?.window ?? {}
   return {
-    // DERECHO (LFT)
+    // DERECHO (LFT) — ¡ojo! usamos 'right' (no 'total')
     lftTotal: Number(vac?.right ?? 0) || 0,
     lftUsed: Number(vac?.used ?? 0) || 0,
     lftRemaining: Number(vac?.remaining ?? 0) || 0,
@@ -859,14 +917,6 @@ function updateSelectedUser<K extends keyof AdminUser>(key: K, value: AdminUser[
   if (selectedUser.value) {
     selectedUser.value[key] = value
   }
-}
-
-// Navega a la vista de vacaciones con el usuario preseleccionado
-function goToWindows(u: AdminUser) {
-  router.push({
-    path: '/admin/vacations',
-    query: { uid: u.id, view: 'balance' }
-  })
 }
 
 // Vacaciones (abrir modal con LFT)
@@ -1031,6 +1081,77 @@ async function saveVacationTotal() {
     savingVac.value = false
   }
 }
+
+/* ====== SALDO por ventanas ====== */
+const showSaldoModal = ref(false)
+const saldoUser = ref<{ name: string; email: string }>({ name: '', email: '' })
+const saldoWindows = ref<Array<{
+  label: 'current' | 'next' | string
+  year: number
+  start: string
+  end: string
+  expiresAt: string
+  days: number
+  used: number
+  remaining: number
+}>>([])
+const saldoBonus = ref(0)
+const saldoAvailable = ref(0)
+
+type BackendWindow = Partial<{
+  label: string
+  start: string | Date
+  end: string | Date
+  expiresAt: string | Date
+  days: number
+  used: number
+}>
+
+function toYMD(d: string | Date | undefined): string {
+  if (!d) return ''
+  const dt = typeof d === 'string' ? new Date(d) : d
+  dt.setUTCHours(0,0,0,0)
+  return dt.toISOString().slice(0,10)
+}
+function normalizeWindow(w: BackendWindow) {
+  const startYMD = toYMD(w.start)
+  return {
+    label: (w.label as ('current'|'next')) || 'current',
+    year: startYMD ? Number(startYMD.slice(0,4)) : 0,
+    start: startYMD,
+    end: toYMD(w.end),
+    expiresAt: toYMD(w.expiresAt),
+    days: Number(w.days ?? 0),
+    used: Number(w.used ?? 0),
+    remaining: Math.max(0, Number(w.days ?? 0) - Number(w.used ?? 0))
+  }
+}
+
+async function openSaldoModal(u: AdminUser) {
+  try {
+    const { data } = await api.get(`/users/${encodeURIComponent(u.id)}/vacation/summary`)
+    const payload = (data && data.data) ? data.data : data
+    const vac = payload?.vacation ?? payload
+
+    const rawWins = (vac?.windows ?? []) as BackendWindow[]
+    saldoWindows.value = rawWins.map(normalizeWindow)
+
+    saldoBonus.value = Number(vac?.bonusAdmin ?? 0)
+    // el backend devuelve available; si no, intenta remaining
+    const avail = vac?.available ?? vac?.remaining ?? 0
+    saldoAvailable.value = Number(avail)
+
+    saldoUser.value = { name: u.name, email: u.email }
+    showSaldoModal.value = true
+  } catch (e: unknown) {
+    pushToast('No se pudo cargar el saldo por ventanas', 'error')
+    console.error('[openSaldoModal] ERROR', e)
+  }
+}
+
+function closeSaldoModal() {
+  showSaldoModal.value = false
+}
 </script>
 
 <style scoped>
@@ -1117,6 +1238,17 @@ async function saveVacationTotal() {
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
 .empty-state { padding: 2rem; text-align: center; color: #718096; }
 
+/* Botón Ver saldo en tabla */
+.saldo-btn {
+  padding: .4rem .75rem;
+  border-radius: .375rem;
+  background: #edf2f7;
+  border: 1px solid #cbd5e0;
+  font-weight: 600;
+  color: #2d3748;
+}
+.saldo-btn:hover { background: #e2e8f0; }
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1138,6 +1270,7 @@ async function saveVacationTotal() {
   display: flex;
   flex-direction: column;
 }
+.modal-wide { max-width: 780px; }
 .modal-header {
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid #edf2f7;
@@ -1184,57 +1317,51 @@ async function saveVacationTotal() {
 .stat .value { font-weight: 600; color: #1a202c; }
 .text-warn { color: #c05621; }
 
-.bonus-row {
-  display: flex;
-  gap: .5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.pill-btn {
-  border: 1px solid #cbd5e0;
-  background: #edf2f7;
-  padding: .4rem .7rem;
-  border-radius: 9999px;
-  font-weight: 600;
-}
-.pill-btn:disabled { opacity: .5; cursor: not-allowed; }
-.bonus-input { max-width: 120px; }
-.apply-btn {
-  background: #4299e1;
-  color: white;
-  padding: .5rem .9rem;
-  border-radius: .375rem;
-}
+/* Saldos */
+.saldo-user { margin-bottom: .75rem; color: #2d3748; }
+.saldo-user .muted { color: #718096; }
 
+.saldo-table { width: 100%; border-collapse: collapse; }
+.saldo-table th, .saldo-table td { padding: .65rem .75rem; border-top: 1px solid #edf2f7; }
+.saldo-table thead th { text-transform: uppercase; font-size: .75rem; letter-spacing: .05em; color: #4a5568; background: #f7fafc; }
+.row-sub { font-size: .8rem; color: #718096; }
+.row-muted { color: #a0aec0; }
+
+.pill {
+  padding: .2rem .55rem;
+  border-radius: 9999px;
+  font-size: .75rem;
+  font-weight: 700;
+  display: inline-block;
+}
+.pill-yellow { background: #fffaf0; color: #b7791f; border: 1px solid #fbd38d; }
+.pill-blue   { background: #ebf8ff; color: #2b6cb0; border: 1px solid #90cdf4; }
+
+.saldo-footer {
+  margin-top: .75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.badge {
+  display: inline-block;
+  padding: .35rem .6rem;
+  border-radius: .375rem;
+  background: #edf2f7;
+  border: 1px solid #cbd5e0;
+  font-weight: 700;
+}
+.note { display: block; margin-top: .5rem; color: #718096; }
+
+/* Responsive modal height */
 @media (max-height: 700px) {
   .modal-content { max-height: 96vh; }
 }
 
-/* Ventana / Saldo (tabla) */
+/* Mantengo clases previas por compat */
 .window-column { width: 18%; }
 .window-cell { white-space: nowrap; }
 
-/* Botón "Ver saldo" */
-.balance-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: .4rem;
-  padding: .35rem .6rem;
-  border-radius: .375rem;
-  background: #edf2f7;
-  color: #2b6cb0;
-  font-weight: 600;
-}
-.balance-btn:hover { background: #e2e8f0; }
-
-.win-range { font-weight: 600; color: #1a202c; }
-.win-left { font-size: .8rem; color: #4a5568; }
-.text-warn { color: #c05621; }
-
-/* La columna de acciones no se encoge y mantiene los botones a la vista */
 .actions-column { width: 140px; min-width: 140px; }
 .actions-cell { display: flex; gap: 0.5rem; white-space: nowrap; }
-
-/* La celda de Ventana usa tipografía pequeña y puede partir línea */
-.window-cell small { display: block; color: #718096; margin-top: .125rem; }
 </style>
