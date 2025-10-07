@@ -11,6 +11,8 @@ import {
 } from '../utils/vacationLawMX.js'
 import { getUsedDaysInCurrentCycle } from '../services/vacationService.js'
 
+import { summarizeWindows } from '../utils/vacationSummary.js'
+
 /* ==============================
    Constantes para mensajes
 ============================== */
@@ -132,17 +134,46 @@ const mapUserWithVacationLFT = (user, usedInCycle = 0) => {
 ============================== */
 export const getUsers = async (_req, res) => {
   try {
+    // 1) Trae usuarios base
     const users = await User.find()
       .select('name email role isActive isVerified email_verified_at createdAt vacationDays position birthDate hireDate')
       .lean()
       .exec()
 
-    // Calcular usados del ciclo vigente por usuario (si tiene hireDate)
+    // 2) Trae ventanas/bono por usuario (las que usas para el modal)
+    const userIds = users.map(u => u._id)
+    const vacDocs = await VacationData.find({ user: { $in: userIds } })
+      .select('user windows adminBonus') // ajusta si tu esquema usa otro nombre
+      .lean()
+      .exec()
+    const vacByUser = new Map(vacDocs.map(v => [String(v.user), v]))
+
+    // 3) (Sigue igual) usados del ciclo vigente por usuario para el mapeo LFT
     const usedList = await Promise.all(
       users.map(u => u.hireDate ? getUsedDaysInCurrentCycle(u._id, u.hireDate) : Promise.resolve(0))
     )
 
-    const data = users.map((u, idx) => mapUserWithVacationLFT(u, usedList[idx]))
+    // 4) Arma filas: LFT + columnas para la tabla (usados/total/available)
+    const data = users.map((u, idx) => {
+      const base = mapUserWithVacationLFT(u, usedList[idx])
+
+      // Ventanas y bono para el resumen de la tabla
+      const vd = vacByUser.get(String(u._id))
+      const windows = vd?.windows ?? []                         // las mismas del modal
+      const bonus = Number.isFinite(Number(vd?.adminBonus))
+        ? Number(vd.adminBonus)
+        : Number(u?.vacationDays?.adminExtra ?? 0)
+
+      const s = summarizeWindows(windows, bonus)
+
+      // Devuelve las 3 columnas que lee tu tabla:
+      return {
+        ...base,
+        used: s.usedCurrent,           // USADOS (año en curso)
+        total: s.availableTotal,       // TOTALES (Disponible total)
+        available: s.remainingCurrent, // DISP.   (restantes año en curso)
+      }
+    })
 
     res.set('Cache-Control', 'no-store')
     return res.status(200).json({ success: true, data })

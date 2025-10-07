@@ -790,10 +790,19 @@ async function fetchUsers() {
   }
 }
 
-/* Helpers tabla */
-function total(u: AdminUser) { return u.vacationDays?.total ?? 0 }
-function used(u: AdminUser) { return u.vacationDays?.used ?? 0 }
-function remaining(u: AdminUser) { return Math.max(0, total(u) - used(u)) }
+/* Helpers tabla — prioriza los campos del servidor */
+function total(u: AdminUser) {
+  // TOTALES = Disponible total (suma de restantes de todas las ventanas + bono)
+  return u.total ?? u.vacationDays?.total ?? 0
+}
+function used(u: AdminUser) {
+  // USADOS = del año en curso
+  return u.used ?? u.vacationDays?.used ?? 0
+}
+function remaining(u: AdminUser) {
+  // DISP. = restantes del año en curso (no calcular si el server ya lo envía)
+  return u.available ?? u.vacationDays?.remaining ?? Math.max(0, total(u) - used(u))
+}
 
 /* ====== LFT summary (admin) ====== */
 async function loadLFTSummary(userId: string) {

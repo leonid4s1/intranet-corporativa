@@ -16,13 +16,20 @@ export interface User {
   email: string
   role: Role
   isActive: boolean
+  isVerified?: boolean
   email_verified_at?: string | null
-  // 👇 nuevos campos de metadata laboral
+  // 👇 metadata laboral
   position?: string | null
   birthDate?: string | null // YYYY-MM-DD o ISO
   hireDate?: string | null  // YYYY-MM-DD o ISO
 
+  // Compat
   vacationDays?: VacationDays
+
+  // 👇 Columnas que pinta la TABLA (server las manda ya calculadas)
+  used?: number        // USADOS (año en curso)
+  total?: number       // TOTALES (Disponible total)
+  available?: number   // DISP.   (restantes año en curso)
 }
 
 export interface UpdateNamePayload {
@@ -128,27 +135,48 @@ function normalizeUser(raw: unknown): User | null {
     (toBool(get(r, 'locked')) !== undefined ? !toBool(get(r, 'locked'))! : undefined) ??
     (toBool(get(r, 'disabled')) !== undefined ? !toBool(get(r, 'disabled'))! : true)
 
+  const isVerified = toBool(get(r, 'isVerified'))
   const email_verified_at =
     toStr(get(r, 'email_verified_at')) ??
     toStr(get(r, 'emailVerifiedAt')) ??
     undefined
 
-  // 👇 nuevos campos
+  // Metadata
   const position = toStr(get(r, 'position')) ?? null
   const birthDate = toISODateOnly(get(r, 'birthDate')) ?? (toStr(get(r, 'birthDate')) ?? null)
   const hireDate  = toISODateOnly(get(r, 'hireDate'))  ?? (toStr(get(r, 'hireDate'))  ?? null)
 
-  // Vacaciones
+  // Vacaciones (compat)
   let vacationDays: VacationDays | undefined
   if (isRecord(get(r, 'vacationDays'))) {
     const v = get(r, 'vacationDays') as Record<string, unknown>
-    const total = toNum(get(v, 'total')) ?? 0
-    const used  = toNum(get(v, 'used'))  ?? 0
-    const remaining = toNum(get(v, 'remaining')) ?? Math.max(0, total - used)
-    vacationDays = { total, used, remaining }
+    const totalV = toNum(get(v, 'total')) ?? 0
+    const usedV  = toNum(get(v, 'used'))  ?? 0
+    const remainingV = toNum(get(v, 'remaining')) ?? Math.max(0, totalV - usedV)
+    vacationDays = { total: totalV, used: usedV, remaining: remainingV }
   }
 
-  return { id, name, email, role, isActive: isActive ?? true, email_verified_at, position, birthDate, hireDate, vacationDays }
+  // 👇 Campos calculados por el server para la TABLA (no calcular aquí)
+  const used = toNum(get(r, 'used'))
+  const total = toNum(get(r, 'total'))
+  const available = toNum(get(r, 'available'))
+
+  return {
+    id,
+    name,
+    email,
+    role,
+    isActive: isActive ?? true,
+    isVerified,
+    email_verified_at,
+    position,
+    birthDate,
+    hireDate,
+    vacationDays,
+    used,
+    total,
+    available,
+  }
 }
 
 function unwrapList(data: unknown): unknown[] {
@@ -266,7 +294,7 @@ export async function adjustVacationBonus(userId: string, payload: AdjustVacatio
   const containerRaw: unknown = isRecord(data) ? (get<unknown>(data, 'data') ?? data) : data
   const container: Record<string, unknown> = isRecord(containerRaw) ? containerRaw : {}
   const total = toNum(get(container, 'total')) ?? 0
-  const used  = toNum(get(container, 'used'))  ?? 0
+  const used  = toNum(get(container, 'used'))  ?? 0 // si el backend no envía 'used', quedará 0
   const remaining = Math.max(0, total - used)
   return { total, used, remaining }
 }
@@ -286,5 +314,5 @@ export default {
   setVacationTotal,
   addVacationDays,
   setVacationUsed,
-  adjustVacationBonus, // ✅ exportado
+  adjustVacationBonus,
 }
