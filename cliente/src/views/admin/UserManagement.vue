@@ -1,3 +1,4 @@
+<!-- cliente/src/views/admin/UserManagement.vue -->
 <template>
   <div class="user-management-container">
     <!-- Toasts -->
@@ -68,15 +69,15 @@
             <td>{{ dateOnly(u.hireDate) || '—' }}</td>
             <td>{{ dateOnly(u.birthDate) || '—' }}</td>
 
-            <!-- Vacaciones (usando summary de ventanas si existe; si no, cae al dato antiguo) -->
-            <td class="p-1 text-right">{{ rowWin(u)?.used ?? used(u) }}</td>
-            <td class="p-1 text-right font-medium">{{ rowWin(u)?.totalAvailable ?? total(u) }}</td>
+            <!-- Vacaciones (totales ya incluyen bono admin) -->
+            <td class="p-1 text-right">{{ used(u) }}</td>
+            <td class="p-1 text-right font-medium">{{ total(u) }}</td>
             <td class="p-1 text-right">
               <span
                 class="px-2 py-1 rounded text-xs"
-                :class="(rowWin(u)?.currentRemaining ?? remaining(u)) > 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-700'"
+                :class="remaining(u) > 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-700'"
               >
-                {{ rowWin(u)?.currentRemaining ?? remaining(u) }}
+                {{ remaining(u) }}
               </span>
             </td>
 
@@ -506,7 +507,7 @@ type AdminUser = BaseUser & {
   birthDate?: string | null
 }
 
-/** Payloads */
+/** Payload local para creación */
 type CreatePayload = {
   name: string
   email: string
@@ -517,14 +518,14 @@ type CreatePayload = {
   hireDate?: string
   birthDate?: string
 }
-type UpdateMetaPayload = { position?: string; hireDate?: string; birthDate?: string }
 
-/* ===== Tabla: cache con números derivados del summary ===== */
-type RowWin = { totalAvailable: number; used: number; currentRemaining: number }
-const winRows = ref<Record<string, RowWin>>({})
-const rowWin = (u: AdminUser) => winRows.value[u.id]
+/** Payload local para actualizar meta */
+type UpdateMetaPayload = {
+  position?: string
+  hireDate?: string
+  birthDate?: string
+}
 
-/* ===== Datos base ===== */
 const users = ref<AdminUser[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -552,37 +553,6 @@ function formatISO(iso: string | Date | undefined): string {
   if (!iso) return ''
   const s = typeof iso === 'string' ? iso : iso.toString()
   return dayjs(s).format('DD/MM/YYYY')
-}
-
-/** ===== Helpers LFT para ventanas (ajuste local) ===== */
-const ymdToUTC = (ymd: string) => new Date(`${ymd}T00:00:00Z`)
-function yearsCompleted(hireYmd: string, refStartYmd: string): number {
-  const h = ymdToUTC(hireYmd)
-  const r = ymdToUTC(refStartYmd)
-  let years = r.getUTCFullYear() - h.getUTCFullYear()
-  const annivThisYear = new Date(Date.UTC(r.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()))
-  if (r < annivThisYear) years -= 1
-  return Math.max(0, years)
-}
-function lawDaysByYears(y: number): number {
-  if (y < 1) return 0
-  if (y === 1) return 12
-  if (y === 2) return 14
-  if (y === 3) return 16
-  if (y === 4) return 18
-  return 20
-}
-function fixWindowsDaysLocal(summary: WindowsSummary, hireDate?: string | null): WindowsSummary {
-  if (!hireDate || !isoDayRe.test(hireDate)) return summary
-  const fixed = {
-    ...summary,
-    windows: summary.windows.map(w => {
-      const y = yearsCompleted(hireDate, w.start)
-      const days = lawDaysByYears(y)
-      return { ...w, days }
-    })
-  }
-  return fixed
 }
 
 /* ===== Toasts ===== */
@@ -629,6 +599,7 @@ const isCreateValid = computed(() => {
   const passOk = strongPassRe.test(f.password)
   const confirmOk = f.password_confirmation.length > 0 && f.password_confirmation === f.password
 
+  // Fechas opcionales
   let datesOk = true
   if (f.hireDate && (!isoDayRe.test(f.hireDate) || isFuture(f.hireDate))) datesOk = false
   if (f.birthDate && (!isoDayRe.test(f.birthDate) || isFuture(f.birthDate))) datesOk = false
@@ -678,7 +649,7 @@ function validateCreate(): boolean {
   return !Object.values(e).some(Boolean)
 }
 
-/* --- helper timeouts --- */
+/* --- helper para detectar timeouts de Axios --- */
 function looksLikeTimeout(err: unknown) {
   const anyErr = err as { code?: string; message?: string }
   return anyErr?.code === 'ECONNABORTED' || /timeout/i.test(anyErr?.message || '')
@@ -733,16 +704,21 @@ async function handleCreateUser() {
   }
 }
 
-function openCreateModal() { resetCreateForm(); showCreateModal.value = true }
-function closeCreateModal() { showCreateModal.value = false }
+function openCreateModal() {
+  resetCreateForm()
+  showCreateModal.value = true
+}
+function closeCreateModal() {
+  showCreateModal.value = false
+}
 
-/* ===== Editar usuario ===== */
+/* ===== Editar usuario existente ===== */
 const showEditModal = ref(false)
 const selectedUser = ref<AdminUser | null>(null)
 const newPassword = ref('')
 const modalError = ref<string | null>(null)
 
-/** Meta local */
+/** Estado local para meta */
 const selectedUserMeta = ref<{ position: string; hireDate: string; birthDate: string }>({
   position: '',
   hireDate: '',
@@ -750,7 +726,7 @@ const selectedUserMeta = ref<{ position: string; hireDate: string; birthDate: st
 })
 const metaErrorsText = ref('')
 
-/* Vacaciones (modales) */
+/* Vacaciones */
 const showVacModal = ref(false)
 const savingVac = ref(false)
 const vacError = ref<string | null>(null)
@@ -758,26 +734,39 @@ const vacForm = ref({
   id: '' as string,
   name: '' as string,
   email: '' as string,
+
+  // Estado actual de BD (totales/used)
   used: 0,
   currentTotal: 0,
+
+  // LFT resumen (DERECHO)
   lftTotal: 0,
   windowStart: '' as string | '',
   windowEnd: '' as string | '',
+
+  // Bono admin (derivado = total - LFT)
   bonus: 0,
-  bonusEdit: 0,
+  bonusEdit: 0, // valor editable
+
+  // Total efectivo (lft + bono)
   effectiveTotal: 0,
+
+  // legacy setter
   newTotal: 0
 })
 
+/* Computed para habilitar/deshabilitar Guardar (legacy setter) */
 const isSameTotal = computed(() => {
   const t = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
   return t === vacForm.value.currentTotal
 })
 
+/* Borde inferior para bono: que el total efectivo >= max(LFT, usados) */
 const minBonusAllowed = computed(() => {
   const minTotal = Math.max(vacForm.value.lftTotal, vacForm.value.used)
   return Math.max(0, minTotal - vacForm.value.lftTotal)
 })
+
 function bonusWouldGoUnderLaw(delta: number) {
   const nextBonus = (vacForm.value.bonus ?? 0) + delta
   const nextTotal = vacForm.value.lftTotal + nextBonus
@@ -793,8 +782,6 @@ async function fetchUsers() {
   error.value = null
   try {
     users.value = await userService.getAllUsers() as AdminUser[]
-    // tras cargar usuarios, llenamos los números de la tabla desde el summary
-    await preloadWindowsForUsers(users.value)
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
     console.error('Error fetching users:', err)
@@ -803,7 +790,7 @@ async function fetchUsers() {
   }
 }
 
-/* Helpers tabla (legacy fallback) */
+/* Helpers tabla */
 function total(u: AdminUser) { return u.vacationDays?.total ?? 0 }
 function used(u: AdminUser) { return u.vacationDays?.used ?? 0 }
 function remaining(u: AdminUser) { return Math.max(0, total(u) - used(u)) }
@@ -811,6 +798,7 @@ function remaining(u: AdminUser) { return Math.max(0, total(u) - used(u)) }
 /* ====== LFT summary (admin) ====== */
 async function loadLFTSummary(userId: string) {
   const { data } = await api.get(`/users/${encodeURIComponent(userId)}/vacation/summary`)
+
   type ApiSummaryLFT = {
     vacation?: {
       right?: number
@@ -819,12 +807,15 @@ async function loadLFTSummary(userId: string) {
       window?: { start?: string | Date; end?: string | Date }
     }
   }
+
   type Envelope = ApiSummaryLFT | { data?: ApiSummaryLFT }
   const env = data as Envelope
   const payload: ApiSummaryLFT =
     ('data' in env && env.data) ? env.data! : (env as ApiSummaryLFT)
+
   const vac = payload.vacation ?? {}
   const win = vac.window ?? {}
+
   return {
     lftTotal: Number(vac.right ?? 0) || 0,
     lftUsed: Number(vac.used ?? 0) || 0,
@@ -838,12 +829,14 @@ function openEditModal(u: AdminUser) {
   selectedUser.value = { ...u }
   newPassword.value = ''
   modalError.value = null
+
   selectedUserMeta.value = {
     position: u.position || '',
     hireDate: dateOnly(u.hireDate) || '',
     birthDate: dateOnly(u.birthDate) || ''
   }
   metaErrorsText.value = ''
+
   showEditModal.value = true
 }
 
@@ -882,17 +875,25 @@ async function updateUser() {
     const current = users.value.find(x => x.id === selectedUser.value?.id)
     if (!current) throw new Error('Usuario no encontrado en la lista actual')
 
+    // Nombre
     if (selectedUser.value.name.trim() && selectedUser.value.name !== current.name) {
       await userService.updateUserName(selectedUser.value.id, { name: selectedUser.value.name })
     }
+
+    // Estado
     if (selectedUser.value.isActive !== current.isActive) {
       await userService.toggleUserLock(selectedUser.value.id)
     }
+
+    // Contraseña
     if (newPassword.value.trim().length > 0) {
       await userService.updateUserPassword(selectedUser.value.id, { newPassword: newPassword.value })
     }
 
-    if (!validateMeta()) return
+    // Meta (puesto/fechas)
+    if (!validateMeta()) {
+      return
+    }
     const metaPayload: UpdateMetaPayload = {}
     if (selectedUserMeta.value.position !== (current.position || '')) {
       metaPayload.position = selectedUserMeta.value.position
@@ -937,50 +938,17 @@ async function confirmDelete(userId: string) {
 }
 
 function updateSelectedUser<K extends keyof AdminUser>(key: K, value: AdminUser[K]) {
-  if (selectedUser.value) selectedUser.value[key] = value
-}
-
-/* ========= PRELOAD de summary para llenar la tabla ========= */
-function deriveRowFromSummary(sum: WindowsSummary): RowWin {
-  const today = new Date(sum.now); today.setUTCHours(0,0,0,0)
-
-  let usedActive = 0
-  let currentRemaining = 0
-
-  for (const w of sum.windows) {
-    const start = ymdToUTC(w.start)
-    const exp = w.expiresAt ? ymdToUTC(w.expiresAt) : null
-    const active = start.getTime() <= today.getTime() && (!exp || exp.getTime() >= today.getTime())
-
-    if (w.label === 'current') {
-      currentRemaining = Math.max(0, (w.days ?? 0) - (w.used ?? 0))
-    }
-    if (active) usedActive += (w.used ?? 0)
+  if (selectedUser.value) {
+    selectedUser.value[key] = value
   }
-
-  return { totalAvailable: sum.available, used: usedActive, currentRemaining }
 }
-
-async function preloadWindowsForUsers(list: AdminUser[]) {
-  const tasks = list.map(async (u) => {
-    try {
-      const raw = await vacationService.getWindowsSummaryByUserId(u.id)
-      const fixed = fixWindowsDaysLocal(raw, dateOnly(u.hireDate) || undefined)
-      winRows.value[u.id] = deriveRowFromSummary(fixed)
-    } catch (e) {
-      console.warn('[windows][row] fallo user', u.id, e)
-    }
-  })
-  await Promise.allSettled(tasks)
-}
-
-/* ========= Modales ========= */
 
 // Vacaciones (abrir modal con LFT)
 async function openVacationModal(u: AdminUser) {
   vacError.value = null
   showVacModal.value = true
 
+  // estado actual
   const curTotal = total(u)
   const curUsed = used(u)
 
@@ -992,30 +960,47 @@ async function openVacationModal(u: AdminUser) {
       id: u.id,
       name: u.name,
       email: u.email,
+
       used: curUsed,
       currentTotal: curTotal,
+
       lftTotal: s.lftTotal,
       windowStart: s.windowStart,
       windowEnd: s.windowEnd,
+
       bonus: bonus,
       bonusEdit: Math.max(minBonusAllowed.value, bonus),
+
       effectiveTotal: Math.max(curTotal, Math.max(curUsed, s.lftTotal)),
+
       newTotal: curTotal
     }
   } catch (e: unknown) {
     console.error('[vacationModal] error loading LFT summary', e)
     vacForm.value = {
-      id: u.id, name: u.name, email: u.email,
-      used: curUsed, currentTotal: curTotal, lftTotal: 0,
-      windowStart: '', windowEnd: '',
-      bonus: 0, bonusEdit: 0, effectiveTotal: curTotal, newTotal: curTotal
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      used: curUsed,
+      currentTotal: curTotal,
+      lftTotal: 0,
+      windowStart: '',
+      windowEnd: '',
+      bonus: 0,
+      bonusEdit: 0,
+      effectiveTotal: curTotal,
+      newTotal: curTotal
     }
     pushToast('No se pudo cargar el resumen LFT. Aún puedes ajustar el total.', 'warn')
   }
 }
-function closeVacModal() { showVacModal.value = false; vacError.value = null }
 
-/** Ajustes de bono */
+function closeVacModal() {
+  showVacModal.value = false
+  vacError.value = null
+}
+
+/** Ajuste relativo del bono (+/-) */
 async function applyBonusDelta(delta: number) {
   if (bonusWouldGoUnderLaw(delta)) return
   try {
@@ -1037,12 +1022,17 @@ async function applyBonusDelta(delta: number) {
     vacError.value = msg
     pushToast(msg, 'error')
     console.error('[applyBonusDelta] ERROR', e)
-  } finally { savingVac.value = false }
+  } finally {
+    savingVac.value = false
+  }
 }
+
+/** Fijar bono a un valor específico */
 async function applyBonusValue() {
   const b = Math.floor(Number(vacForm.value.bonusEdit ?? 0))
   const minB = minBonusAllowed.value
   const safeBonus = Math.max(b, minB)
+
   try {
     savingVac.value = true
     const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { value: safeBonus })
@@ -1062,8 +1052,12 @@ async function applyBonusValue() {
     vacError.value = msg
     pushToast(msg, 'error')
     console.error('[applyBonusValue] ERROR', e)
-  } finally { savingVac.value = false }
+  } finally {
+    savingVac.value = false
+  }
 }
+
+/** Guardado legacy de total absoluto (respetando límites LFT y usados) */
 async function saveVacationTotal() {
   try {
     savingVac.value = true
@@ -1078,10 +1072,15 @@ async function saveVacationTotal() {
     }
 
     const vd = await userService.setVacationTotal(vacForm.value.id, { total: newTotal })
+
     const idx = users.value.findIndex(u => u.id === vacForm.value.id)
     if (idx !== -1) {
-      users.value[idx] = { ...users.value[idx], vacationDays: { ...vd } }
+      users.value[idx] = {
+        ...users.value[idx],
+        vacationDays: { ...vd },
+      }
     }
+
     vacForm.value.currentTotal = vd.total
     vacForm.value.effectiveTotal = vd.total
     vacForm.value.bonus = vd.total - vacForm.value.lftTotal
@@ -1094,7 +1093,9 @@ async function saveVacationTotal() {
     vacError.value = msg
     pushToast(msg, 'error')
     console.error('[saveVacationTotal] ERROR', e)
-  } finally { savingVac.value = false }
+  } finally {
+    savingVac.value = false
+  }
 }
 
 /* ========= Modal "Saldo por ventanas" ========= */
@@ -1126,12 +1127,10 @@ async function openWindowsModal(u: AdminUser) {
   winModal.value.summary = null
 
   try {
-    const raw = await vacationService.getWindowsSummaryByUserId(u.id)
-    const fixed = fixWindowsDaysLocal(raw, dateOnly(u.hireDate) || undefined)
-    winModal.value.summary = fixed
-
-    // también actualizamos la fila de la tabla con estos números
-    winRows.value[u.id] = deriveRowFromSummary(fixed)
+    // Usa el cálculo consolidado del service: corrige días por LFT
+    // y recalcula 'available' sumando ventanas activas y no vencidas + bonus.
+    const sum = await vacationService.getWindowsSummaryFixed(u.id, dateOnly(u.hireDate) || undefined)
+    winModal.value.summary = sum
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'No se pudo cargar el saldo por ventanas'
     winModal.value.error = msg
@@ -1298,11 +1297,27 @@ function closeWindowsModal() {
 .text-warn { color: #c05621; }
 
 /* Controles de bono */
-.bonus-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-.pill-btn { border: 1px solid #cbd5e0; background: #edf2f7; padding: .4rem .7rem; border-radius: 9999px; font-weight: 600; }
+.bonus-row {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.pill-btn {
+  border: 1px solid #cbd5e0;
+  background: #edf2f7;
+  padding: .4rem .7rem;
+  border-radius: 9999px;
+  font-weight: 600;
+}
 .pill-btn:disabled { opacity: .5; cursor: not-allowed; }
 .bonus-input { max-width: 120px; }
-.apply-btn { background: #4299e1; color: white; padding: .5rem .9rem; border-radius: .375rem; }
+.apply-btn {
+  background: #4299e1;
+  color: white;
+  padding: .5rem .9rem;
+  border-radius: .375rem;
+}
 
 @media (max-height: 700px) {
   .modal-content { max-height: 96vh; }
@@ -1323,14 +1338,33 @@ function closeWindowsModal() {
 .window-cell small { display: block; color: #718096; margin-top: .125rem; }
 
 /* Botón "Ver saldo" */
-.win-btn { padding: .375rem .75rem; border-radius: .375rem; background: #edf2f7; color: #2d3748; font-weight: 600; }
+.win-btn {
+  padding: .375rem .75rem;
+  border-radius: .375rem;
+  background: #edf2f7;
+  color: #2d3748;
+  font-weight: 600;
+}
 .win-btn:hover { background: #e2e8f0; }
 
 /* Chips y pill del modal de ventanas */
-.badge { display:inline-block; padding:.2rem .55rem; border-radius:9999px; font-size:.775rem; font-weight:600; }
+.badge {
+  display:inline-block;
+  padding:.2rem .55rem;
+  border-radius:9999px;
+  font-size:.775rem;
+  font-weight:600;
+}
 .badge-gold { background:#fffaf0; color:#b7791f; border:1px solid #fbd38d; }
 .badge-blue { background:#ebf8ff; color:#2b6cb0; border:1px solid #bee3f8; }
 .subtle { font-size:.8rem; color:#718096; }
 
-.pill.total-pill { background:#edf2f7; border:1px solid #cbd5e0; border-radius:9999px; padding:.35rem .7rem; font-weight:700; color:#2d3748; }
+.pill.total-pill {
+  background:#edf2f7;
+  border:1px solid #cbd5e0;
+  border-radius:9999px;
+  padding:.35rem .7rem;
+  font-weight:700;
+  color:#2d3748;
+}
 </style>
