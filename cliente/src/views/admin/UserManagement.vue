@@ -505,6 +505,10 @@ type AdminUser = BaseUser & {
   position?: string
   hireDate?: string | null
   birthDate?: string | null
+  // campos enriquecidos para la tabla
+  total?: number        // Disponible total (todas ventanas activas + bono)
+  available?: number    // Restantes de la ventana vigente
+  used?: number         // Usados del año en curso (lo tomamos del backend)
 }
 
 /** Payload local para creación */
@@ -781,7 +785,54 @@ async function fetchUsers() {
   loading.value = true
   error.value = null
   try {
-    users.value = await userService.getAllUsers() as AdminUser[]
+    const base = (await userService.getAllUsers()) as AdminUser[]
+
+    // Enriquecer con el saldo por ventanas (solo si hay hireDate)
+    const enriched = await Promise.all(
+      base.map(async (u) => {
+        try {
+          // used del año en curso ya viene en vacationDays.used
+          const usedCurrent = u.vacationDays?.used ?? 0
+
+          if (!u.hireDate) {
+            return { ...u, used: usedCurrent } as AdminUser
+          }
+
+          const sum = await vacationService.getWindowsSummaryFixed(
+            u.id,
+            dateOnly(u.hireDate) || undefined
+          )
+
+          // Disponible total (todas las ventanas activas + bono)
+          const totalAvailable = Number(sum?.available ?? 0)
+
+          // Restantes de la ventana vigente (label === 'current')
+          const currentWin = (sum?.windows ?? []).find(w => w.label === 'current')
+          const remainingInCurrent =
+            Math.max((currentWin?.days ?? 0) - (currentWin?.used ?? 0), 0)
+
+          return {
+            ...u,
+            used: usedCurrent,
+            total: totalAvailable,
+            available: remainingInCurrent,
+          } as AdminUser
+        } catch {
+          // Si falla el resumen, dejamos los valores de compat
+          return {
+            ...u,
+            used: u.vacationDays?.used ?? 0,
+            total: u.vacationDays?.total ?? 0,
+            available: u.vacationDays?.remaining ?? Math.max(
+              (u.vacationDays?.total ?? 0) - (u.vacationDays?.used ?? 0),
+              0
+            ),
+          } as AdminUser
+        }
+      })
+    )
+
+    users.value = enriched
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
     console.error('Error fetching users:', err)
