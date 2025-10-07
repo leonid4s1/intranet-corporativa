@@ -116,7 +116,7 @@ export type VacationWindow = {
   used: number;
 };
 export type WindowsSummary = {
-  available: number;          // suma de remaining de ventanas no expiradas + bonus
+  available: number;          // suma de remaining de ventanas activas y no vencidas + bonus
   bonusAdmin: number;
   windows: VacationWindow[];
   now: string;                // ISO “ahora” backend
@@ -438,7 +438,6 @@ function parseWindowsSummary(payload: unknown): WindowsSummary {
       if (!startYmd) return null;
 
       // Rango visible: start — (expiresAt - 1 día).
-      // Si no vino expiresAt, usamos endRawYmd como visible.
       let endVisibleYmd = endRawYmd;
       if (expiresAtYmd) {
         const exp = toDateUTC(expiresAtYmd);
@@ -464,7 +463,7 @@ function parseWindowsSummary(payload: unknown): WindowsSummary {
     .filter((x): x is VacationWindow => !!x)
     .sort((a, b) => (a.label === 'current' ? 0 : 1) - (b.label === 'current' ? 0 : 1));
 
-  // available: si no viene, lo calculamos (solo ventanas NO vencidas) + bonus
+  // available: si no viene, lo calculamos (solo NO vencidas) + bonus
   let available = getNum(rec as Record<string, unknown>, 'available');
   if (available == null) {
     const today = new Date(nowISO);
@@ -488,74 +487,90 @@ function parseWindowsSummary(payload: unknown): WindowsSummary {
   };
 }
 
-/* ======= CORRECCIÓN DE DÍAS POR VENTANA (LFT) ======= */
+/* ======= UTILIDADES DE TIEMPO Y DÍAS LFT ======= */
 
-function wholeYearsBetween(aYmd: string, bYmd: string): number {
-  const a = toDateUTC(aYmd);
-  const b = toDateUTC(bYmd);
-  let y = b.getUTCFullYear() - a.getUTCFullYear();
-  const m = b.getUTCMonth() - a.getUTCMonth();
-  if (m < 0 || (m === 0 && b.getUTCDate() < a.getUTCDate())) y--;
-  return Math.max(0, y);
+function addYearsUTC(d: Date, years: number): Date {
+  return new Date(Date.UTC(d.getUTCFullYear() + years, d.getUTCMonth(), d.getUTCDate()));
 }
-function lftDaysByYearsOfService(yos: number): number {
-  if (yos <= 0) return 0;   // antes del 1er aniversario no hay ventana activa
-  if (yos === 1) return 12;
-  if (yos === 2) return 14;
-  if (yos === 3) return 16;
-  if (yos === 4) return 18;
-  return 20;               // 5+ años
+function addMonthsUTC(d: Date, months: number): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, d.getUTCDate()));
+}
+function lftDaysByServiceYear(serviceYear: number): number {
+  if (serviceYear <= 0) return 0;
+  if (serviceYear === 1) return 12;
+  if (serviceYear === 2) return 14;
+  if (serviceYear === 3) return 16;
+  if (serviceYear === 4) return 18;
+  return 20; // 5+
 }
 
-/** Ajusta los días por ventana respecto a la LFT.
- *  - Sólo aplica a ventanas ACTIVAS (start <= now). Las futuras no “adelantan” días.
- *  - Recalcula available considerando únicamente ventanas activas y no vencidas + bonus.
+/* ======= REALINEAR VENTANAS AL ANIVERSARIO (18m), SUMAR DISPONIBLE DE AMBAS SI ACTIVAS ======= */
+
+/**
+ * Recalcula las ventanas a partir de la fecha de ingreso:
+ *  - current: inicia en hireDate + k años (k = primer año cuyo periodo de 18m no ha expirado)
+ *  - next   : hireDate + (k+1) años
+ *  - días   : según LFT por año de servicio (12/14/16/18/20)
+ *  - available: bonus + restantes de ventanas ACTIVAS (start ≤ hoy < expiresAt)
+ * Preserva los `used` que traía el summary por etiqueta (current/next).
  */
-export function fixWindowsDays(summary: WindowsSummary, hireDate?: string | Date | null): WindowsSummary {
+export function alignWindowsToHireDate(summary: WindowsSummary, hireDate?: string | Date | null): WindowsSummary {
   if (!hireDate) return summary;
 
-  const hireISO = typeof hireDate === 'string' ? hireDate.slice(0, 10) : hireDate.toISOString().slice(0, 10);
+  const hdStr = (typeof hireDate === 'string' ? hireDate : hireDate.toISOString()).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(hdStr)) return summary;
 
-  const today = new Date(summary.now);
-  today.setUTCHours(0, 0, 0, 0);
+  const nowISO = summary.now ?? new Date().toISOString();
+  const today = toDateUTC(nowISO.slice(0, 10));
+  const hd = toDateUTC(hdStr);
+  if (Number.isNaN(hd.getTime())) return summary;
 
-  const fixedWindows = summary.windows.map(w => {
-    const start = toDateUTC(w.start);
-    const active = start.getTime() <= today.getTime();
-    const yos = wholeYearsBetween(hireISO, w.start);
-    const correctedDays = lftDaysByYearsOfService(yos);
-    return { ...w, days: active ? correctedDays : (w.days ?? 0) };
-  });
+  // k = primer año cuyo periodo de 18m no ha expirado
+  let k = 1;
+  for (; k < 80; k++) {
+    const startK = addYearsUTC(hd, k);
+    const expK = addMonthsUTC(startK, 18);
+    if (today < expK) break;
+  }
 
-  const available =
-    fixedWindows.reduce((acc, w) => {
-      const start = toDateUTC(w.start);
-      const exp = w.expiresAt ? toDateUTC(w.expiresAt) : null;
-      const active = start.getTime() <= today.getTime();
-      const notExpired = !exp || exp.getTime() >= today.getTime();
-      const remaining = Math.max(0, (w.days ?? 0) - (w.used ?? 0));
-      return acc + (active && notExpired ? remaining : 0);
-    }, 0) + Math.max(0, summary.bonusAdmin);
+  const usedCurrent = summary.windows.find(w => w.label === 'current')?.used ?? 0;
+  const usedNext = summary.windows.find(w => w.label === 'next')?.used ?? 0;
 
-  return { ...summary, windows: fixedWindows, available };
+  const mk = (serviceYear: number, used: number, label: WindowLabel): VacationWindow => {
+    const start = addYearsUTC(hd, serviceYear);
+    const expiresAt = addMonthsUTC(start, 18);
+    const endVisible = new Date(expiresAt.getTime() - DAY_MS);
+    return {
+      label,
+      year: start.getUTCFullYear(),
+      start: isoYMD(start),
+      end: isoYMD(endVisible),
+      expiresAt: isoYMD(expiresAt),
+      days: lftDaysByServiceYear(serviceYear),
+      used: Math.max(0, used),
+    };
+  };
+
+  const current = mk(k, usedCurrent, 'current');
+  const next = mk(k + 1, usedNext, 'next');
+
+  const rem = (w: VacationWindow) => Math.max(0, (w.days ?? 0) - (w.used ?? 0));
+  const isActive = (w: VacationWindow) => {
+    const s = toDateUTC(w.start);
+    const e = toDateUTC(w.expiresAt || w.end);
+    return today >= s && today < e;
+  };
+
+  let available = Math.max(0, summary.bonusAdmin);
+  if (isActive(current)) available += rem(current);
+  if (isActive(next)) available += rem(next);
+
+  return { ...summary, windows: [current, next], available };
 }
 
-/** Conveniencia: obtiene el summary y lo corrige con la LFT.
- *  - Si no pasas hireDate, lo obtiene del entitlement del usuario.
- */
-export async function getWindowsSummaryFixed(userId?: string, hireDate?: string | Date): Promise<WindowsSummary> {
-  const summary = await getWindowsSummary(userId);
-  let hd: string | Date | undefined = hireDate;
-  if (!hd) {
-    try {
-      const ent = userId ? await getUserEntitlementAdmin(userId) : await getMyEntitlement();
-      hd = ent.user.hireDate;
-    } catch {
-      // si falla, devolvemos sin corrección
-      return summary;
-    }
-  }
-  return fixWindowsDays(summary, hd ?? null);
+/** Compatibilidad: nombre antiguo que ahora delega al realineado */
+export function fixWindowsDays(summary: WindowsSummary, hireDate?: string | Date | null): WindowsSummary {
+  return alignWindowsToHireDate(summary, hireDate);
 }
 
 /** GET /vacations/users/me/summary */
@@ -578,6 +593,21 @@ export async function getWindowsSummaryByUserId(userId: string): Promise<Windows
 export async function getWindowsSummary(userId?: string): Promise<WindowsSummary> {
   if (userId) return getWindowsSummaryByUserId(userId);
   return getMyWindowsSummary();
+}
+
+/** Conveniencia: obtiene el summary y lo alinea con la fecha de ingreso (desde entitlement si no la pasas) */
+export async function getWindowsSummaryFixed(userId?: string, hireDate?: string | Date): Promise<WindowsSummary> {
+  const summary = await getWindowsSummary(userId);
+  let hd: string | Date | undefined = hireDate;
+  if (!hd) {
+    try {
+      const ent = userId ? await getUserEntitlementAdmin(userId) : await getMyEntitlement();
+      hd = ent.user.hireDate;
+    } catch {
+      return summary; // si no logramos el hireDate, devolvemos tal cual
+    }
+  }
+  return alignWindowsToHireDate(summary, hd ?? null);
 }
 
 /* =========================
@@ -799,10 +829,11 @@ export default {
   getMyWindowsSummary,
   getWindowsSummaryByUserId,
   getWindowsSummary,
-  getWindowsSummaryFixed, // <- NUEVO
+  getWindowsSummaryFixed,  // summary + realineado a hireDate
 
-  // Ajuste LFT de días por ventana
-  fixWindowsDays,         // <- NUEVO
+  // Ajuste/realineado LFT de días por ventana
+  fixWindowsDays,          // alias
+  alignWindowsToHireDate,  // función principal
 
   // Legacy summary (compat)
   getVacationSummary,
