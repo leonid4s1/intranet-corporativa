@@ -1227,7 +1227,7 @@ function closeWindowsModal() {
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
 .empty-state { padding: 2rem; text-align: center; color: #718096; }
 
-/* Modal base */
+/* Modal base -->*/
 .modal-overlay {
   position: fixed;
   inset: 0;

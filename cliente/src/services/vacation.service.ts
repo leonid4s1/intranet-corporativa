@@ -109,9 +109,9 @@ export type WindowLabel = 'current' | 'next';
 export type VacationWindow = {
   year: number;
   label: WindowLabel;
-  start: string;     // ISO
-  end: string;       // ISO
-  expiresAt: string; // ISO
+  start: string;     // ISO (YYYY-MM-DD)
+  end: string;       // ISO visible = expiresAt - 1 día
+  expiresAt: string; // ISO (YYYY-MM-DD)
   days: number;
   used: number;
 };
@@ -133,6 +133,7 @@ function isString(x: unknown): x is string {
   return typeof x === 'string';
 }
 function isNumber(x: unknown): x is number {
+  // Permite 0 y números finitos
   return typeof x === 'number' && Number.isFinite(x);
 }
 function isUserStatus(x: unknown): x is UserStatusFilter {
@@ -383,32 +384,109 @@ export async function getUserEntitlementAdmin(userId: string): Promise<Entitleme
  * NUEVO: Summary por ventanas (current/next + 18m)
  * ========================= */
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const isoYMD = (d: Date) => d.toISOString().slice(0, 10);
+const toDateUTC = (ymd: string) => new Date(`${ymd}T00:00:00Z`);
+
+function getYmdFlex(obj: Record<string, unknown>, key: string): string | undefined {
+  const v = obj[key];
+  if (typeof v === 'string') return v.slice(0, 10);
+  if (v instanceof Date) return isoYMD(v);
+  return undefined;
+}
+
 function parseWindowsSummary(payload: unknown): WindowsSummary {
   const root = unwrapData<unknown>(payload, {});
   const rec = isRecord(root) ? root : {};
 
-  const available = getNum(rec, 'available') ?? 0;
-  const bonusAdmin = getNum(rec, 'bonusAdmin') ?? 0;
-  const now = getStr(rec, 'now') ?? new Date().toISOString();
+  const bonusAdmin = getNum(rec as Record<string, unknown>, 'bonusAdmin') ?? 0;
+  const nowISO = getStr(rec as Record<string, unknown>, 'now') ?? new Date().toISOString();
 
-  const winsRaw = getArr(rec, 'windows') ?? [];
-  const windows: VacationWindow[] = winsRaw
-    .map((w): VacationWindow | null => {
-      if (!isRecord(w)) return null;
-      const rw = w as Record<string, unknown>;
-      const year = getNum(rw, 'year') ?? 0;
-      const label = (getStr(rw, 'label') as WindowLabel) ?? 'current';
-      const start = getStr(rw, 'start') ?? '';
-      const end = getStr(rw, 'end') ?? '';
-      const expiresAt = getStr(rw, 'expiresAt') ?? '';
+  // windows puede estar en el root o dentro de { vacation }
+  let container: Record<string, unknown> = rec;
+  const recWindowsNode = (rec as Record<string, unknown>)['windows'];
+  const recHasWindows = Array.isArray(recWindowsNode) || isRecord(recWindowsNode);
+  if (!recHasWindows) {
+    const maybeVac = getRec(rec, 'vacation');
+    if (maybeVac) container = maybeVac;
+  }
+
+  const winsArray = getArr(container, 'windows');
+  const winsObject = !winsArray ? getRec(container, 'windows') : undefined;
+
+  const rawWindows: Record<string, unknown>[] = (() => {
+    if (winsArray) return winsArray.filter(isRecord) as Record<string, unknown>[];
+    if (winsObject) {
+      const current = getRec(winsObject, 'current');
+      const next = getRec(winsObject, 'next');
+      const arr: Record<string, unknown>[] = [];
+      if (current) arr.push(current);
+      if (next) arr.push(next);
+      return arr;
+    }
+    return [];
+  })();
+
+  const windows: VacationWindow[] = rawWindows
+    .map((rw): VacationWindow | null => {
+      const labelRaw = getStr(rw, 'label');
+      const label: WindowLabel = labelRaw === 'next' ? 'next' : 'current';
+
+      const startYmd = getYmdFlex(rw, 'start') ?? '';
+      const endRawYmd = getYmdFlex(rw, 'end') ?? '';
+      const expiresAtYmd = getYmdFlex(rw, 'expiresAt') ?? '';
+
+      if (!startYmd) return null;
+
+      // Rango visible: start — (expiresAt - 1 día).
+      // Si no vino expiresAt, usamos endRawYmd como visible.
+      let endVisibleYmd = endRawYmd;
+      if (expiresAtYmd) {
+        const exp = toDateUTC(expiresAtYmd);
+        const vis = new Date(exp.getTime() - DAY_MS);
+        endVisibleYmd = isoYMD(vis);
+      }
+      if (!endVisibleYmd) return null;
+
       const days = getNum(rw, 'days') ?? 0;
       const used = getNum(rw, 'used') ?? 0;
-      if (!start || !end || !expiresAt) return null;
-      return { year, label, start, end, expiresAt, days, used };
-    })
-    .filter((x): x is VacationWindow => !!x);
+      const year = toDateUTC(startYmd).getUTCFullYear();
 
-  return { available, bonusAdmin, windows, now };
+      return {
+        label,
+        year,
+        start: startYmd,
+        end: endVisibleYmd,
+        expiresAt: expiresAtYmd || endRawYmd,
+        days,
+        used,
+      };
+    })
+    .filter((x): x is VacationWindow => !!x)
+    .sort((a, b) => (a.label === 'current' ? 0 : 1) - (b.label === 'current' ? 0 : 1));
+
+  // available: si no viene, lo calculamos (solo ventanas NO vencidas) + bonus
+  let available = getNum(rec as Record<string, unknown>, 'available');
+  if (available == null) {
+    const today = new Date(nowISO);
+    today.setUTCHours(0, 0, 0, 0);
+
+    const remainingWindows = windows.reduce((acc, w) => {
+      const exp = w.expiresAt ? toDateUTC(w.expiresAt) : null;
+      const notExpired = !exp || exp.getTime() >= today.getTime();
+      const remaining = Math.max(0, (w.days ?? 0) - (w.used ?? 0));
+      return acc + (notExpired ? remaining : 0);
+    }, 0);
+
+    available = remainingWindows + Math.max(0, bonusAdmin);
+  }
+
+  return {
+    available,
+    bonusAdmin,
+    windows,
+    now: nowISO,
+  };
 }
 
 /** GET /vacations/users/me/summary */
@@ -479,7 +557,7 @@ export async function getVacationSummary(userId?: string): Promise<VacationSumma
     },
     vacation: {
       right: ent.cycle.entitlementDays,
-      adminExtra: 0, // el endpoint de entitlement ya devuelve total/remaining; si quieres el adminExtra exacto cámbialo en backend y léelo aquí.
+      adminExtra: 0, // si quieres adminExtra exacto, que lo exponga el backend
       total: ent.cycle.entitlementDays,
       used: ent.cycle.usedDays,
       remaining: ent.cycle.remainingDays,
