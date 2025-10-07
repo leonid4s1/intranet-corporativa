@@ -133,7 +133,6 @@ function isString(x: unknown): x is string {
   return typeof x === 'string';
 }
 function isNumber(x: unknown): x is number {
-  // Permite 0 y números finitos
   return typeof x === 'number' && Number.isFinite(x);
 }
 function isUserStatus(x: unknown): x is UserStatusFilter {
@@ -489,6 +488,76 @@ function parseWindowsSummary(payload: unknown): WindowsSummary {
   };
 }
 
+/* ======= CORRECCIÓN DE DÍAS POR VENTANA (LFT) ======= */
+
+function wholeYearsBetween(aYmd: string, bYmd: string): number {
+  const a = toDateUTC(aYmd);
+  const b = toDateUTC(bYmd);
+  let y = b.getUTCFullYear() - a.getUTCFullYear();
+  const m = b.getUTCMonth() - a.getUTCMonth();
+  if (m < 0 || (m === 0 && b.getUTCDate() < a.getUTCDate())) y--;
+  return Math.max(0, y);
+}
+function lftDaysByYearsOfService(yos: number): number {
+  if (yos <= 0) return 0;   // antes del 1er aniversario no hay ventana activa
+  if (yos === 1) return 12;
+  if (yos === 2) return 14;
+  if (yos === 3) return 16;
+  if (yos === 4) return 18;
+  return 20;               // 5+ años
+}
+
+/** Ajusta los días por ventana respecto a la LFT.
+ *  - Sólo aplica a ventanas ACTIVAS (start <= now). Las futuras no “adelantan” días.
+ *  - Recalcula available considerando únicamente ventanas activas y no vencidas + bonus.
+ */
+export function fixWindowsDays(summary: WindowsSummary, hireDate?: string | Date | null): WindowsSummary {
+  if (!hireDate) return summary;
+
+  const hireISO = typeof hireDate === 'string' ? hireDate.slice(0, 10) : hireDate.toISOString().slice(0, 10);
+
+  const today = new Date(summary.now);
+  today.setUTCHours(0, 0, 0, 0);
+
+  const fixedWindows = summary.windows.map(w => {
+    const start = toDateUTC(w.start);
+    const active = start.getTime() <= today.getTime();
+    const yos = wholeYearsBetween(hireISO, w.start);
+    const correctedDays = lftDaysByYearsOfService(yos);
+    return { ...w, days: active ? correctedDays : (w.days ?? 0) };
+  });
+
+  const available =
+    fixedWindows.reduce((acc, w) => {
+      const start = toDateUTC(w.start);
+      const exp = w.expiresAt ? toDateUTC(w.expiresAt) : null;
+      const active = start.getTime() <= today.getTime();
+      const notExpired = !exp || exp.getTime() >= today.getTime();
+      const remaining = Math.max(0, (w.days ?? 0) - (w.used ?? 0));
+      return acc + (active && notExpired ? remaining : 0);
+    }, 0) + Math.max(0, summary.bonusAdmin);
+
+  return { ...summary, windows: fixedWindows, available };
+}
+
+/** Conveniencia: obtiene el summary y lo corrige con la LFT.
+ *  - Si no pasas hireDate, lo obtiene del entitlement del usuario.
+ */
+export async function getWindowsSummaryFixed(userId?: string, hireDate?: string | Date): Promise<WindowsSummary> {
+  const summary = await getWindowsSummary(userId);
+  let hd: string | Date | undefined = hireDate;
+  if (!hd) {
+    try {
+      const ent = userId ? await getUserEntitlementAdmin(userId) : await getMyEntitlement();
+      hd = ent.user.hireDate;
+    } catch {
+      // si falla, devolvemos sin corrección
+      return summary;
+    }
+  }
+  return fixWindowsDays(summary, hd ?? null);
+}
+
 /** GET /vacations/users/me/summary */
 export async function getMyWindowsSummary(): Promise<WindowsSummary> {
   const { data } = await api.get('/vacations/users/me/summary', {
@@ -525,7 +594,6 @@ async function getCurrentUserId(): Promise<string> {
   const { data } = await api.get('/auth/me');
   const payload = data as MeEnvelope;
 
-  // soporta { user } o { data: { user } }
   const userNode: MeUser | undefined =
     (payload as { user?: MeUser }).user ??
     ((payload as { data?: { user?: MeUser } }).data?.user);
@@ -535,17 +603,13 @@ async function getCurrentUserId(): Promise<string> {
   return String(id);
 }
 
-/** LEGACY: Resumen “LFT simple” basado en entitlement
- *  (Si lo usabas en otros componentes, sigue funcionando.)
- *  Para las dos ventanas, usa getWindowsSummary() de arriba.
- */
+/** LEGACY: Resumen “LFT simple” basado en entitlement */
 export async function getVacationSummary(userId?: string): Promise<VacationSummary> {
   const id = userId || (await getCurrentUserId());
   const { data } = await api.get(`/vacations/users/${id}/entitlement`, {
     headers: { 'Cache-Control': 'no-store' },
   });
 
-  // Transformamos el entitlement a tu VacationSummary legacy
   const ent = parseEntitlement(data);
   const s: VacationSummary = {
     user: {
@@ -557,7 +621,7 @@ export async function getVacationSummary(userId?: string): Promise<VacationSumma
     },
     vacation: {
       right: ent.cycle.entitlementDays,
-      adminExtra: 0, // si quieres adminExtra exacto, que lo exponga el backend
+      adminExtra: 0,
       total: ent.cycle.entitlementDays,
       used: ent.cycle.usedDays,
       remaining: ent.cycle.remainingDays,
@@ -609,9 +673,7 @@ type ApproveReject = 'approved' | 'rejected';
 type UpdateStatusPayload = {
   id: string;
   status: ApproveReject;
-  /** si rechaza, este es el motivo que exige el backend */
   reason?: string;
-  /** por si lo llamas explícito como rejectReason */
   rejectReason?: string;
 };
 
@@ -652,7 +714,6 @@ export async function updateRequestStatus(
     rejectReason = arg3;
   }
 
-  // Guard de UX: evita ida/vuelta si falta motivo o es muy corto/largo
   if (status === 'rejected') {
     const msg = (rejectReason ?? '').trim();
     if (msg.length < 3) throw new Error('El motivo de rechazo debe tener al menos 3 caracteres');
@@ -665,11 +726,10 @@ export async function updateRequestStatus(
   }
 
   const { data } = await api.patch(`/vacations/requests/${id}/status`, body);
-  // Backend responde { success, data }; devolvemos el objeto "data"
   return unwrapData<VacationRequestApi>(data, {} as VacationRequestApi);
 }
 
-/** Azúcar sintáctico: evita confusiones con el nombre del campo */
+/** Azúcar sintáctico */
 export function approve(id: string) {
   return updateRequestStatus(id, 'approved');
 }
@@ -677,7 +737,7 @@ export function reject(id: string, reason: string) {
   return updateRequestStatus({ id, status: 'rejected', rejectReason: reason });
 }
 
-/** Reporte admin de TODAS las vacaciones aprobadas (activos, inactivos o eliminados) */
+/** Reporte admin de TODAS las vacaciones aprobadas */
 export async function getApprovedAdmin(params?: {
   q?: string;
   from?: string;
@@ -739,6 +799,10 @@ export default {
   getMyWindowsSummary,
   getWindowsSummaryByUserId,
   getWindowsSummary,
+  getWindowsSummaryFixed, // <- NUEVO
+
+  // Ajuste LFT de días por ventana
+  fixWindowsDays,         // <- NUEVO
 
   // Legacy summary (compat)
   getVacationSummary,

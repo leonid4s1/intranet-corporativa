@@ -317,7 +317,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import dayjs from 'dayjs';
-import vacationService, { type WindowsSummary, type VacationWindow } from '@/services/vacation.service';
+import vacationService, {
+  type WindowsSummary,
+  type VacationWindow,
+  // ⬇️ Importa el summary corregido
+  getWindowsSummaryFixed,
+} from '@/services/vacation.service';
 import holidayService, {
   type Holiday as ApiHoliday,
   type HolidayCreateData,
@@ -519,8 +524,8 @@ async function confirmReject() {
 async function openWindowsModal(user: UserRef) {
   try {
     winModal.value = { open: true, loading: true, user, summary: null, error: null };
-    const sum = await vacationService.getWindowsSummaryByUserId(user.id);
-    winModal.value.summary = sum;
+    // ⬇️ Usa el summary corregido (no “adelanta” días del siguiente año)
+    winModal.value.summary = await getWindowsSummaryFixed(user.id);
   } catch (err) {
     console.error('Error cargando ventanas:', err);
     winModal.value.error = getErrMsg(err);
