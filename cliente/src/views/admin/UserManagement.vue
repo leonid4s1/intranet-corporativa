@@ -555,42 +555,6 @@ function formatISO(iso: string | Date | undefined): string {
   return dayjs(s).format('DD/MM/YYYY')
 }
 
-/** ===== Helpers LFT para ventanas (ajuste local) ===== */
-const ymdToUTC = (ymd: string) => new Date(`${ymd}T00:00:00Z`)
-
-function yearsCompleted(hireYmd: string, refStartYmd: string): number {
-  // años COMPLETOS cumplidos al inicio de la ventana (refStartYmd)
-  const h = ymdToUTC(hireYmd)
-  const r = ymdToUTC(refStartYmd)
-  let years = r.getUTCFullYear() - h.getUTCFullYear()
-  const annivThisYear = new Date(Date.UTC(r.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()))
-  if (r < annivThisYear) years -= 1
-  return Math.max(0, years)
-}
-
-function lawDaysByYears(y: number): number {
-  // LFT 2023: 1y=12, 2y=14, 3y=16, 4y=18, 5y+=20
-  if (y < 1) return 0
-  if (y === 1) return 12
-  if (y === 2) return 14
-  if (y === 3) return 16
-  if (y === 4) return 18
-  return 20
-}
-
-function fixWindowsDaysLocal(summary: WindowsSummary, hireDate?: string | null): WindowsSummary {
-  if (!hireDate || !isoDayRe.test(hireDate)) return summary
-  const fixed = {
-    ...summary,
-    windows: summary.windows.map(w => {
-      const y = yearsCompleted(hireDate, w.start)
-      const days = lawDaysByYears(y)
-      return { ...w, days }
-    })
-  }
-  return fixed
-}
-
 /* ===== Toasts ===== */
 type ToastType = 'success' | 'error' | 'info' | 'warn'
 interface Toast { id: number; type: ToastType; text: string }
@@ -1163,10 +1127,10 @@ async function openWindowsModal(u: AdminUser) {
   winModal.value.summary = null
 
   try {
-    // 1) Trae summary del backend
-    const raw = await vacationService.getWindowsSummaryByUserId(u.id)
-    // 2) Ajusta días por ventana con LFT y la fecha de ingreso (no adelanta días futuros)
-    winModal.value.summary = fixWindowsDaysLocal(raw, dateOnly(u.hireDate) || undefined)
+    // Usa el cálculo consolidado del service: corrige días por LFT
+    // y recalcula 'available' sumando ventanas activas y no vencidas + bonus.
+    const sum = await vacationService.getWindowsSummaryFixed(u.id, dateOnly(u.hireDate) || undefined)
+    winModal.value.summary = sum
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'No se pudo cargar el saldo por ventanas'
     winModal.value.error = msg
