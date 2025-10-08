@@ -506,32 +506,25 @@ type AdminUser = BaseUser & {
   hireDate?: string | null
   birthDate?: string | null
   // campos enriquecidos para la tabla
-  total?: number        // Disponible total (todas ventanas activas + bono)
+  total?: number        // Días de la ventana vigente (más bono si tu lógica lo incluye)
   available?: number    // Restantes de la ventana vigente
-  used?: number         // Usados del año en curso (lo tomamos del backend)
+  used?: number         // Usados del año en curso
 }
-
 type RowUser = AdminUser & { total?: number; used?: number; available?: number }
 
-/** Payload local para creación */
-type CreatePayload = {
-  name: string
-  email: string
-  password: string
-  password_confirmation: string
-  role: Role
-  position?: string
-  hireDate?: string
-  birthDate?: string
-}
-
-/** Payload local para actualizar meta */
+/** Payloads locales */
 type UpdateMetaPayload = {
   position?: string
   hireDate?: string
   birthDate?: string
 }
 
+/** Tipos derivados de los servicios para evitar casts inseguros */
+type CreateUserParam = Parameters<typeof userService.createUserAsAdmin>[0]
+type CreateUserReturn = Awaited<ReturnType<typeof userService.createUserAsAdmin>>
+type UpdateMetaParam = Parameters<typeof userService.updateUserMeta>[1]
+
+/* ===== Estado ===== */
 const users = ref<RowUser[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -657,8 +650,8 @@ function validateCreate(): boolean {
 
 /* --- helper para detectar timeouts de Axios --- */
 function looksLikeTimeout(err: unknown) {
-  const anyErr = err as { code?: string; message?: string }
-  return anyErr?.code === 'ECONNABORTED' || /timeout/i.test(anyErr?.message || '')
+  const e = err as { code?: string; message?: string }
+  return e?.code === 'ECONNABORTED' || /timeout/i.test(e?.message || '')
 }
 
 async function handleCreateUser() {
@@ -670,21 +663,19 @@ async function handleCreateUser() {
 
   creating.value = true
   try {
-    const payload: CreatePayload = {
+    const payload: CreateUserParam = {
       name: createForm.value.name.trim(),
       email: createForm.value.email.trim().toLowerCase(),
       password: createForm.value.password,
       password_confirmation: createForm.value.password_confirmation,
-      role: createForm.value.role
+      role: createForm.value.role,
+      ...(createForm.value.position.trim() && { position: createForm.value.position.trim() }),
+      ...(createForm.value.hireDate && { hireDate: createForm.value.hireDate }),
+      ...(createForm.value.birthDate && { birthDate: createForm.value.birthDate }),
     }
-    if (createForm.value.position.trim()) payload.position = createForm.value.position.trim()
-    if (createForm.value.hireDate) payload.hireDate = createForm.value.hireDate
-    if (createForm.value.birthDate) payload.birthDate = createForm.value.birthDate
 
-    const { user, requiresEmailVerification } =
-      await userService.createUserAsAdmin(
-        payload as unknown as Parameters<typeof userService.createUserAsAdmin>[0]
-      )
+    const { user, requiresEmailVerification }: CreateUserReturn =
+      await userService.createUserAsAdmin(payload)
 
     await fetchUsers()
     pushToast(
@@ -783,47 +774,75 @@ onMounted(async () => {
   await fetchUsers()
 })
 
+/** Ventana con expiración opcional y helper para normalizar fecha */
+type WindowLike = VacationWindow & {
+  expiresAt?: string | Date | null
+}
+function toISODateString(d?: string | Date | null): string {
+  if (!d) return ''
+  return typeof d === 'string' ? d.slice(0, 10) : dayjs(d).format('YYYY-MM-DD')
+}
+
+/** helper simple (sin plugin isBetween) */
+function isActiveWindow(w: WindowLike, today = dayjs().startOf('day')) {
+  const s = dayjs(toISODateString(w.start))
+  const exp = dayjs(toISODateString(w.expiresAt ?? w.end))
+  if (!s.isValid() || !exp.isValid()) return false
+  return !today.isBefore(s, 'day') && !today.isAfter(exp, 'day') // s <= today <= exp
+}
+
 async function fetchUsers() {
   loading.value = true
   error.value = null
   try {
     const base = await userService.getAllUsers() as AdminUser[]
+    const today = dayjs().startOf('day')
 
     const rows = await Promise.all(
-  base.map(async (u) => {
-    try {
-      const sum = await vacationService.getWindowsSummaryFixed(
-        u.id,
-        dateOnly(u.hireDate) || undefined
-      )
+      base.map(async (u) => {
+        try {
+          const sum = await vacationService.getWindowsSummaryFixed(
+            u.id,
+            dateOnly(u.hireDate) || undefined
+          )
 
-      const windows = Array.isArray(sum?.windows) ? sum.windows : []
-      const today = dayjs().startOf('day')
+          const windows = Array.isArray(sum?.windows) ? sum.windows : []
 
-      // 1) Localiza la "ventana vigente" (label === 'current') y valida que esté activa
-      const current = windows.find(w => w?.label === 'current')
-      const currentStart   = current?.start   ? dayjs(current.start).startOf('day') : null
-      const currentExpires = current?.expiresAt ? dayjs(current.expiresAt).startOf('day') : null
-      const isActive = !!(current && currentStart && currentExpires
-        && (today.isSame(currentStart) || today.isAfter(currentStart))
-        && (today.isSame(currentExpires) || today.isBefore(currentExpires)))
+          // ¿Hay al menos una ventana activa hoy?
+          const activeWins = windows.filter(w => isActiveWindow(w as WindowLike, today))
+          if (activeWins.length === 0) {
+            // antes del primer aniversario (o fuera de toda ventana activa)
+            return { ...u, total: 0, used: 0, available: 0 } as RowUser
+          }
 
-      // 2) Si no hay activa (aún no cumple 1 año), todo 0
-      const total = isActive ? (Number(current?.days) || 0) : 0
-      const used  = isActive ? (Number(current?.used) || 0) : 0
-      const available = isActive ? Math.max(0, total - used) : 0
+          const bonus = Number(sum?.bonusAdmin) || 0
 
-      // Nota: ignoramos días de la ventana futura y el bono admin para la tabla
-      return { ...u, total, used, available } as RowUser
-    } catch {
-      // Fallback: deja los datos que ya vinieron del backend
-      return u as RowUser
-    }
-  })
-)
+          // Totales = días de TODAS las ventanas activas + bono
+          const totalActivas = activeWins.reduce((acc, w) => acc + (Number(w?.days) || 0), 0)
+          const total = totalActivas + bonus
 
-users.value = rows
+          // Usados = de la ventana vigente (label 'current')
+          const currentWin = windows.find(w => w.label === 'current')
+          const usedCurrent = Number(currentWin?.used ?? 0)
 
+          // Disponibles = summary.available (ya suma activas + bono), o respaldo calculado
+          const available =
+            Number(sum?.available) ||
+            (activeWins.reduce((acc, w) => {
+              const d = Number(w?.days) || 0
+              const u2 = Number(w?.used) || 0
+              return acc + Math.max(0, d - u2)
+            }, 0) + bonus)
+
+          return { ...u, total, used: usedCurrent, available } as RowUser
+        } catch {
+          // Fallback: deja lo que venga del backend
+          return u as RowUser
+        }
+      })
+    )
+
+    users.value = rows
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
     console.error('Error fetching users:', err)
@@ -981,7 +1000,7 @@ async function updateUser() {
     if (Object.keys(metaPayload).length > 0) {
       await userService.updateUserMeta(
         selectedUser.value.id,
-        metaPayload as unknown as Parameters<typeof userService.updateUserMeta>[1]
+        metaPayload as UpdateMetaParam
       )
     }
 
@@ -1201,8 +1220,7 @@ async function openWindowsModal(u: AdminUser) {
   winModal.value.summary = null
 
   try {
-    // Usa el cálculo consolidado del service: corrige días por LFT
-    // y recalcula 'available' sumando ventanas activas y no vencidas + bonus.
+    // Usa el cálculo consolidado del service
     const sum = await vacationService.getWindowsSummaryFixed(u.id, dateOnly(u.hireDate) || undefined)
     winModal.value.summary = sum
   } catch (e: unknown) {
