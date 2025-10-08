@@ -511,6 +511,8 @@ type AdminUser = BaseUser & {
   used?: number         // Usados del año en curso (lo tomamos del backend)
 }
 
+type RowUser = AdminUser & { total?: number; used?: number; available?: number }
+
 /** Payload local para creación */
 type CreatePayload = {
   name: string
@@ -530,7 +532,7 @@ type UpdateMetaPayload = {
   birthDate?: string
 }
 
-const users = ref<AdminUser[]>([])
+const users = ref<RowUser[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -785,54 +787,40 @@ async function fetchUsers() {
   loading.value = true
   error.value = null
   try {
-    const base = (await userService.getAllUsers()) as AdminUser[]
+    const base = await userService.getAllUsers() as AdminUser[]
 
-    // Enriquecer con el saldo por ventanas (solo si hay hireDate)
-    const enriched = await Promise.all(
+    const rows = await Promise.all(
       base.map(async (u) => {
         try {
-          // used del año en curso ya viene en vacationDays.used
-          const usedCurrent = u.vacationDays?.used ?? 0
-
-          if (!u.hireDate) {
-            return { ...u, used: usedCurrent } as AdminUser
-          }
-
           const sum = await vacationService.getWindowsSummaryFixed(
             u.id,
             dateOnly(u.hireDate) || undefined
           )
 
-          // Disponible total (todas las ventanas activas + bono)
-          const totalAvailable = Number(sum?.available ?? 0)
+          const windows = Array.isArray(sum?.windows) ? sum.windows : []
+          const totalVentanas = windows.reduce((acc, w) => acc + (Number(w?.days) || 0), 0)
+          const usadosVigente  = windows.reduce((acc, w) => acc + (Number(w?.used) || 0), 0)
+          const bonus          = Number(sum?.bonusAdmin) || 0
 
-          // Restantes de la ventana vigente (label === 'current')
-          const currentWin = (sum?.windows ?? []).find(w => w.label === 'current')
-          const remainingInCurrent =
-            Math.max((currentWin?.days ?? 0) - (currentWin?.used ?? 0), 0)
+          // Totales = días (todas ventanas activas) + bono
+          const total = totalVentanas + bonus
 
-          return {
-            ...u,
-            used: usedCurrent,
-            total: totalAvailable,
-            available: remainingInCurrent,
-          } as AdminUser
+          // Disponibles = summary.available (suma de restantes de ventanas activas)
+          // Si el service no devuelve, caemos a total - usados del vigente
+          const available = isFiniteNumber(sum?.available)
+            ? Number(sum!.available)
+            : Math.max(0, total - usadosVigente)
+
+          const row: RowUser = { ...u, total, used: usadosVigente, available }
+          return row
         } catch {
-          // Si falla el resumen, dejamos los valores de compat
-          return {
-            ...u,
-            used: u.vacationDays?.used ?? 0,
-            total: u.vacationDays?.total ?? 0,
-            available: u.vacationDays?.remaining ?? Math.max(
-              (u.vacationDays?.total ?? 0) - (u.vacationDays?.used ?? 0),
-              0
-            ),
-          } as AdminUser
+          // Fallback: deja los datos del backend tal cual
+          return u as RowUser
         }
       })
     )
 
-    users.value = enriched
+    users.value = rows
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
     console.error('Error fetching users:', err)
@@ -841,18 +829,41 @@ async function fetchUsers() {
   }
 }
 
-/* Helpers tabla — prioriza los campos del servidor */
-function total(u: AdminUser) {
-  // TOTALES = Disponible total (suma de restantes de todas las ventanas + bono)
-  return u.total ?? u.vacationDays?.total ?? 0
+/* Helpers tabla — prioriza los campos calculados (sin any) */
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v)
 }
-function used(u: AdminUser) {
-  // USADOS = del año en curso
-  return u.used ?? u.vacationDays?.used ?? 0
+
+/**
+ * TOTALES = suma de días de TODAS las ventanas activas + bono admin
+ * (lo calculamos en fetchUsers y lo guardamos en u.total)
+ */
+function total(u: RowUser): number {
+  if (isFiniteNumber(u.total)) return u.total
+  // fallback por si el backend envía un total consolidado
+  if (isFiniteNumber(u.vacationDays?.total)) return u.vacationDays!.total!
+  return 0
 }
-function remaining(u: AdminUser) {
-  // DISP. = restantes del año en curso (no calcular si el server ya lo envía)
-  return u.available ?? u.vacationDays?.remaining ?? Math.max(0, total(u) - used(u))
+
+/**
+ * USADOS = usados del año/ventana en curso (no de todas las ventanas)
+ * lo calculamos en fetchUsers y lo guardamos en u.used
+ */
+function used(u: RowUser): number {
+  if (isFiniteNumber(u.used)) return u.used
+  if (isFiniteNumber(u.vacationDays?.used)) return u.vacationDays!.used!
+  return 0
+}
+
+/**
+ * DISPONIBLES = suma de restantes de ventanas activas (incluye siguiente año si aplica)
+ * lo calculamos en fetchUsers (summary.available) y lo guardamos en u.available
+ */
+function remaining(u: RowUser): number {
+  if (isFiniteNumber(u.available)) return u.available
+  if (isFiniteNumber(u.vacationDays?.remaining)) return u.vacationDays!.remaining!
+  // último recurso: total - usados
+  return Math.max(0, total(u) - used(u))
 }
 
 /* ====== LFT summary (admin) ====== */
