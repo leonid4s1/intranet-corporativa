@@ -10,7 +10,6 @@ import {
   currentAnniversaryWindow,
   yearsOfService,
 } from '../utils/vacationLawMX.js'
-import { getUsedDaysInCurrentCycle } from '../services/vacationService.js'
 
 import { summarizeWindows } from '../utils/vacationSummary.js'
 
