@@ -1,6 +1,6 @@
 // server/src/routes/users.js
-import express from 'express';
-import mongoose from 'mongoose';
+import express from 'express'
+import mongoose from 'mongoose'
 import {
   getUsers,
   createUser,
@@ -9,45 +9,45 @@ import {
   updateUserPassword,
   toggleUserLock,
   updateUserData,
-  setVacationTotal,   // legacy
-  addVacationDays,    // legacy
-  setVacationUsed,    // legacy
+  setVacationTotal,      // legacy
+  addVacationDays,       // legacy
+  setVacationUsed,       // legacy
   // setVacationAvailable, // ← habilita si quieres editar "disponibles" directo (legacy)
-  updateUserMeta,     // ✅ puesto, nacimiento, ingreso
-  getUserVacationSummary, // ✅ resumen LFT vigente
-  adjustAdminExtra,   // ✅ NUEVO: bono admin (sube/baja, mínimo 0)
-} from '../controllers/userController.js';
+  updateUserMeta,        // ✅ puesto, nacimiento, ingreso
+  getUserVacationSummary,// ✅ resumen LFT vigente
+  adjustAdminBonus,      // ✅ NUEVO: bono admin (alias de adjustAdminExtra)
+} from '../controllers/userController.js'
 
-import { authenticate } from '../middleware/auth.js';
-import { adminMiddleware } from '../middleware/admin.js';
+import { authenticate } from '../middleware/auth.js'
+import { adminMiddleware } from '../middleware/admin.js'
 
 // Opcional: wrapper para completar email si el front solo envía { name }
-import User from '../models/User.js';
+import User from '../models/User.js'
 
-const router = express.Router();
+const router = express.Router()
 
 /* =============================
    Helpers
    ============================= */
 
 // Todas estas rutas requieren admin
-const adminOnly = [authenticate, adminMiddleware];
+const adminOnly = [authenticate, adminMiddleware]
 
 // Valida que :id sea un ObjectId válido
 const validateId = (req, res, next) => {
   if (!mongoose.isValidObjectId(req.params.id)) {
-    return res.status(400).json({ success: false, message: 'ID inválido' });
+    return res.status(400).json({ success: false, message: 'ID inválido' })
   }
-  next();
-};
+  next()
+}
 
 // ✅ NUEVO: validador para :userId (la ruta del summary usa este parámetro)
 const validateUserId = (req, res, next) => {
   if (!mongoose.isValidObjectId(req.params.userId)) {
-    return res.status(400).json({ success: false, message: 'userId inválido' });
+    return res.status(400).json({ success: false, message: 'userId inválido' })
   }
-  next();
-};
+  next()
+}
 
 /* =============================
    Usuarios
@@ -59,26 +59,26 @@ router.get(
   ...adminOnly,
   (req, res, next) => {
     // Evita cache en listados de admin
-    res.set('Cache-Control', 'no-store');
-    next();
+    res.set('Cache-Control', 'no-store')
+    next()
   },
   getUsers
-);
+)
 
 // POST /api/users  -> crear usuario
-router.post('/', ...adminOnly, createUser);
+router.post('/', ...adminOnly, createUser)
 
 // DELETE /api/users/:id
-router.delete('/:id', ...adminOnly, validateId, deleteUser);
+router.delete('/:id', ...adminOnly, validateId, deleteUser)
 
 // PATCH /api/users/:id/role
-router.patch('/:id/role', ...adminOnly, validateId, updateUserRole);
+router.patch('/:id/role', ...adminOnly, validateId, updateUserRole)
 
 // PATCH /api/users/:id/password
-router.patch('/:id/password', ...adminOnly, validateId, updateUserPassword);
+router.patch('/:id/password', ...adminOnly, validateId, updateUserPassword)
 
 // PATCH /api/users/:id/lock
-router.patch('/:id/lock', ...adminOnly, validateId, toggleUserLock);
+router.patch('/:id/lock', ...adminOnly, validateId, toggleUserLock)
 
 /**
  * PATCH /api/users/:id/name
@@ -88,48 +88,48 @@ router.patch('/:id/lock', ...adminOnly, validateId, toggleUserLock);
 router.patch('/:id/name', ...adminOnly, validateId, async (req, res, next) => {
   try {
     if (!req.body?.email) {
-      const u = await User.findById(req.params.id).select('email').lean();
+      const u = await User.findById(req.params.id).select('email').lean()
       if (!u) {
-        return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+        return res.status(404).json({ success: false, message: 'Usuario no encontrado' })
       }
-      req.body.email = u.email;
+      req.body.email = u.email
     }
-    return updateUserData(req, res);
+    return updateUserData(req, res)
   } catch (err) {
-    next(err);
+    next(err)
   }
-});
+})
 
 /* =============================
    Metadata laboral
    ============================= */
 
 // PATCH /api/users/:id/meta  { position?, birthDate?, hireDate? }
-router.patch('/:id/meta', ...adminOnly, validateId, updateUserMeta);
+router.patch('/:id/meta', ...adminOnly, validateId, updateUserMeta)
 
 /* =============================
    Vacaciones
    ============================= */
 
 // ✅ Resumen LFT vigente (autenticado o admin)
-router.get('/:userId/vacation/summary', authenticate, validateUserId, getUserVacationSummary);
+router.get('/:userId/vacation/summary', authenticate, validateUserId, getUserVacationSummary)
 
-// ✅ NUEVO: Bono admin (puede subir o bajar, pero nunca por debajo del derecho ⇒ adminExtra ≥ 0)
+// ✅ NUEVO: Bono admin (puede subir o bajar, nunca negativo)
 // PATCH /api/users/:id/vacation/bonus   Body: { delta?: number }  ó  { value?: number }
-router.patch('/:id/vacation/bonus', ...adminOnly, validateId, adjustAdminExtra);
+router.patch('/:id/vacation/bonus', ...adminOnly, validateId, adjustAdminBonus)
 
 // ---- Endpoints legacy de soporte (mantener por compatibilidad) ----
 
 // PATCH /api/users/:id/vacation/total  { total }
-router.patch('/:id/vacation/total', ...adminOnly, validateId, setVacationTotal);
+router.patch('/:id/vacation/total', ...adminOnly, validateId, setVacationTotal)
 
 // POST /api/users/:id/vacation/add    { days }
-router.post('/:id/vacation/add', ...adminOnly, validateId, addVacationDays);
+router.post('/:id/vacation/add', ...adminOnly, validateId, addVacationDays)
 
 // PATCH /api/users/:id/vacation/used  { used }
-router.patch('/:id/vacation/used', ...adminOnly, validateId, setVacationUsed);
+router.patch('/:id/vacation/used', ...adminOnly, validateId, setVacationUsed)
 
 // (OPCIONAL) PATCH /api/users/:id/vacation/available { available }
-// router.patch('/:id/vacation/available', ...adminOnly, validateId, setVacationAvailable);
+// router.patch('/:id/vacation/available', ...adminOnly, validateId, setVacationAvailable)
 
-export default router;
+export default router

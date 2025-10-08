@@ -783,7 +783,7 @@ export const adjustAdminExtra = async (req, res) => {
     }
 
     const user = await User.findById(id).select('hireDate vacationDays').lean()
-    if (!user) return res.status(404).json({ success: false, message: ERROR_MESSAGES.USER_NOT_FOUND })
+    if (!user) return res.status(404).json({ success: false, message: 'Usuario no encontrado' })
     if (!user.hireDate) {
       return res.status(400).json({ success: false, message: 'Falta hireDate para calcular derecho' })
     }
@@ -795,7 +795,6 @@ export const adjustAdminExtra = async (req, res) => {
       ? Math.floor(Number(req.body.value))
       : currentExtra + Math.floor(Number(req.body.delta))
 
-    // Nunca por debajo del derecho: adminExtra no puede ser negativo
     if (!Number.isFinite(newExtra)) newExtra = currentExtra
     if (newExtra < 0) newExtra = 0
 
@@ -805,23 +804,42 @@ export const adjustAdminExtra = async (req, res) => {
       { runValidators: false }
     )
 
-    // Sincronía de compat con VacationData (opcional)
     const used = await getUsedDaysInCurrentCycle(id, user.hireDate)
     const totalCompat = right + newExtra
+    const remainingCompat = Math.max(totalCompat - used, 0)
+
     try {
       await VacationData.updateOne(
         { user: id },
-        { $set: { total: totalCompat, used, remaining: Math.max(totalCompat - used, 0), lastUpdate: new Date() } },
+        {
+          $set: {
+            total: totalCompat,
+            used,
+            remaining: remainingCompat,
+            lastUpdate: new Date(),
+          },
+        },
         { upsert: true, runValidators: false }
       )
     } catch { /* noop */ }
 
     return res.json({
       success: true,
-      data: { right, adminExtra: newExtra, total: right + newExtra }
+      data: {
+        right,
+        adminExtra: newExtra,
+        adminBonus: newExtra,
+        total: totalCompat,
+        used,
+        remaining: remainingCompat,
+      }
     })
   } catch (error) {
     console.error('[adjustAdminExtra] error:', error)
     return res.status(500).json({ success: false, message: 'Error ajustando bono', error: error?.message })
   }
 }
+
+// Alias para rutas/servicios que esperan adjustAdminBonus
+export { adjustAdminExtra as adjustAdminBonus }
+

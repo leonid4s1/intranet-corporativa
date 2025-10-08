@@ -1099,15 +1099,16 @@ async function applyBonusDelta(delta: number) {
   try {
     savingVac.value = true
     const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { delta })
+    updateRowFromVD(vacForm.value.id, vd)
+
     const newTotal = Math.floor(Number(vd.total || 0))
     const newBonus = newTotal - vacForm.value.lftTotal
+
+    // Sincroniza el modal
     vacForm.value.currentTotal = newTotal
     vacForm.value.bonus = newBonus
     vacForm.value.bonusEdit = newBonus
     vacForm.value.effectiveTotal = Math.max(newTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
-
-    const idx = users.value.findIndex(u => u.id === vacForm.value.id)
-    if (idx !== -1) users.value[idx] = { ...users.value[idx], vacationDays: { ...vd } }
 
     pushToast(`Bono actualizado. Total: ${vd.total}, Disponibles: ${vd.remaining}`, 'success')
   } catch (e: unknown) {
@@ -1129,15 +1130,16 @@ async function applyBonusValue() {
   try {
     savingVac.value = true
     const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { value: safeBonus })
+    updateRowFromVD(vacForm.value.id, vd)
+
     const newTotal = Math.floor(Number(vd.total || 0))
     const nb = newTotal - vacForm.value.lftTotal
+
+    // Sincroniza el modal
     vacForm.value.currentTotal = newTotal
     vacForm.value.bonus = nb
     vacForm.value.bonusEdit = nb
     vacForm.value.effectiveTotal = Math.max(newTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
-
-    const idx = users.value.findIndex(u => u.id === vacForm.value.id)
-    if (idx !== -1) users.value[idx] = { ...users.value[idx], vacationDays: { ...vd } }
 
     pushToast(`Bono fijado. Total: ${vd.total}, Disponibles: ${vd.remaining}`, 'success')
   } catch (e: unknown) {
@@ -1165,15 +1167,9 @@ async function saveVacationTotal() {
     }
 
     const vd = await userService.setVacationTotal(vacForm.value.id, { total: newTotal })
+    updateRowFromVD(vacForm.value.id, vd)
 
-    const idx = users.value.findIndex(u => u.id === vacForm.value.id)
-    if (idx !== -1) {
-      users.value[idx] = {
-        ...users.value[idx],
-        vacationDays: { ...vd },
-      }
-    }
-
+    // Sincroniza el modal
     vacForm.value.currentTotal = vd.total
     vacForm.value.effectiveTotal = vd.total
     vacForm.value.bonus = vd.total - vacForm.value.lftTotal
@@ -1209,6 +1205,24 @@ const winModal = ref<{
 
 function remainingOf(w: VacationWindow): number {
   return Math.max((w?.days ?? 0) - (w?.used ?? 0), 0)
+}
+
+function updateRowFromVD(id: string, vd: VacationDays) {
+  const idx = users.value.findIndex(u => u.id === id)
+  if (idx === -1) return
+  const row = users.value[idx]
+
+  // Actualiza subdoc (para el modal y compat)
+  const vac = { ...row.vacationDays, ...vd }
+
+  // Actualiza columnas de la tabla (prioritarias en tus getters total/used/remaining)
+  users.value[idx] = {
+    ...row,
+    vacationDays: vac,
+    total: vd.total,
+    used: vd.used ?? row.used ?? 0,
+    available: vd.remaining,
+  }
 }
 
 async function openWindowsModal(u: AdminUser) {

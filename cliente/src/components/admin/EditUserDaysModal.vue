@@ -10,16 +10,25 @@
       </div>
 
       <form @submit.prevent="onSubmit" class="vacation-form">
+        <!-- TOTAL con stepper -1 / +1 -->
         <div class="form-group highlight">
           <label class="form-label">Total:</label>
-          <input
-            type="number"
-            step="1"
-            min="0"
-            v-model.number="form.total"
-            class="form-input editable"
-            required
-          >
+
+          <div class="stepper">
+            <button type="button" class="btn stepper-btn" @click="step(-1)">-1</button>
+
+            <input
+              type="number"
+              step="1"
+              min="0"
+              v-model.number="form.total"
+              class="form-input editable stepper-input"
+              required
+            >
+
+            <button type="button" class="btn stepper-btn" @click="step(1)">+1</button>
+          </div>
+
           <p v-if="showWarning" class="warning-message">
             <i class="fas fa-exclamation-circle"></i> {{ warningText }}
           </p>
@@ -79,6 +88,20 @@ const form = ref({
 
 const showWarning = ref(false);
 const warningText = ref('');
+
+/** Incrementa/decrementa el total respetando mínimo 0 y la validación de usados */
+function step(n: number) {
+  const used = Number(form.value.used) || 0;
+  const next = Math.max(0, Math.floor((Number(form.value.total) || 0) + n));
+  if (next < used) {
+    showWarning.value = true;
+    warningText.value = 'El total no puede ser menor que los días usados';
+    return;
+  }
+  showWarning.value = false;
+  form.value.total = next;
+  form.value.remaining = next - used;
+}
 
 watch(
   () => props.user,
@@ -179,18 +202,10 @@ function onSubmit() {
   cursor: pointer;
   transition: color 0.2s;
 }
+.close-btn:hover { color: #e74c3c; }
 
-.close-btn:hover {
-  color: #e74c3c;
-}
-
-.vacation-form {
-  padding: 1.5rem;
-}
-
-.form-group {
-  margin-bottom: 1.2rem;
-}
+.vacation-form { padding: 1.5rem; }
+.form-group { margin-bottom: 1.2rem; }
 
 .form-group.highlight {
   background-color: #f5f9ff;
@@ -214,23 +229,26 @@ function onSubmit() {
   font-size: 1rem;
   transition: border-color 0.2s;
 }
-
 .form-input:focus {
   outline: none;
   border-color: #3498db;
   box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
 }
+.form-input.editable { border-color: #3498db; background-color: #fff; }
+.form-input:disabled { background-color: #f5f5f5; color: #666; cursor: not-allowed; }
 
-.form-input.editable {
-  border-color: #3498db;
-  background-color: #fff;
+/* Stepper */
+.stepper { display: flex; align-items: center; gap: .5rem; }
+.stepper-input { flex: 1; text-align: center; }
+.stepper-btn {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  padding: .55rem .7rem;
+  border-radius: .5rem;
+  min-width: 3.2rem;
 }
-
-.form-input:disabled {
-  background-color: #f5f5f5;
-  color: #666;
-  cursor: not-allowed;
-}
+.stepper-btn:hover { background: #f8fafc; }
 
 .modal-actions {
   display: flex;
@@ -250,33 +268,14 @@ function onSubmit() {
   border: none;
   font-size: 0.95rem;
 }
-
-.cancel-btn {
-  background-color: #f5f5f5;
-  color: #7f8c8d;
-}
-
-.cancel-btn:hover {
-  background-color: #e0e0e0;
-}
-
-.submit-btn {
-  background-color: #3498db;
-  color: white;
-}
-
-.submit-btn:hover {
-  background-color: #2980b9;
-}
+.cancel-btn { background-color: #f5f5f5; color: #7f8c8d; }
+.cancel-btn:hover { background-color: #e0e0e0; }
+.submit-btn { background-color: #3498db; color: white; }
+.submit-btn:hover { background-color: #2980b9; }
 
 /* Validación visual para el input */
-.form-input.editable:invalid {
-  border-color: #e74c3c;
-}
-
-.form-input.editable:valid {
-  border-color: #2ecc71;
-}
+.form-input.editable:invalid { border-color: #e74c3c; }
+.form-input.editable:valid { border-color: #2ecc71; }
 
 .warning-message {
   margin-top: 0.5rem;

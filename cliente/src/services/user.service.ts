@@ -299,6 +299,11 @@ export async function adjustVacationBonus(userId: string, payload: AdjustVacatio
   return { total, used, remaining }
 }
 
+export async function adjustAdminBonus(userId: string, delta: number): Promise<VacationDays> {
+  // Conveniencia para pasar solo el delta desde la UI
+  return adjustVacationBonus(userId, { delta });
+}
+
 /* ========== Export por defecto ========== */
 export default {
   login,
@@ -315,4 +320,5 @@ export default {
   addVacationDays,
   setVacationUsed,
   adjustVacationBonus,
+  adjustAdminBonus,
 }
