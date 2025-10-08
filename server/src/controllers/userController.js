@@ -2,6 +2,7 @@
 import bcrypt from 'bcryptjs'
 import User from '../models/User.js'
 import VacationData from '../models/VacationData.js'
+import { getUsedDaysInCurrentCycle, ensureWindowsAndCompute } from '../services/vacationService.js';
 
 // --- LFT MX 2023: utilidades y servicio de cómputo del ciclo vigente
 import {
@@ -541,67 +542,100 @@ export const updateUserMeta = async (req, res) => {
 
 /** PATCH /api/users/:id/vacation/total  { total }  (legacy) */
 export const setVacationTotal = async (req, res) => {
-  const { id } = req.params
-  const rawTotal = req.body?.total
+  const { id } = req.params;
+  const rawTotal = req.body?.total;
 
   try {
-    const total = Math.max(0, Math.floor(Number(rawTotal)))
-    if (!Number.isFinite(total)) {
-      return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' })
+    let reqTotal = Math.floor(Number(rawTotal));
+    if (!Number.isFinite(reqTotal) || reqTotal < 0) {
+      return res.status(400).json({ success: false, message: 'total debe ser un número >= 0' });
     }
 
-    const u = await User.findById(id).select('vacationDays.used').lean()
-    if (!u) {
-      return res.status(404).json({ success: false, message: 'Usuario no encontrado' })
-    }
+    // Necesitamos hireDate y used actuales
+    const u = await User.findById(id).select('hireDate vacationDays').lean();
+    if (!u) return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
 
-    const used = Math.max(0, Math.floor(Number(u?.vacationDays?.used ?? 0)))
-    if (total < used) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'El total no puede ser menor que los usados', meta: { total, used } })
-    }
+    const right = u.hireDate ? currentEntitlementDays(u.hireDate) : 0;
+    const used  = u.hireDate
+      ? await getUsedDaysInCurrentCycle(id, u.hireDate)
+      : Math.max(0, Math.floor(Number(u?.vacationDays?.used ?? 0)));
 
+    // No permitir total < used, ni (si hay hireDate) por debajo del derecho
+    let total = Math.max(reqTotal, used, right);
+    const adminExtra = Math.max(total - right, 0);
+    const remaining  = Math.max(total - used, 0);
+
+    // 1) Persistir en User (incluye adminExtra para que todo quede consistente)
     await User.updateOne(
       { _id: id },
-      { $set: { 'vacationDays.total': total, 'vacationDays.lastUpdate': new Date() } },
+      {
+        $set: {
+          'vacationDays.total': total,
+          'vacationDays.used': used,
+          'vacationDays.adminExtra': adminExtra,
+          'vacationDays.lastUpdate': new Date(),
+        }
+      },
       { runValidators: false }
-    )
+    );
 
-    const remaining = Math.max(0, total - used)
-    res.json({ success: true, message: 'Días de vacaciones (total) actualizados', data: { total, used, remaining } })
-
-    setImmediate(async () => {
-      try {
+    // 2) Sincronizar VacationData (legacy + BONUS para el modal)
+    try {
+      await VacationData.updateOne(
+        { user: id },
+        {
+          $set: {
+            total,
+            used,
+            remaining,
+            bonusAdmin: adminExtra,  // ← ¡clave! el modal lee este campo
+            lastUpdate: new Date(),
+          },
+          $setOnInsert: { user: id },
+        },
+        { upsert: true, runValidators: false }
+      );
+    } catch (err) {
+      if (err?.code === 11000) {
         await VacationData.updateOne(
           { user: id },
           {
-            $set: { total, used, remaining, lastUpdate: new Date() },
-            $setOnInsert: { user: id },
+            $set: {
+              total,
+              used,
+              remaining,
+              bonusAdmin: adminExtra,
+              lastUpdate: new Date(),
+            }
           },
-          { upsert: true, runValidators: false }
-        )
-      } catch (err) {
-        if (err?.code === 11000) {
-          await VacationData.updateOne(
-            { user: id },
-            { $set: { total, used, remaining, lastUpdate: new Date() } },
-            { runValidators: false }
-          )
-        } else {
-          console.error('[setVacationTotal/bg] ERROR sync VacationData:', err?.message || err)
-        }
+          { runValidators: false }
+        );
+      } else {
+        throw err;
       }
-    })
+    }
+
+    // 3) Refrescar ventanas en segundo plano
+    if (u.hireDate) {
+      process.nextTick(async () => {
+        try { await ensureWindowsAndCompute(id, u.hireDate); } catch {}
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Días de vacaciones (total) actualizados',
+      data: { right, adminExtra, total, used, remaining }
+    });
   } catch (error) {
-    console.error('setVacationTotal error:', error)
+    console.error('setVacationTotal error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error actualizando días',
       error: error?.message || String(error),
-    })
+    });
   }
-}
+};
 
 /** POST /api/users/:id/vacation/add  { days }  (legacy) */
 export const addVacationDays = async (req, res) => {
