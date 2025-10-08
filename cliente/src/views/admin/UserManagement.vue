@@ -798,24 +798,28 @@ async function fetchUsers() {
           )
 
           const windows = Array.isArray(sum?.windows) ? sum.windows : []
-          const totalVentanas = windows.reduce((acc, w) => acc + (Number(w?.days) || 0), 0)
-          const usadosVigente  = windows.reduce((acc, w) => acc + (Number(w?.used) || 0), 0)
-          const bonus          = Number(sum?.bonusAdmin) || 0
 
-          // Totales = días (todas ventanas activas) + bono
-          const total = totalVentanas + bonus
+          // Ventana del ciclo vigente (preferimos label, si no, por fechas)
+          const today = dayjs()
+          const currentWin =
+            windows.find(w => w?.label === 'current') ??
+            windows.find(w => today.isAfter(dayjs(w?.start)) && today.isBefore(dayjs(w?.end).add(1, 'day')))
 
-          // Disponibles = summary.available (suma de restantes de ventanas activas)
-          // Si el service no devuelve, caemos a total - usados del vigente
-          const available = isFiniteNumber(sum?.available)
-            ? Number(sum!.available)
-            : Math.max(0, total - usadosVigente)
+          const curDays = Number(currentWin?.days) || 0
+          const curUsed = Number(currentWin?.used) || 0
+          const bonus   = Number(sum?.bonusAdmin) || 0
 
-          const row: RowUser = { ...u, total, used: usadosVigente, available }
-          return row
+          // En la tabla:
+          //  - TOTALES  = días del ciclo vigente (+ bono si aplica)
+          //  - USADOS   = usados del ciclo vigente
+          //  - DISP.    = (días del ciclo vigente - usados) (+ bono si aplica)
+          const total = curDays + bonus               // ej. 12
+          const used = curUsed                        // ej. 3
+          const available = Math.max(0, (curDays - curUsed) + bonus) // ej. 9
+
+          return { ...u, total, used, available }
         } catch {
-          // Fallback: deja los datos del backend tal cual
-          return u as RowUser
+          return u as RowUser // fallback a lo que devuelva el backend
         }
       })
     )
