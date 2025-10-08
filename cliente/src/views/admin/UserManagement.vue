@@ -790,41 +790,40 @@ async function fetchUsers() {
     const base = await userService.getAllUsers() as AdminUser[]
 
     const rows = await Promise.all(
-      base.map(async (u) => {
-        try {
-          const sum = await vacationService.getWindowsSummaryFixed(
-            u.id,
-            dateOnly(u.hireDate) || undefined
-          )
+  base.map(async (u) => {
+    try {
+      const sum = await vacationService.getWindowsSummaryFixed(
+        u.id,
+        dateOnly(u.hireDate) || undefined
+      )
 
-          const windows = Array.isArray(sum?.windows) ? sum.windows : []
+      const windows = Array.isArray(sum?.windows) ? sum.windows : []
+      const today = dayjs().startOf('day')
 
-          // Ventana del ciclo vigente (preferimos label, si no, por fechas)
-          const today = dayjs()
-          const currentWin =
-            windows.find(w => w?.label === 'current') ??
-            windows.find(w => today.isAfter(dayjs(w?.start)) && today.isBefore(dayjs(w?.end).add(1, 'day')))
+      // 1) Localiza la "ventana vigente" (label === 'current') y valida que esté activa
+      const current = windows.find(w => w?.label === 'current')
+      const currentStart   = current?.start   ? dayjs(current.start).startOf('day') : null
+      const currentExpires = current?.expiresAt ? dayjs(current.expiresAt).startOf('day') : null
+      const isActive = !!(current && currentStart && currentExpires
+        && (today.isSame(currentStart) || today.isAfter(currentStart))
+        && (today.isSame(currentExpires) || today.isBefore(currentExpires)))
 
-          const curDays = Number(currentWin?.days) || 0
-          const curUsed = Number(currentWin?.used) || 0
-          const bonus   = Number(sum?.bonusAdmin) || 0
+      // 2) Si no hay activa (aún no cumple 1 año), todo 0
+      const total = isActive ? (Number(current?.days) || 0) : 0
+      const used  = isActive ? (Number(current?.used) || 0) : 0
+      const available = isActive ? Math.max(0, total - used) : 0
 
-          // En la tabla:
-          //  - TOTALES  = días del ciclo vigente (+ bono si aplica)
-          //  - USADOS   = usados del ciclo vigente
-          //  - DISP.    = (días del ciclo vigente - usados) (+ bono si aplica)
-          const total = curDays + bonus               // ej. 12
-          const used = curUsed                        // ej. 3
-          const available = Math.max(0, (curDays - curUsed) + bonus) // ej. 9
+      // Nota: ignoramos días de la ventana futura y el bono admin para la tabla
+      return { ...u, total, used, available } as RowUser
+    } catch {
+      // Fallback: deja los datos que ya vinieron del backend
+      return u as RowUser
+    }
+  })
+)
 
-          return { ...u, total, used, available }
-        } catch {
-          return u as RowUser // fallback a lo que devuelva el backend
-        }
-      })
-    )
+users.value = rows
 
-    users.value = rows
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
     console.error('Error fetching users:', err)
@@ -833,40 +832,40 @@ async function fetchUsers() {
   }
 }
 
-/* Helpers tabla — prioriza los campos calculados (sin any) */
-function isFiniteNumber(v: unknown): v is number {
-  return typeof v === 'number' && Number.isFinite(v)
-}
+// helper
+const isFiniteNumber = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isFinite(v)
 
 /**
- * TOTALES = suma de días de TODAS las ventanas activas + bono admin
- * (lo calculamos en fetchUsers y lo guardamos en u.total)
+ * TOTALES (tabla) = días de la **ventana vigente** únicamente.
+ * (se calcula en fetchUsers y se guarda en u.total)
+ * Si aún no inicia su primera ventana → 0.
  */
 function total(u: RowUser): number {
   if (isFiniteNumber(u.total)) return u.total
-  // fallback por si el backend envía un total consolidado
-  if (isFiniteNumber(u.vacationDays?.total)) return u.vacationDays!.total!
+  if (isFiniteNumber(u.vacationDays?.total)) return u.vacationDays!.total
   return 0
 }
 
 /**
- * USADOS = usados del año/ventana en curso (no de todas las ventanas)
- * lo calculamos en fetchUsers y lo guardamos en u.used
+ * USADOS (tabla) = usados de la **ventana vigente**.
+ * (se calcula en fetchUsers y se guarda en u.used)
  */
 function used(u: RowUser): number {
   if (isFiniteNumber(u.used)) return u.used
-  if (isFiniteNumber(u.vacationDays?.used)) return u.vacationDays!.used!
+  if (isFiniteNumber(u.vacationDays?.used)) return u.vacationDays!.used
   return 0
 }
 
 /**
- * DISPONIBLES = suma de restantes de ventanas activas (incluye siguiente año si aplica)
- * lo calculamos en fetchUsers (summary.available) y lo guardamos en u.available
+ * DISPONIBLES (tabla) = restantes de la **ventana vigente**.
+ * (se calcula en fetchUsers y se guarda en u.available)
+ * No incluye la ventana futura ni el bono admin.
  */
 function remaining(u: RowUser): number {
   if (isFiniteNumber(u.available)) return u.available
-  if (isFiniteNumber(u.vacationDays?.remaining)) return u.vacationDays!.remaining!
-  // último recurso: total - usados
+  if (isFiniteNumber(u.vacationDays?.remaining)) return u.vacationDays!.remaining
+  // último recurso si solo tenemos total/usados de la vigente
   return Math.max(0, total(u) - used(u))
 }
 
