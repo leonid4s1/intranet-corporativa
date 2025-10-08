@@ -1104,6 +1104,9 @@ async function applyBonusDelta(delta: number) {
     const newTotal = Math.floor(Number(vd.total || 0))
     const newBonus = newTotal - vacForm.value.lftTotal
 
+    // Refrescar modal de ventanas si está abierto
+    recomputeWindowsAvailable(newBonus)
+
     // Sincroniza el modal
     vacForm.value.currentTotal = newTotal
     vacForm.value.bonus = newBonus
@@ -1134,6 +1137,7 @@ async function applyBonusValue() {
 
     const newTotal = Math.floor(Number(vd.total || 0))
     const nb = newTotal - vacForm.value.lftTotal
+    recomputeWindowsAvailable(nb)
 
     // Sincroniza el modal
     vacForm.value.currentTotal = newTotal
@@ -1175,6 +1179,8 @@ async function saveVacationTotal() {
     vacForm.value.bonus = vd.total - vacForm.value.lftTotal
     vacForm.value.bonusEdit = vacForm.value.bonus
 
+    recomputeWindowsAvailable(vacForm.value.bonus)
+
     closeVacModal()
     pushToast(`Días de vacaciones actualizados: total ${vd.total}, disponibles ${vd.remaining}`, 'success')
   } catch (e: unknown) {
@@ -1206,6 +1212,19 @@ const winModal = ref<{
 function remainingOf(w: VacationWindow): number {
   return Math.max((w?.days ?? 0) - (w?.used ?? 0), 0)
 }
+
+function recomputeWindowsAvailable(bonus: number) {
+  if (!showWindowsModal.value || !winModal.value.summary) return
+  const windows = winModal.value.summary.windows || []
+  const baseRemaining = windows.reduce((acc, w) => {
+    const d = Number(w?.days) || 0
+    const u = Number(w?.used) || 0
+    return acc + Math.max(0, d - u)
+  }, 0)
+  winModal.value.summary.bonusAdmin = Math.max(0, Math.floor(bonus))
+  winModal.value.summary.available = baseRemaining + winModal.value.summary.bonusAdmin
+}
+
 
 function updateRowFromVD(id: string, vd: VacationDays) {
   const idx = users.value.findIndex(u => u.id === id)

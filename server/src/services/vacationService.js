@@ -6,6 +6,7 @@ dayjs.extend(utc)
 import VacationRequest from '../models/VacationRequest.js'
 import Holiday from '../models/Holiday.js'
 import VacationData from '../models/VacationData.js'
+import User from '../models/User.js' // ✅ sincronizar bonusAdmin desde User
 
 // Utils LFT MX
 import {
@@ -109,7 +110,7 @@ export async function getUsedDaysInCurrentCycle(userId, hireDate) {
 
 function computeNextWindowFromCurrent(currentWin) {
   const start = dayjs.utc(currentWin.start).add(1, 'year').toDate()
-  // el fin de la siguiente es 6 meses después del nuevo start (equivale a end + 1 año)
+  // fin nominal 6 meses después; la vigencia real la da expiresAt (start + 18m)
   const end = dayjs.utc(start).add(6, 'month').toDate()
   return { start, end }
 }
@@ -172,7 +173,18 @@ export async function ensureWindowsAndCompute(userId, hireDate) {
   // Cargar/crear documento
   let vac = await VacationData.findOne({ user: userId })
   if (!vac) vac = new VacationData({ user: userId, lftBaseDate: hireDate, windows: [] })
-  if (!vac.lftBaseDate) vac.lftBaseDate = hireDate
+
+  // ✅ Alinear siempre base LFT (por si cambió hireDate)
+  vac.lftBaseDate = hireDate
+
+  // ✅ Sincronizar bonusAdmin desde User.vacationDays.adminExtra (fuente de verdad)
+  try {
+    const u = await User.findById(userId).select('vacationDays.adminExtra').lean()
+    const adminExtra = Math.max(0, Number(u?.vacationDays?.adminExtra ?? 0)) || 0
+    vac.bonusAdmin = adminExtra
+  } catch (e) {
+    // si falla, conservamos el que ya tenía el doc
+  }
 
   // Construir plantillas
   const tplCurrent = buildWindow({ label: 'current', start: cur.start, end: cur.end, hireDate })
@@ -221,7 +233,7 @@ export async function ensureWindowsAndCompute(userId, hireDate) {
 
   return {
     userId,
-    now: now.toDate(),
+    now: now.toISOString(), // ✅ ISO string (mejor para el front)
     bonusAdmin: bonus,
     windows: [newCurrent, newNext],
     available,

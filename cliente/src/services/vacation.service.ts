@@ -166,6 +166,12 @@ function unwrapData<T>(payload: unknown, fallback: T): T {
   return (payload as T) ?? fallback;
 }
 
+// Añade este helper arriba (cerca de otros helpers)
+const noCacheCfg = () => ({
+  params: { _t: Date.now() },
+  headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' as const, Expires: '0' as const },
+});
+
 /* =========================
  * Endpoints de usuario
  * ========================= */
@@ -365,17 +371,13 @@ function parseEntitlement(payload: unknown): EntitlementResponse {
 
 /** GET /vacations/my/entitlement */
 export async function getMyEntitlement(): Promise<EntitlementResponse> {
-  const { data } = await api.get('/vacations/my/entitlement', {
-    headers: { 'Cache-Control': 'no-store' },
-  });
+  const { data} = await api.get('/vacations/my/entitlement', noCacheCfg()); // ← aquí
   return parseEntitlement(data);
 }
 
 /** GET /vacations/users/:userId/entitlement (admin) */
 export async function getUserEntitlementAdmin(userId: string): Promise<EntitlementResponse> {
-  const { data } = await api.get(`/vacations/users/${userId}/entitlement`, {
-    headers: { 'Cache-Control': 'no-store' },
-  });
+  const { data } = await api.get(`/vacations/users/${userId}/entitlement`, noCacheCfg()); // ← aquí
   return parseEntitlement(data);
 }
 
@@ -575,17 +577,13 @@ export function fixWindowsDays(summary: WindowsSummary, hireDate?: string | Date
 
 /** GET /vacations/users/me/summary */
 export async function getMyWindowsSummary(): Promise<WindowsSummary> {
-  const { data } = await api.get('/vacations/users/me/summary', {
-    headers: { 'Cache-Control': 'no-store' },
-  });
+  const { data } = await api.get('/vacations/users/me/summary', noCacheCfg()); // ← aquí
   return parseWindowsSummary(data);
 }
 
 /** GET /vacations/users/:userId/summary (admin) */
 export async function getWindowsSummaryByUserId(userId: string): Promise<WindowsSummary> {
-  const { data } = await api.get(`/vacations/users/${userId}/summary`, {
-    headers: { 'Cache-Control': 'no-store' },
-  });
+  const { data } = await api.get(`/vacations/users/${userId}/summary`, noCacheCfg()); // ← aquí
   return parseWindowsSummary(data);
 }
 

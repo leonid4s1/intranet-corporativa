@@ -194,21 +194,46 @@ export const getVacationSummarySelf = async (req, res, next) => {
     if (!me) return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
     if (!me.hireDate) return res.status(400).json({ success: false, error: 'Falta fecha de ingreso (hireDate)' });
 
+    // 1) Asegura/realinea ventanas y sincroniza bonusAdmin → VacationData
+    try {
+      await ensureWindowsAndCompute(req.user.id, me.hireDate);
+    } catch (syncErr) {
+      console.warn('[getVacationSummarySelf] ensureWindowsAndCompute:', syncErr?.message || syncErr);
+    }
+
+    // 2) Lee el summary ya fresco (con bonusAdmin y ventanas vigentes)
     const summary = await getWindowsSummary(req.user.id, me.hireDate);
+
+    res.set('Cache-Control', 'no-store'); // doble anti-cache por si acaso
     return res.json({ success: true, data: summary });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 };
 
 // GET /vacations/users/:userId/summary  (admin/otros)
 export const getVacationSummaryByUserId = async (req, res, next) => {
   try {
-    const u = await User.findById(req.params.userId).select('hireDate').lean();
+    const { userId } = req.params;
+    const u = await User.findById(userId).select('hireDate').lean();
     if (!u) return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
     if (!u.hireDate) return res.status(400).json({ success: false, error: 'Falta fecha de ingreso (hireDate)' });
 
-    const summary = await getWindowsSummary(u._id, u.hireDate);
+    // 1) Asegura/realinea ventanas y sincroniza bonusAdmin → VacationData
+    try {
+      await ensureWindowsAndCompute(userId, u.hireDate);
+    } catch (syncErr) {
+      console.warn('[getVacationSummaryByUserId] ensureWindowsAndCompute:', syncErr?.message || syncErr);
+    }
+
+    // 2) Lee el summary ya fresco (con bonusAdmin y ventanas vigentes)
+    const summary = await getWindowsSummary(userId, u.hireDate);
+
+    res.set('Cache-Control', 'no-store'); // doble anti-cache por si acaso
     return res.json({ success: true, data: summary });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 };
 
 /* ===========================

@@ -143,7 +143,7 @@ export const getUsers = async (_req, res) => {
     // 2) Trae ventanas/bono por usuario (las que usas para el modal)
     const userIds = users.map(u => u._id)
     const vacDocs = await VacationData.find({ user: { $in: userIds } })
-      .select('user windows adminBonus') // ajusta si tu esquema usa otro nombre
+      .select('user windows bonusAdmin') // ajusta si tu esquema usa otro nombre
       .lean()
       .exec()
     const vacByUser = new Map(vacDocs.map(v => [String(v.user), v]))
@@ -160,8 +160,8 @@ export const getUsers = async (_req, res) => {
       // Ventanas y bono para el resumen de la tabla
       const vd = vacByUser.get(String(u._id))
       const windows = vd?.windows ?? []                         // las mismas del modal
-      const bonus = Number.isFinite(Number(vd?.adminBonus))
-        ? Number(vd.adminBonus)
+      const bonus = Number.isFinite(Number(vd?.bonusAdmin))
+        ? Number(vd.bonusAdmin)
         : Number(u?.vacationDays?.adminExtra ?? 0)
 
       const s = summarizeWindows(windows, bonus)
@@ -798,16 +798,19 @@ export const adjustAdminExtra = async (req, res) => {
     if (!Number.isFinite(newExtra)) newExtra = currentExtra
     if (newExtra < 0) newExtra = 0
 
+    // 1) Persistimos en User
     await User.updateOne(
       { _id: id },
       { $set: { 'vacationDays.adminExtra': newExtra, 'vacationDays.lastUpdate': new Date() } },
       { runValidators: false }
     )
 
+    // 2) Recalculamos compat para VacationData
     const used = await getUsedDaysInCurrentCycle(id, user.hireDate)
     const totalCompat = right + newExtra
     const remainingCompat = Math.max(totalCompat - used, 0)
 
+    // 3) Sincronizamos VacationData guardando también adminBonus
     try {
       await VacationData.updateOne(
         { user: id },
@@ -816,19 +819,41 @@ export const adjustAdminExtra = async (req, res) => {
             total: totalCompat,
             used,
             remaining: remainingCompat,
+            bonusAdmin: newExtra,      // ← clave: persistimos el bono aquí
             lastUpdate: new Date(),
           },
+          $setOnInsert: { user: id },
         },
         { upsert: true, runValidators: false }
       )
-    } catch { /* noop */ }
+    } catch (err) {
+      // Reintento en caso de carrera con upsert (E11000)
+      if (err?.code === 11000) {
+        await VacationData.updateOne(
+          { user: id },
+          {
+            $set: {
+              total: totalCompat,
+              used,
+              remaining: remainingCompat,
+              bonusAdmin: newExtra,    // ← también en el reintento
+              lastUpdate: new Date(),
+            },
+          },
+          { runValidators: false }
+        )
+      } else {
+        console.error('[adjustAdminExtra] sync VacationData error:', err?.message || err)
+      }
+    }
 
     return res.json({
       success: true,
       data: {
         right,
         adminExtra: newExtra,
-        adminBonus: newExtra,
+        adminBonus: newExtra,     // por comodidad en el front
+        bonusAdmin: newExtra,  // y en ambos nombres (como en VacationData)
         total: totalCompat,
         used,
         remaining: remainingCompat,
