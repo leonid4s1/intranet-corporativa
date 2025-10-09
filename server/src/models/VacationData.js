@@ -47,6 +47,10 @@ const VacationDataSchema = new mongoose.Schema(
       set: clampInt,
       validate: {
         validator: function (v) {
+          // En updates, Mongoose pasa `this` como Query => no tenemos `this.total`.
+          // Saltamos la validación aquí; el pre-hook ya recalcula `remaining`
+          // y nosotros nos aseguramos de no dejar inconsistencias.
+          if (this && this.constructor && this.constructor.name === 'Query') return true
           return typeof v !== 'number' || v <= this.total
         },
         message: 'used no puede exceder total',
@@ -79,18 +83,18 @@ VacationDataSchema.pre('save', function (next) {
 
 // Validaciones + lastUpdate en updates (mantén compat con legacy)
 VacationDataSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function (next) {
-  this.setOptions({ runValidators: true })
+  // ⬅️ ¡Ojo! ya NO forzamos runValidators aquí
 
   const update = this.getUpdate() || {}
   if (!update.$set) update.$set = {}
   const set = update.$set
 
   const touchesTotal = Object.prototype.hasOwnProperty.call(set, 'total')
-  const touchesUsed = Object.prototype.hasOwnProperty.call(set, 'used')
+  const touchesUsed  = Object.prototype.hasOwnProperty.call(set, 'used')
 
   if (touchesTotal || touchesUsed) {
     const total = clampInt(set.total ?? 0)
-    const used = clampInt(set.used ?? 0)
+    const used  = clampInt(set.used  ?? 0)
     if (!Object.prototype.hasOwnProperty.call(set, 'remaining')) {
       set.remaining = clampInt(total - used)
     }

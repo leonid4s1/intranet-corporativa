@@ -238,7 +238,7 @@ export const createUser = async (req, res) => {
     const user = new User({
       name,
       email,
-      password, // se hashea en pre('save') si lo mantienes
+      password, // se hashea en pre('save')
       role,
       isActive,
       isVerified,
@@ -250,7 +250,7 @@ export const createUser = async (req, res) => {
 
     ensureVacSubdoc(user)
 
-    // Compatibilidad: si llega availableDays, lo guardamos en total (legacy)
+    // Compat: si llega availableDays, lo guardamos en total (legacy)
     if (typeof availableDays === 'number' && availableDays >= 0) {
       user.vacationDays.total = Math.floor(availableDays)
       user.vacationDays.used = 0
@@ -259,7 +259,29 @@ export const createUser = async (req, res) => {
     user.vacationDays.lastUpdate = new Date()
 
     await user.save()
-    await upsertVacationData(user)
+    await upsertVacationData(user) // total/used/remaining (legacy)
+
+    // ⬇️ Inicializa VacationData con bono y fecha base LFT y crea ventanas
+    try {
+      await VacationData.updateOne(
+        { user: user._id },
+        {
+          $set: {
+            bonusAdmin: user.vacationDays.adminExtra || 0, // ⬅️ bono admin visible en modal
+            lftBaseDate: user.hireDate || null,            // ⬅️ base para LFT
+            lastUpdate: new Date(),
+          },
+          $setOnInsert: { user: user._id },
+        },
+        { upsert: true, runValidators: false }
+      )
+
+      if (user.hireDate) {
+        await ensureWindowsAndCompute(user._id, user.hireDate) // ⬅️ genera/realinea current/next
+      }
+    } catch (err) {
+      console.error('[createUser] init VacationData/windows:', err?.message || err)
+    }
 
     // Respuesta usando el mapper LFT
     const used = user.hireDate ? await getUsedDaysInCurrentCycle(user._id, user.hireDate) : 0
