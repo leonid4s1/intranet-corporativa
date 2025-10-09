@@ -1053,6 +1053,9 @@ async function openVacationModal(u: AdminUser) {
   vacError.value = null
   showVacModal.value = true
 
+  // 🟢 Asegura el ID de inmediato
+  vacForm.value.id = (u.id || '').trim()
+
   const curTotal = total(u)
   const curUsed = used(u)
 
@@ -1067,7 +1070,8 @@ async function openVacationModal(u: AdminUser) {
     const bonus = Number(sum?.bonusAdmin) || 0
 
     vacForm.value = {
-      id: u.id,
+      ...vacForm.value, // conserva id
+      id: (u.id || '').trim(),
       name: u.name,
       email: u.email,
 
@@ -1088,7 +1092,8 @@ async function openVacationModal(u: AdminUser) {
   } catch (e: unknown) {
     console.error('[vacationModal] error loading LFT summary', e)
     vacForm.value = {
-      id: u.id,
+      ...vacForm.value, // conserva id
+      id: (u.id || '').trim(),
       name: u.name,
       email: u.email,
       used: curUsed,
@@ -1112,25 +1117,31 @@ function closeVacModal() {
 
 /** Ajuste relativo del bono (+/-) */
 async function applyBonusDelta(delta: number) {
+  // ⚠️ asegurar id
+  const userId = (vacForm.value.id || selectedUser.value?.id || '').trim()
+  if (!userId) {
+    vacError.value = 'No hay usuario activo en el modal'
+    pushToast('No hay usuario activo en el modal', 'error')
+    return
+  }
+
   if (bonusWouldGoUnderLaw(delta)) return
   try {
     savingVac.value = true
-    const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { delta })
-    updateRowFromVD(vacForm.value.id, vd)
+    const vd: VacationDays = await userService.adjustVacationBonus(userId, { delta })
+    updateRowFromVD(userId, vd)
 
-    // Recalcula filas (total/used/available) desde ventanas + bono
+    // recarga tabla y modal
     await fetchUsers()
-
-    // Refresca el modal con el bono real guardado
-    const sum = await vacationService.getWindowsSummaryFixed(vacForm.value.id)
+    const sum = await vacationService.getWindowsSummaryFixed(userId)
     const newBonus = Number(sum?.bonusAdmin) || 0
 
-    // toma la fila recalculada
-    const row = users.value.find(u => u.id === vacForm.value.id)
+    const row = users.value.find(u => u.id === userId)
     const newRowTotal = row ? total(row) : Math.floor(Number(vd.total || 0))
 
     recomputeWindowsAvailable(newBonus)
 
+    vacForm.value.id = userId
     vacForm.value.currentTotal = newRowTotal
     vacForm.value.bonus = newBonus
     vacForm.value.bonusEdit = newBonus
@@ -1149,24 +1160,32 @@ async function applyBonusDelta(delta: number) {
 
 /** Fijar bono a un valor específico */
 async function applyBonusValue() {
+  // ⚠️ asegurar id
+  const userId = (vacForm.value.id || selectedUser.value?.id || '').trim()
+  if (!userId) {
+    vacError.value = 'No hay usuario activo en el modal'
+    pushToast('No hay usuario activo en el modal', 'error')
+    return
+  }
+
   const b = Math.floor(Number(vacForm.value.bonusEdit ?? 0))
   const minB = minBonusAllowed.value
   const safeBonus = Math.max(b, minB)
 
   try {
     savingVac.value = true
-    const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { value: safeBonus })
-    updateRowFromVD(vacForm.value.id, vd)
+    const vd: VacationDays = await userService.adjustVacationBonus(userId, { value: safeBonus })
+    updateRowFromVD(userId, vd)
 
-    // Recalcula filas y modal
     await fetchUsers()
-    const sum = await vacationService.getWindowsSummaryFixed(vacForm.value.id)
+    const sum = await vacationService.getWindowsSummaryFixed(userId)
     const newBonus = Number(sum?.bonusAdmin) || 0
-    const row = users.value.find(u => u.id === vacForm.value.id)
+    const row = users.value.find(u => u.id === userId)
     const newRowTotal = row ? total(row) : Math.floor(Number(vd.total || 0))
 
     recomputeWindowsAvailable(newBonus)
 
+    vacForm.value.id = userId
     vacForm.value.currentTotal = newRowTotal
     vacForm.value.bonus = newBonus
     vacForm.value.bonusEdit = newBonus
@@ -1185,6 +1204,14 @@ async function applyBonusValue() {
 
 /** Guardado legacy de total absoluto (respetando límites LFT y usados) */
 async function saveVacationTotal() {
+  // ⚠️ asegurar id
+  const userId = (vacForm.value.id || selectedUser.value?.id || '').trim()
+  if (!userId) {
+    vacError.value = 'No hay usuario activo en el modal'
+    pushToast('No hay usuario activo en el modal', 'error')
+    return
+  }
+
   try {
     savingVac.value = true
     const newTotal = Math.max(
@@ -1197,16 +1224,17 @@ async function saveVacationTotal() {
       return closeVacModal()
     }
 
-    const vd = await userService.setVacationTotal(vacForm.value.id, { total: newTotal })
-    updateRowFromVD(vacForm.value.id, vd)
+    const vd = await userService.setVacationTotal(userId, { total: newTotal })
+    updateRowFromVD(userId, vd)
 
     // 🔽 Recalcula filas (total/used/available) desde ventanas + bono o compat
     await fetchUsers()
 
     // Sincroniza el modal con lo recalculado
-    const row = users.value.find(u => u.id === vacForm.value.id)
+    const row = users.value.find(u => u.id === userId)
     const rowTotal = row ? total(row) : vd.total
 
+    vacForm.value.id = userId
     vacForm.value.currentTotal = rowTotal
     vacForm.value.effectiveTotal = rowTotal
     vacForm.value.bonus = rowTotal - vacForm.value.lftTotal

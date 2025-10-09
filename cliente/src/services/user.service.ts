@@ -8,6 +8,9 @@ export interface VacationDays {
   total: number
   used: number
   remaining: number
+  adminExtra?: number
+  adminBonus?: number
+  bonusAdmin?: number
 }
 
 export interface User {
@@ -18,23 +21,17 @@ export interface User {
   isActive: boolean
   isVerified?: boolean
   email_verified_at?: string | null
-  // 👇 metadata laboral
   position?: string | null
-  birthDate?: string | null // YYYY-MM-DD o ISO
-  hireDate?: string | null  // YYYY-MM-DD o ISO
-
-  // Compat
+  birthDate?: string | null
+  hireDate?: string | null
   vacationDays?: VacationDays
-
-  // 👇 Columnas que pinta la TABLA (server las manda ya calculadas)
-  used?: number        // USADOS (año en curso)
-  total?: number       // TOTALES (Disponible total)
-  available?: number   // DISP.   (restantes año en curso)
+  used?: number
+  total?: number
+  available?: number
 }
 
 export interface UpdateNamePayload {
   name: string
-  /** Algunos backends también piden email; tu updateUserData lo acepta */
   email?: string
 }
 
@@ -42,65 +39,65 @@ export interface UpdatePasswordPayload {
   newPassword: string
 }
 
-/* Auth payloads */
 export interface LoginPayload { email: string; password: string }
 
-/** 🔐 Creación por admin */
 export interface CreateUserAsAdminPayload {
   name: string
   email: string
   password: string
   password_confirmation: string
   role?: Role
-  // 👇 nuevos (opcionales)
   position?: string
   birthDate?: string | Date
   hireDate?: string | Date
 }
 
-/** Meta editable desde el panel */
 export interface UpdateUserMetaPayload {
   position?: string | ''
   birthDate?: string | ''
   hireDate?: string | ''
 }
 
-/* Vacaciones */
 export interface SetVacationTotalPayload { total: number }
 
-/** NUEVO: Payload para bonus admin */
 export interface AdjustVacationBonusPayload {
-  /** Fija un valor absoluto */
   value?: number
-  /** Ajusta relativo (+/-) */
   delta?: number
 }
 
 /* ========== Helpers seguros ========== */
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
-function get<T = unknown>(o: Record<string, unknown>, k: string): T | undefined {
+
+function get<T>(o: Record<string, unknown>, k: string): T | undefined {
   return o[k] as T | undefined
 }
+
 function toStr(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined
 }
+
 function toBool(v: unknown): boolean | undefined {
   if (typeof v === 'boolean') return v
   if (v === 'true') return true
   if (v === 'false') return false
   return undefined
 }
+
 function toNum(v: unknown): number | undefined {
   if (typeof v === 'number' && !Number.isNaN(v)) return v
   if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v)
   return undefined
 }
 
-/** Normaliza fecha a YYYY-MM-DD (UTC) si es posible */
 function toISODateOnly(v?: unknown): string | undefined {
-  const s = typeof v === 'string' ? v : v instanceof Date ? v.toISOString() : undefined
+  const s =
+    typeof v === 'string'
+      ? v
+      : v instanceof Date
+      ? v.toISOString()
+      : undefined
   if (!s) return undefined
   const d = new Date(s)
   if (Number.isNaN(d.getTime())) return typeof v === 'string' ? v : undefined
@@ -110,17 +107,17 @@ function toISODateOnly(v?: unknown): string | undefined {
   return `${yyyy}-${mm}-${dd}`
 }
 
-/** Normaliza un usuario venido del backend */
-function normalizeUser(raw: unknown): User | null {
-  const pick = (x: unknown): Record<string, unknown> | null => {
-    if (!isRecord(x)) return null
-    if (isRecord(x.user)) return x.user as Record<string, unknown>
-    if (isRecord(x.data)) return x.data as Record<string, unknown>
-    return x
-  }
+/** Validar id antes de llamar a la API */
+function requireId(id: string | undefined | null): string {
+  const v = (id ?? '').toString().trim()
+  if (!v) throw new Error('Falta el id del usuario')
+  return v
+}
 
-  const r = pick(raw)
-  if (!r) return null
+/** Normaliza un usuario del backend */
+function normalizeUser(raw: unknown): User | null {
+  if (!isRecord(raw)) return null
+  const r = raw.data && isRecord(raw.data) ? raw.data : raw
 
   const id = toStr(get(r, 'id')) ?? toStr(get(r, '_id'))
   if (!id) return null
@@ -137,26 +134,21 @@ function normalizeUser(raw: unknown): User | null {
 
   const isVerified = toBool(get(r, 'isVerified'))
   const email_verified_at =
-    toStr(get(r, 'email_verified_at')) ??
-    toStr(get(r, 'emailVerifiedAt')) ??
-    undefined
+    toStr(get(r, 'email_verified_at')) ?? toStr(get(r, 'emailVerifiedAt'))
 
-  // Metadata
   const position = toStr(get(r, 'position')) ?? null
-  const birthDate = toISODateOnly(get(r, 'birthDate')) ?? (toStr(get(r, 'birthDate')) ?? null)
-  const hireDate  = toISODateOnly(get(r, 'hireDate'))  ?? (toStr(get(r, 'hireDate'))  ?? null)
+  const birthDate = toISODateOnly(get(r, 'birthDate')) ?? toStr(get(r, 'birthDate')) ?? null
+  const hireDate = toISODateOnly(get(r, 'hireDate')) ?? toStr(get(r, 'hireDate')) ?? null
 
-  // Vacaciones (compat)
   let vacationDays: VacationDays | undefined
-  if (isRecord(get(r, 'vacationDays'))) {
-    const v = get(r, 'vacationDays') as Record<string, unknown>
-    const totalV = toNum(get(v, 'total')) ?? 0
-    const usedV  = toNum(get(v, 'used'))  ?? 0
-    const remainingV = toNum(get(v, 'remaining')) ?? Math.max(0, totalV - usedV)
+  const vDays = get<Record<string, unknown>>(r, 'vacationDays')
+  if (isRecord(vDays)) {
+    const totalV = toNum(get(vDays, 'total')) ?? 0
+    const usedV = toNum(get(vDays, 'used')) ?? 0
+    const remainingV = toNum(get(vDays, 'remaining')) ?? Math.max(0, totalV - usedV)
     vacationDays = { total: totalV, used: usedV, remaining: remainingV }
   }
 
-  // 👇 Campos calculados por el server para la TABLA (no calcular aquí)
   const used = toNum(get(r, 'used'))
   const total = toNum(get(r, 'total'))
   const available = toNum(get(r, 'available'))
@@ -168,7 +160,7 @@ function normalizeUser(raw: unknown): User | null {
     role,
     isActive: isActive ?? true,
     isVerified,
-    email_verified_at,
+    email_verified_at: email_verified_at ?? null,
     position,
     birthDate,
     hireDate,
@@ -179,69 +171,83 @@ function normalizeUser(raw: unknown): User | null {
   }
 }
 
+/** Limpia el payload del bonus */
+function cleanBonusPayload(p: AdjustVacationBonusPayload): AdjustVacationBonusPayload {
+  const result: AdjustVacationBonusPayload = {}
+  if (typeof p.value === 'number' && Number.isFinite(p.value)) result.value = Math.floor(p.value)
+  if (typeof p.delta === 'number' && Number.isFinite(p.delta)) result.delta = Math.floor(p.delta)
+  return result
+}
+
 function unwrapList(data: unknown): unknown[] {
   if (isRecord(data)) {
-    if (Array.isArray(get<unknown[]>(data, 'data')))  return (get<unknown[]>(data, 'data')  as unknown[]) ?? []
-    if (Array.isArray(get<unknown[]>(data, 'users'))) return (get<unknown[]>(data, 'users') as unknown[]) ?? []
+    if (Array.isArray(data.data)) return data.data
+    if (Array.isArray(data.users)) return data.users
   }
   return Array.isArray(data) ? data : []
 }
 
-/* ========== AUTH mínimo ========== */
-async function login(payload: LoginPayload): Promise<void> {
+/* ========== AUTH ========== */
+export async function login(payload: LoginPayload): Promise<void> {
   await api.post('/auth/login', payload)
 }
-async function getProfile(): Promise<User> {
+
+export async function getProfile(): Promise<User> {
   const { data } = await api.get('/auth/profile')
-  const payload = isRecord(data) ? (get(data, 'user') ?? data) : data
-  const user = normalizeUser(payload)
+  const user = normalizeUser(data)
   if (!user) throw new Error('Respuesta inválida al cargar perfil')
   return user
 }
-async function logout(): Promise<void> {
+
+export async function logout(): Promise<void> {
   await api.post('/auth/logout')
 }
 
 /* ========== USERS (admin) ========== */
 export async function getAllUsers(): Promise<User[]> {
   const { data } = await api.get('/users', { params: { _t: Date.now() } })
-  return unwrapList(data).map(normalizeUser).filter((u): u is User => !!u)
+  return unwrapList(data)
+    .map(normalizeUser)
+    .filter((u): u is User => !!u)
 }
+
 export async function updateUserName(userId: string, payload: UpdateNamePayload): Promise<User> {
+  const id = requireId(userId)
   const body: Record<string, unknown> = { name: payload.name }
   if (payload.email) body.email = payload.email
-  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/name`, body)
+  const { data } = await api.patch(`/users/${encodeURIComponent(id)}/name`, body)
   const user = normalizeUser(data)
   if (!user) throw new Error('Respuesta inválida al actualizar nombre')
   return user
 }
+
 export async function toggleUserLock(userId: string): Promise<{ id: string; isActive: boolean }> {
-  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/lock`)
-  const container = isRecord(data) ? (get<Record<string, unknown>>(data, 'user') ?? data) : data
-  if (isRecord(container)) {
-    const id = toStr(get(container, 'id')) ?? toStr(get(container, '_id')) ?? userId
-    const isActive =
-      toBool(get(container, 'isActive')) ??
-      toBool(get(container, 'active')) ??
-      (toBool(get(container, 'locked')) !== undefined ? !toBool(get(container, 'locked'))! : undefined) ??
-      true
-    return { id, isActive: !!isActive }
-  }
-  return { id: userId, isActive: true }
+  const id = requireId(userId)
+  const { data } = await api.patch(`/users/${encodeURIComponent(id)}/lock`)
+  const user = normalizeUser(data)
+  return { id, isActive: user?.isActive ?? true }
 }
-export async function updateUserPassword(userId: string, payload: UpdatePasswordPayload): Promise<{ success: boolean }> {
-  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/password`, {
-    newPassword: payload.newPassword
+
+export async function updateUserPassword(
+  userId: string,
+  payload: UpdatePasswordPayload
+): Promise<{ success: boolean }> {
+  const id = requireId(userId)
+  const { data } = await api.patch(`/users/${encodeURIComponent(id)}/password`, {
+    newPassword: payload.newPassword,
   })
-  const success = isRecord(data) ? (get<boolean>(data, 'success') ?? true) : true
-  return { success }
+  return { success: isRecord(data) ? Boolean(data.success ?? true) : true }
 }
+
 export async function deleteUser(userId: string): Promise<{ success: boolean }> {
-  const { data } = await api.delete(`/users/${encodeURIComponent(userId)}`)
-  const success = isRecord(data) ? (get<boolean>(data, 'success') ?? true) : true
-  return { success }
+  const id = requireId(userId)
+  const { data } = await api.delete(`/users/${encodeURIComponent(id)}`)
+  return { success: isRecord(data) ? Boolean(data.success ?? true) : true }
 }
-export async function createUserAsAdmin(payload: CreateUserAsAdminPayload): Promise<{ user: User; requiresEmailVerification: boolean }> {
+
+export async function createUserAsAdmin(
+  payload: CreateUserAsAdminPayload
+): Promise<{ user: User; requiresEmailVerification: boolean }> {
   const body: Record<string, unknown> = {
     name: payload.name?.trim(),
     email: payload.email?.trim().toLowerCase(),
@@ -251,57 +257,81 @@ export async function createUserAsAdmin(payload: CreateUserAsAdminPayload): Prom
   if (payload.role) body.role = payload.role
   if (payload.position?.trim()) body.position = payload.position.trim()
   if (payload.birthDate) body.birthDate = toISODateOnly(payload.birthDate)
-  if (payload.hireDate)  body.hireDate  = toISODateOnly(payload.hireDate)
+  if (payload.hireDate) body.hireDate = toISODateOnly(payload.hireDate)
 
   const { data } = await api.post('/auth/register', body)
-  const user = normalizeUser(isRecord(data) ? (get(data, 'user') ?? data) : data)
+  const user = normalizeUser(data)
   if (!user) throw new Error('Respuesta inválida al crear usuario')
   const requiresEmailVerification =
-    (isRecord(data) && (get<boolean>(data, 'requiresEmailVerification') ?? true)) || true
+    (isRecord(data) && Boolean(data.requiresEmailVerification ?? true)) || true
   return { user, requiresEmailVerification }
 }
-export async function updateUserMeta(userId: string, payload: UpdateUserMetaPayload): Promise<User> {
+
+export async function updateUserMeta(
+  userId: string,
+  payload: UpdateUserMetaPayload
+): Promise<User> {
+  const id = requireId(userId)
   const body: Record<string, unknown> = {}
   if (payload.position !== undefined) body.position = payload.position?.trim?.() ?? ''
-  if (payload.birthDate !== undefined) body.birthDate = payload.birthDate ? toISODateOnly(payload.birthDate) : ''
-  if (payload.hireDate  !== undefined) body.hireDate  = payload.hireDate  ? toISODateOnly(payload.hireDate)  : ''
-  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/meta`, body)
+  if (payload.birthDate !== undefined)
+    body.birthDate = payload.birthDate ? toISODateOnly(payload.birthDate) : ''
+  if (payload.hireDate !== undefined)
+    body.hireDate = payload.hireDate ? toISODateOnly(payload.hireDate) : ''
+  const { data } = await api.patch(`/users/${encodeURIComponent(id)}/meta`, body)
   const user = normalizeUser(data)
   if (!user) throw new Error('Respuesta inválida al actualizar metadata')
   return user
 }
 
 /* ======= Vacaciones ======= */
-export async function setVacationTotal(userId: string, payload: SetVacationTotalPayload): Promise<VacationDays> {
-  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/vacation/total`, { total: Number(payload.total) })
-  const containerRaw: unknown = isRecord(data) ? (get<unknown>(data, 'data') ?? data) : data
-  const container: Record<string, unknown> = isRecord(containerRaw) ? containerRaw : {}
-  const total = toNum(get(container, 'total')) ?? 0
-  const used  = toNum(get(container, 'used'))  ?? 0
-  const remaining = Math.max(0, total - used)
-  return { total, used, remaining }
+export async function setVacationTotal(
+  userId: string,
+  payload: SetVacationTotalPayload
+): Promise<VacationDays> {
+  const id = requireId(userId)
+  const { data } = await api.patch(`/users/${encodeURIComponent(id)}/vacation/total`, {
+    total: Number(payload.total),
+  })
+  const d = isRecord(data) && isRecord(data.data) ? data.data : (data as Record<string, unknown>)
+  const total = toNum(get(d, 'total')) ?? 0
+  const used = toNum(get(d, 'used')) ?? 0
+  return { total, used, remaining: Math.max(0, total - used) }
 }
+
 export async function addVacationDays(userId: string, payload: { days: number }): Promise<void> {
-  await api.post(`/users/${encodeURIComponent(userId)}/vacation/add`, { days: Number(payload.days) })
+  const id = requireId(userId)
+  await api.post(`/users/${encodeURIComponent(id)}/vacation/add`, {
+    days: Number(payload.days),
+  })
 }
+
 export async function setVacationUsed(userId: string, payload: { used: number }): Promise<void> {
-  await api.patch(`/users/${encodeURIComponent(userId)}/vacation/used`, { used: Number(payload.used) })
+  const id = requireId(userId)
+  await api.patch(`/users/${encodeURIComponent(id)}/vacation/used`, {
+    used: Number(payload.used),
+  })
 }
 
 /** NUEVO: Ajustar bono admin */
-export async function adjustVacationBonus(userId: string, payload: AdjustVacationBonusPayload): Promise<VacationDays> {
-  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/vacation/bonus`, payload)
-  const containerRaw: unknown = isRecord(data) ? (get<unknown>(data, 'data') ?? data) : data
-  const container: Record<string, unknown> = isRecord(containerRaw) ? containerRaw : {}
-  const total = toNum(get(container, 'total')) ?? 0
-  const used  = toNum(get(container, 'used'))  ?? 0 // si el backend no envía 'used', quedará 0
-  const remaining = Math.max(0, total - used)
-  return { total, used, remaining }
+export async function adjustVacationBonus(
+  userId: string,
+  payload: AdjustVacationBonusPayload
+): Promise<VacationDays> {
+  const id = requireId(userId)
+  const body = cleanBonusPayload(payload)
+  if (!('delta' in body) && !('value' in body)) {
+    throw new Error('Debes enviar delta o value para ajustar el bono')
+  }
+  const { data } = await api.patch(`/users/${encodeURIComponent(id)}/vacation/bonus`, body)
+  const d = isRecord(data) && isRecord(data.data) ? data.data : (data as Record<string, unknown>)
+  const total = toNum(get(d, 'total')) ?? 0
+  const used = toNum(get(d, 'used')) ?? 0
+  return { total, used, remaining: Math.max(0, total - used) }
 }
 
 export async function adjustAdminBonus(userId: string, delta: number): Promise<VacationDays> {
-  // Conveniencia para pasar solo el delta desde la UI
-  return adjustVacationBonus(userId, { delta });
+  return adjustVacationBonus(userId, { delta })
 }
 
 /* ========== Export por defecto ========== */
