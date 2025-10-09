@@ -827,7 +827,11 @@ async function fetchUsers() {
             return { ...u, total: 0, used: 0, available: 0 } as RowUser
           }
 
-          const bonus = Number(sum?.bonusAdmin) || 0
+          // 1) ✅ Bono con fallback a adminExtra del listado base
+          const bonus =
+            Number.isFinite(Number(sum?.bonusAdmin))
+              ? Number(sum!.bonusAdmin)
+              : Number((u.vacationDays as VacationDaysExtended | undefined)?.adminExtra ?? 0)
 
           // Totales = días de TODAS las ventanas activas + bono
           const totalActivas = activeWins.reduce((acc, w) => acc + (Number(w?.days) || 0), 0)
@@ -1067,7 +1071,12 @@ async function openVacationModal(u: AdminUser) {
       u.id,
       dateOnly(u.hireDate) || undefined
     )
-    const bonus = Number(sum?.bonusAdmin) || 0
+
+    // 2) ✅ Bono en modal con el mismo fallback que en fetchUsers
+    const bonus =
+      Number.isFinite(Number(sum?.bonusAdmin))
+        ? Number(sum!.bonusAdmin)
+        : Number((u.vacationDays as VacationDaysExtended | undefined)?.adminExtra ?? 0)
 
     vacForm.value = {
       ...vacForm.value, // conserva id
@@ -1115,6 +1124,12 @@ function closeVacModal() {
   vacError.value = null
 }
 
+function readRowBonus(userId: string): number {
+  const row = users.value.find(u => u.id === userId)
+  const adminExtra = (row?.vacationDays as VacationDaysExtended | undefined)?.adminExtra
+  return Number.isFinite(Number(adminExtra)) ? Number(adminExtra) : 0
+}
+
 /** Ajuste relativo del bono (+/-) */
 async function applyBonusDelta(delta: number) {
   // ⚠️ asegurar id
@@ -1131,13 +1146,26 @@ async function applyBonusDelta(delta: number) {
     const vd: VacationDays = await userService.adjustVacationBonus(userId, { delta })
     updateRowFromVD(userId, vd)
 
-    // recarga tabla y modal
+    // recarga tabla
     await fetchUsers()
+
+    // 3) ✅ Prioriza el valor del endpoint; si no viene, summary; si no, adminExtra del row
+    // El endpoint de bono ya devuelve el valor nuevo en cualquiera de estas claves
+    const vdBonus = [
+      (vd as unknown as VacationDaysExtended).adminBonus,
+      (vd as unknown as VacationDaysExtended).bonusAdmin,
+      (vd as unknown as VacationDaysExtended).adminExtra
+    ].find(v => Number.isFinite(Number(v)))
+
+    // Si por alguna razón no vino, caemos al summary; y si tampoco, al adminExtra del row
     const sum = await vacationService.getWindowsSummaryFixed(userId)
-    const newBonus = Number(sum?.bonusAdmin) || 0
+    const sumBonus = Number.isFinite(Number(sum?.bonusAdmin)) ? Number(sum!.bonusAdmin) : undefined
+    const rowBonus = readRowBonus(userId)
+
+    const newBonus = Number(vdBonus ?? sumBonus ?? rowBonus ?? 0)
 
     const row = users.value.find(u => u.id === userId)
-    const newRowTotal = row ? total(row) : Math.floor(Number(vd.total || 0))
+    const newRowTotal = row ? total(row) : Math.floor(Number((vd as VacationDays).total || 0))
 
     recomputeWindowsAvailable(newBonus)
 
@@ -1178,10 +1206,22 @@ async function applyBonusValue() {
     updateRowFromVD(userId, vd)
 
     await fetchUsers()
+
+    // 3 bis) ✅ Mismo reemplazo para newBonus en applyBonusValue
+    const vdBonus = [
+      (vd as unknown as VacationDaysExtended).adminBonus,
+      (vd as unknown as VacationDaysExtended).bonusAdmin,
+      (vd as unknown as VacationDaysExtended).adminExtra
+    ].find(v => Number.isFinite(Number(v)))
+
     const sum = await vacationService.getWindowsSummaryFixed(userId)
-    const newBonus = Number(sum?.bonusAdmin) || 0
+    const sumBonus = Number.isFinite(Number(sum?.bonusAdmin)) ? Number(sum!.bonusAdmin) : undefined
+    const rowBonus = readRowBonus(userId)
+
+    const newBonus = Number(vdBonus ?? sumBonus ?? rowBonus ?? 0)
+
     const row = users.value.find(u => u.id === userId)
-    const newRowTotal = row ? total(row) : Math.floor(Number(vd.total || 0))
+    const newRowTotal = row ? total(row) : Math.floor(Number((vd as VacationDays).total || 0))
 
     recomputeWindowsAvailable(newBonus)
 
@@ -1527,10 +1567,9 @@ function closeWindowsModal() {
 .actions-column { width: 140px; min-width: 140px; }
 .actions-cell { display: flex; gap: 0.5rem; white-space: nowrap; }
 
-/* La celda de Ventana usa tipografía pequeña y puede partir línea */
+/* keep existing style blocks below intact */
 .window-cell small { display: block; color: #718096; margin-top: .125rem; }
 
-/* Botón "Ver saldo" */
 .win-btn {
   padding: .375rem .75rem;
   border-radius: .375rem;
@@ -1540,7 +1579,6 @@ function closeWindowsModal() {
 }
 .win-btn:hover { background: #e2e8f0; }
 
-/* Chips y pill del modal de ventanas */
 .badge {
   display:inline-block;
   padding:.2rem .55rem;
