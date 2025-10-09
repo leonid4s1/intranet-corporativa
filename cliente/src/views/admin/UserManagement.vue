@@ -524,6 +524,28 @@ type CreateUserParam = Parameters<typeof userService.createUserAsAdmin>[0]
 type CreateUserReturn = Awaited<ReturnType<typeof userService.createUserAsAdmin>>
 type UpdateMetaParam = Parameters<typeof userService.updateUserMeta>[1]
 
+type VacationDaysExtended = VacationDays & {
+  adminExtra?: number
+  adminBonus?: number
+  bonusAdmin?: number
+}
+
+/** Estado del formulario de vacaciones (modal) */
+type VacFormState = {
+  id: string
+  name: string
+  email: string
+  used: number
+  currentTotal: number
+  lftTotal: number
+  windowStart: string
+  windowEnd: string
+  bonus: number
+  bonusEdit: number
+  effectiveTotal: number
+  newTotal: number
+}
+
 /* ===== Estado ===== */
 const users = ref<RowUser[]>([])
 const loading = ref(false)
@@ -727,28 +749,18 @@ const metaErrorsText = ref('')
 const showVacModal = ref(false)
 const savingVac = ref(false)
 const vacError = ref<string | null>(null)
-const vacForm = ref({
-  id: '' as string,
-  name: '' as string,
-  email: '' as string,
-
-  // Estado actual de BD (totales/used)
+const vacForm = ref<VacFormState>({
+  id: '',
+  name: '',
+  email: '',
   used: 0,
   currentTotal: 0,
-
-  // LFT resumen (DERECHO)
   lftTotal: 0,
-  windowStart: '' as string | '',
-  windowEnd: '' as string | '',
-
-  // Bono admin (derivado = total - LFT)
+  windowStart: '',
+  windowEnd: '',
   bonus: 0,
-  bonusEdit: 0, // valor editable
-
-  // Total efectivo (lft + bono)
+  bonusEdit: 0,
   effectiveTotal: 0,
-
-  // legacy setter
   newTotal: 0
 })
 
@@ -1041,13 +1053,18 @@ async function openVacationModal(u: AdminUser) {
   vacError.value = null
   showVacModal.value = true
 
-  // estado actual
   const curTotal = total(u)
   const curUsed = used(u)
 
   try {
     const s = await loadLFTSummary(u.id)
-    const bonus = curTotal - s.lftTotal
+
+    // Pide el summary de ventanas para leer el bono real
+    const sum = await vacationService.getWindowsSummaryFixed(
+      u.id,
+      dateOnly(u.hireDate) || undefined
+    )
+    const bonus = Number(sum?.bonusAdmin) || 0
 
     vacForm.value = {
       id: u.id,
@@ -1061,7 +1078,7 @@ async function openVacationModal(u: AdminUser) {
       windowStart: s.windowStart,
       windowEnd: s.windowEnd,
 
-      bonus: bonus,
+      bonus,
       bonusEdit: Math.max(minBonusAllowed.value, bonus),
 
       effectiveTotal: Math.max(curTotal, Math.max(curUsed, s.lftTotal)),
@@ -1101,19 +1118,25 @@ async function applyBonusDelta(delta: number) {
     const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { delta })
     updateRowFromVD(vacForm.value.id, vd)
 
-    const newTotal = Math.floor(Number(vd.total || 0))
-    const newBonus = newTotal - vacForm.value.lftTotal
+    // Recalcula filas (total/used/available) desde ventanas + bono
+    await fetchUsers()
 
-    // Refrescar modal de ventanas si está abierto
+    // Refresca el modal con el bono real guardado
+    const sum = await vacationService.getWindowsSummaryFixed(vacForm.value.id)
+    const newBonus = Number(sum?.bonusAdmin) || 0
+
+    // toma la fila recalculada
+    const row = users.value.find(u => u.id === vacForm.value.id)
+    const newRowTotal = row ? total(row) : Math.floor(Number(vd.total || 0))
+
     recomputeWindowsAvailable(newBonus)
 
-    // Sincroniza el modal
-    vacForm.value.currentTotal = newTotal
+    vacForm.value.currentTotal = newRowTotal
     vacForm.value.bonus = newBonus
     vacForm.value.bonusEdit = newBonus
-    vacForm.value.effectiveTotal = Math.max(newTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
+    vacForm.value.effectiveTotal = Math.max(newRowTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
 
-    pushToast(`Bono actualizado. Total: ${vd.total}, Disponibles: ${vd.remaining}`, 'success')
+    pushToast(`Bono actualizado. Total: ${newRowTotal}`, 'success')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'No se pudo ajustar el bono'
     vacError.value = msg
@@ -1135,17 +1158,21 @@ async function applyBonusValue() {
     const vd: VacationDays = await userService.adjustVacationBonus(vacForm.value.id, { value: safeBonus })
     updateRowFromVD(vacForm.value.id, vd)
 
-    const newTotal = Math.floor(Number(vd.total || 0))
-    const nb = newTotal - vacForm.value.lftTotal
-    recomputeWindowsAvailable(nb)
+    // Recalcula filas y modal
+    await fetchUsers()
+    const sum = await vacationService.getWindowsSummaryFixed(vacForm.value.id)
+    const newBonus = Number(sum?.bonusAdmin) || 0
+    const row = users.value.find(u => u.id === vacForm.value.id)
+    const newRowTotal = row ? total(row) : Math.floor(Number(vd.total || 0))
 
-    // Sincroniza el modal
-    vacForm.value.currentTotal = newTotal
-    vacForm.value.bonus = nb
-    vacForm.value.bonusEdit = nb
-    vacForm.value.effectiveTotal = Math.max(newTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
+    recomputeWindowsAvailable(newBonus)
 
-    pushToast(`Bono fijado. Total: ${vd.total}, Disponibles: ${vd.remaining}`, 'success')
+    vacForm.value.currentTotal = newRowTotal
+    vacForm.value.bonus = newBonus
+    vacForm.value.bonusEdit = newBonus
+    vacForm.value.effectiveTotal = Math.max(newRowTotal, Math.max(vacForm.value.used, vacForm.value.lftTotal))
+
+    pushToast(`Bono fijado. Total: ${newRowTotal}`, 'success')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'No se pudo fijar el bono'
     vacError.value = msg
@@ -1173,16 +1200,20 @@ async function saveVacationTotal() {
     const vd = await userService.setVacationTotal(vacForm.value.id, { total: newTotal })
     updateRowFromVD(vacForm.value.id, vd)
 
-    // Sincroniza el modal
-    vacForm.value.currentTotal = vd.total
-    vacForm.value.effectiveTotal = vd.total
-    vacForm.value.bonus = vd.total - vacForm.value.lftTotal
+    // 🔽 Recalcula filas (total/used/available) desde ventanas + bono o compat
+    await fetchUsers()
+
+    // Sincroniza el modal con lo recalculado
+    const row = users.value.find(u => u.id === vacForm.value.id)
+    const rowTotal = row ? total(row) : vd.total
+
+    vacForm.value.currentTotal = rowTotal
+    vacForm.value.effectiveTotal = rowTotal
+    vacForm.value.bonus = rowTotal - vacForm.value.lftTotal
     vacForm.value.bonusEdit = vacForm.value.bonus
 
-    recomputeWindowsAvailable(vacForm.value.bonus)
-
     closeVacModal()
-    pushToast(`Días de vacaciones actualizados: total ${vd.total}, disponibles ${vd.remaining}`, 'success')
+    pushToast(`Días de vacaciones actualizados: total ${rowTotal}`, 'success')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'No se pudieron guardar los días'
     vacError.value = msg
@@ -1225,22 +1256,31 @@ function recomputeWindowsAvailable(bonus: number) {
   winModal.value.summary.available = baseRemaining + winModal.value.summary.bonusAdmin
 }
 
-
-function updateRowFromVD(id: string, vd: VacationDays) {
+function updateRowFromVD(id: string, vd: VacationDaysExtended) {
   const idx = users.value.findIndex(u => u.id === id)
   if (idx === -1) return
+
   const row = users.value[idx]
 
-  // Actualiza subdoc (para el modal y compat)
-  const vac = { ...row.vacationDays, ...vd }
+  // Mezcla segura del subdoc de vacaciones
+  const mergedVac: VacationDaysExtended = {
+    ...(row.vacationDays ?? {}),
+    ...vd,
+  }
 
-  // Actualiza columnas de la tabla (prioritarias en tus getters total/used/remaining)
+  // Toma el bono desde cualquiera de las 3 claves conocidas
+  const bonus = [vd.adminBonus, vd.bonusAdmin, vd.adminExtra]
+    .find((v): v is number => typeof v === 'number' && Number.isFinite(v))
+
+  if (typeof bonus === 'number') {
+    // Normaliza a adminExtra para compatibilidad en el front
+    mergedVac.adminExtra = Math.floor(bonus)
+  }
+
+  // Solo sincroniza el subdoc; total/used/available los recalcula fetchUsers()
   users.value[idx] = {
     ...row,
-    vacationDays: vac,
-    total: vd.total,
-    used: vd.used ?? row.used ?? 0,
-    available: vd.remaining,
+    vacationDays: mergedVac,
   }
 }
 
