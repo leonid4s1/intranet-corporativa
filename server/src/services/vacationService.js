@@ -108,10 +108,12 @@ export async function getUsedDaysInCurrentCycle(userId, hireDate) {
    Ventanas (current / next)
 ========================= */
 
+/**
+ * FIX: la ventana next debe terminar al año - 1 día del start (no a 6 meses).
+ */
 function computeNextWindowFromCurrent(currentWin) {
   const start = dayjs.utc(currentWin.start).add(1, 'year').toDate()
-  // fin nominal 6 meses después; la vigencia real la da expiresAt (start + 18m)
-  const end = dayjs.utc(start).add(6, 'month').toDate()
+  const end = dayjs.utc(start).add(1, 'year').subtract(1, 'day').toDate() // ← coherente con el esquema
   return { start, end }
 }
 
@@ -182,7 +184,7 @@ export async function ensureWindowsAndCompute(userId, hireDate) {
     const u = await User.findById(userId).select('vacationDays.adminExtra').lean()
     const adminExtra = Math.max(0, Number(u?.vacationDays?.adminExtra ?? 0)) || 0
     vac.bonusAdmin = adminExtra
-  } catch (e) {
+  } catch {
     // si falla, conservamos el que ya tenía el doc
   }
 
@@ -203,8 +205,14 @@ export async function ensureWindowsAndCompute(userId, hireDate) {
   const newNext = upsertWin(byLabel.next, tplNext)
 
   // Recalcular USED desde solicitudes aprobadas por ventana
-  newCurrent.used = await getUsedDaysInWindow(userId, newCurrent.start, newCurrent.end)
-  newNext.used = await getUsedDaysInWindow(userId, newNext.start, newNext.end)
+  try {
+    newCurrent.used = await getUsedDaysInWindow(userId, newCurrent.start, newCurrent.end)
+    newNext.used = await getUsedDaysInWindow(userId, newNext.start, newNext.end)
+  } catch {
+    // si hay error de lectura, por resiliencia dejamos used=0
+    newCurrent.used = newCurrent.used || 0
+    newNext.used = newNext.used || 0
+  }
 
   vac.windows = [newCurrent, newNext]
 

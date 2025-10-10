@@ -8,6 +8,9 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+/* Helpers */
+const clampInt = (v) => Math.max(0, Math.floor(Number(v ?? 0)));
+
 const UserSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -107,9 +110,7 @@ const UserSchema = new mongoose.Schema({
       type: Number,
       default: 0,
       min: [0, 'Los dias de vacaciones no pueden ser negativos'],
-      set: function (value) {
-        return Math.max(0, Math.floor(value));
-      }
+      set: clampInt
     },
     used: {
       type: Number,
@@ -117,10 +118,19 @@ const UserSchema = new mongoose.Schema({
       min: [0, 'Los dias usados no pueden ser negativos'],
       validate: {
         validator: function (value) {
-          return value <= this.vacationDays.total;
+          // En save de documento completo, this.vacationDays.total existe:
+          return typeof value !== 'number' || value <= (this.vacationDays?.total ?? 0);
         },
         message: 'Los dias usados no pueden exceder los dias totales'
-      }
+      },
+      set: clampInt
+    },
+    // 👇 NUEVO: Bono administrado por el admin (no negativo)
+    adminExtra: {
+      type: Number,
+      default: 0,
+      min: [0, 'El bono admin no puede ser negativo'],
+      set: clampInt
     },
     lastUpdate: {
       type: Date,
@@ -137,7 +147,7 @@ const UserSchema = new mongoose.Schema({
   timestamps: true,
   toJSON: {
     virtuals: true,
-    transform: function (doc, ret) {
+    transform: function (_doc, ret) {
       delete ret._id;
       delete ret.__v;
       delete ret.password;
@@ -189,7 +199,7 @@ UserSchema.virtual('profile').get(function () {
 // Virtual: dias de vacaciones restantes
 UserSchema.virtual('vacationDays.remaining').get(function () {
   if (!this.vacationDays) return 0;
-  return Math.max(0, this.vacationDays.total - this.vacationDays.used);
+  return Math.max(0, (this.vacationDays.total ?? 0) - (this.vacationDays.used ?? 0));
 });
 
 /* ================================
@@ -273,7 +283,7 @@ UserSchema.methods = {
   async addVacationDays(days) {
     if (days <= 0) throw new Error('Debe añadir al menos 1 dia');
 
-    this.vacationDays.total += Math.floor(days);
+    this.vacationDays.total = clampInt((this.vacationDays.total ?? 0) + days);
     this.vacationDays.lastUpdate = new Date();
     await this.save();
 
@@ -283,11 +293,12 @@ UserSchema.methods = {
   // Metodo para usar dias de vacaciones
   async useVacationDays(days) {
     if (days <= 0) throw new Error('Debe usar al menos 1 dia');
-    if (this.vacationDays.remaining < days) {
+    const remaining = Math.max(0, (this.vacationDays.total ?? 0) - (this.vacationDays.used ?? 0));
+    if (remaining < days) {
       throw new Error('No tiene suficientes dias disponibles');
     }
 
-    this.vacationDays.used += Math.floor(days);
+    this.vacationDays.used = clampInt((this.vacationDays.used ?? 0) + days);
     this.vacationDays.lastUpdate = new Date();
     await this.save();
 
@@ -298,6 +309,7 @@ UserSchema.methods = {
   async resetVacationDays() {
     this.vacationDays.total = 0;
     this.vacationDays.used = 0;
+    this.vacationDays.adminExtra = 0;
     this.vacationDays.lastUpdate = new Date();
     await this.save();
 
@@ -307,11 +319,11 @@ UserSchema.methods = {
   // Metodo para establecer dias totales
   async setVacationDays(totalDays) {
     if (totalDays < 0) throw new Error('Los dias no pueden ser negativos');
-    if (totalDays < this.vacationDays.used) {
+    if (totalDays < (this.vacationDays.used ?? 0)) {
       throw new Error('Los dias totales no pueden ser menores a los dias usados');
     }
 
-    this.vacationDays.total = Math.floor(totalDays);
+    this.vacationDays.total = clampInt(totalDays);
     this.vacationDays.lastUpdate = new Date();
     await this.save();
 
@@ -333,7 +345,7 @@ UserSchema.statics.findByResetToken = async function (resetToken) {
 };
 
 /* ================================
- *  Post-save: sync VacationData
+ *  Post-save: sync VacationData (compat legacy)
  * ================================ */
 UserSchema.post('save', async function (doc, next) {
   try {
@@ -345,6 +357,8 @@ UserSchema.post('save', async function (doc, next) {
       const used = Number(doc.vacationDays.used || 0);
       const remaining = Math.max(0, total - used);
 
+      // guardamos los campos legacy; el bono admin
+      // lo sincroniza el controller cuando se ajusta explícitamente
       await VacationModel.updateOne(
         { user: doc._id },
         {

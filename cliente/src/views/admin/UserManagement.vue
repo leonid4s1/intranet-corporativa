@@ -362,47 +362,23 @@
             <strong>{{ vacForm.windowStart }}</strong> → <strong>{{ vacForm.windowEnd }}</strong>
           </div>
 
-          <!-- Controles de Bono -->
+          <!-- ÚNICA ACCIÓN: Aumentar bono admin -->
           <div class="form-group">
-            <label>Ajustar bono admin (no puede bajar del Derecho LFT):</label>
+            <label>Bono a agregar</label>
             <div class="bonus-row">
-              <button class="pill-btn" @click="applyBonusDelta(-1)" :disabled="bonusWouldGoUnderLaw(-1)">-1</button>
-              <button class="pill-btn" @click="applyBonusDelta(+1)">+1</button>
-
               <input
                 type="number"
                 class="bonus-input"
-                v-model.number="vacForm.bonusEdit"
+                v-model.number="bonusToAdd"
                 step="1"
-                :min="minBonusAllowed"
-                @keyup.enter.stop.prevent="applyBonusValue()"
+                min="0"
+                placeholder="0"
+                @keyup.enter.stop.prevent="saveBonusIncrease"
               />
-              <button class="apply-btn" @click="applyBonusValue">Aplicar</button>
+              <small class="text-warn" style="margin-left:.25rem;">
+                Este valor se <strong>suma</strong> al bono admin actual.
+              </small>
             </div>
-            <small class="text-warn" v-if="vacForm.bonusEdit < minBonusAllowed">
-              El total efectivo no puede ser menor que el Derecho ({{ vacForm.lftTotal }}) ni menor que los usados ({{ vacForm.used }}).
-            </small>
-          </div>
-
-          <!-- (Opcional) Mantenimiento legacy de total absoluto -->
-          <div class="form-group">
-            <label>Fijar total manual (legacy)</label>
-            <input
-              type="number"
-              min="0"
-              step="1"
-              v-model.number="vacForm.newTotal"
-              @keyup.enter.stop.prevent="saveVacationTotal()"
-            />
-            <small v-if="vacForm.newTotal < vacForm.used" class="text-warn">
-              El total no puede ser menor que los días usados ({{ vacForm.used }}).
-            </small>
-            <small v-else-if="vacForm.newTotal < vacForm.lftTotal" class="text-warn">
-              El total no puede ser menor que el Derecho LFT ({{ vacForm.lftTotal }}).
-            </small>
-            <small v-else-if="isSameTotal" class="text-warn">
-              El nuevo total es igual al actual.
-            </small>
           </div>
         </div>
 
@@ -410,11 +386,11 @@
           <button class="cancel-btn" @click="closeVacModal">Cerrar</button>
           <button
             class="save-btn"
-            :disabled="savingVac || vacForm.newTotal < vacForm.lftTotal || vacForm.newTotal < vacForm.used || isSameTotal"
-            @click.stop.prevent="saveVacationTotal()"
-            title="Fijar total manual respetando LFT y usados"
+            :disabled="savingVac || !isValidBonusToAdd"
+            @click.stop.prevent="saveBonusIncrease"
+            title="Aumentar bono admin"
           >
-            {{ savingVac ? 'Guardando…' : 'Guardar total' }}
+            {{ savingVac ? 'Guardando…' : 'Guardar' }}
           </button>
         </div>
 
@@ -497,7 +473,7 @@ import { ref, computed, onMounted } from 'vue'
 import dayjs from 'dayjs'
 import api from '@/services/api'
 import userService from '@/services/user.service'
-import vacationService, { type WindowsSummary, type VacationWindow } from '@/services/vacation.service'
+import vacationService, { type WindowsSummary, type VacationWindow, VacationService as VacSvcNS } from '@/services/vacation.service'
 import type { User as BaseUser, Role, VacationDays } from '@/services/user.service'
 
 /** Usuario con meta extendida para esta vista */
@@ -506,9 +482,9 @@ type AdminUser = BaseUser & {
   hireDate?: string | null
   birthDate?: string | null
   // campos enriquecidos para la tabla
-  total?: number        // Días de la ventana vigente (más bono si tu lógica lo incluye)
-  available?: number    // Restantes de la ventana vigente
-  used?: number         // Usados del año en curso
+  total?: number
+  available?: number
+  used?: number
 }
 type RowUser = AdminUser & { total?: number; used?: number; available?: number }
 
@@ -541,9 +517,7 @@ type VacFormState = {
   windowStart: string
   windowEnd: string
   bonus: number
-  bonusEdit: number
   effectiveTotal: number
-  newTotal: number
 }
 
 /* ===== Estado ===== */
@@ -759,28 +733,12 @@ const vacForm = ref<VacFormState>({
   windowStart: '',
   windowEnd: '',
   bonus: 0,
-  bonusEdit: 0,
-  effectiveTotal: 0,
-  newTotal: 0
+  effectiveTotal: 0
 })
 
-/* Computed para habilitar/deshabilitar Guardar (legacy setter) */
-const isSameTotal = computed(() => {
-  const t = Math.max(0, Math.floor(Number(vacForm.value.newTotal ?? 0)))
-  return t === vacForm.value.currentTotal
-})
-
-/* Borde inferior para bono: que el total efectivo >= max(LFT, usados) */
-const minBonusAllowed = computed(() => {
-  const minTotal = Math.max(vacForm.value.lftTotal, vacForm.value.used)
-  return Math.max(0, minTotal - vacForm.value.lftTotal)
-})
-
-function bonusWouldGoUnderLaw(delta: number) {
-  const nextBonus = (vacForm.value.bonus ?? 0) + delta
-  const nextTotal = vacForm.value.lftTotal + nextBonus
-  return nextTotal < Math.max(vacForm.value.lftTotal, vacForm.value.used)
-}
+/* NUEVO: input único para aumentar bono */
+const bonusToAdd = ref<number>(0)
+const isValidBonusToAdd = computed(() => Number.isInteger(bonusToAdd.value) && bonusToAdd.value > 0)
 
 onMounted(async () => {
   await fetchUsers()
@@ -873,8 +831,6 @@ const isFiniteNumber = (v: unknown): v is number =>
 
 /**
  * TOTALES (tabla) = días de la **ventana vigente** únicamente.
- * (se calcula en fetchUsers y se guarda en u.total)
- * Si aún no inicia su primera ventana → 0.
  */
 function total(u: RowUser): number {
   if (isFiniteNumber(u.total)) return u.total
@@ -884,7 +840,6 @@ function total(u: RowUser): number {
 
 /**
  * USADOS (tabla) = usados de la **ventana vigente**.
- * (se calcula en fetchUsers y se guarda en u.used)
  */
 function used(u: RowUser): number {
   if (isFiniteNumber(u.used)) return u.used
@@ -894,13 +849,10 @@ function used(u: RowUser): number {
 
 /**
  * DISPONIBLES (tabla) = restantes de la **ventana vigente**.
- * (se calcula en fetchUsers y se guarda en u.available)
- * No incluye la ventana futura ni el bono admin.
  */
 function remaining(u: RowUser): number {
   if (isFiniteNumber(u.available)) return u.available
   if (isFiniteNumber(u.vacationDays?.remaining)) return u.vacationDays!.remaining
-  // último recurso si solo tenemos total/usados de la vigente
   return Math.max(0, total(u) - used(u))
 }
 
@@ -934,17 +886,16 @@ async function loadLFTSummary(userId: string) {
   }
 }
 
-/* ========= Helpers NUEVOS para bono/tabla instantánea ========= */
-function readRowBonus(userId: string): number {
-  const row = users.value.find(u => u.id === userId)
-  const adminExtra = (row?.vacationDays as VacationDaysExtended | undefined)?.adminExtra
-  return Number.isFinite(Number(adminExtra)) ? Number(adminExtra) : 0
-}
-
+/* ========= Helpers para bono/tabla ========= */
 function computeRowFromSummary(sum: WindowsSummary, bonus: number) {
   const today = dayjs().startOf('day')
   const windows = Array.isArray(sum?.windows) ? sum.windows : []
-  const activeWins = windows.filter(w => isActiveWindow(w as WindowLike, today))
+  const activeWins = windows.filter((w) => {
+    const s = dayjs(toISODateString(w.start))
+    const exp = dayjs(toISODateString(w.expiresAt ?? w.end))
+    if (!s.isValid() || !exp.isValid()) return false
+    return !today.isBefore(s, 'day') && !today.isAfter(exp, 'day')
+  })
   const totalActivas = activeWins.reduce((acc, w) => acc + (Number(w?.days) || 0), 0)
   const currentWin = windows.find(w => w.label === 'current')
   const usedCurrent = Number(currentWin?.used ?? 0)
@@ -1007,7 +958,7 @@ function validateMeta(): boolean {
   }
   if (!msg && birthDate) {
     if (!isoDayRe.test(birthDate)) msg = 'Fecha de nacimiento inválida (YYYY-MM-DD)'
-    else if (isFuture(birthDate)) msg = 'La fecha de nacimiento no puede ser futura'
+    else if (isFuture(birthDate)) msg = 'No puede ser futura'
   }
   if (!msg && hireDate && birthDate && yearsBetween(birthDate, hireDate) < 14) {
     msg = 'Ingreso inconsistente con el nacimiento (≥ 14 años)'
@@ -1097,8 +1048,9 @@ async function openVacationModal(u: AdminUser) {
   vacError.value = null
   showVacModal.value = true
 
-  // 🟢 Asegura el ID de inmediato
+  // Asegura el ID de inmediato
   vacForm.value.id = (u.id || '').trim()
+  bonusToAdd.value = 0
 
   const curTotal = total(u)
   const curUsed = used(u)
@@ -1114,32 +1066,23 @@ async function openVacationModal(u: AdminUser) {
     const bonus =
       Number.isFinite(Number(sum?.bonusAdmin))
         ? Number(sum!.bonusAdmin)
-        : Number((u.vacationDays as VacationDaysExtended | undefined)?.adminExtra ?? 0)
+        : 0
 
     vacForm.value = {
-      ...vacForm.value, // conserva id
       id: (u.id || '').trim(),
       name: u.name,
       email: u.email,
-
       used: curUsed,
       currentTotal: curTotal,
-
       lftTotal: s.lftTotal,
       windowStart: s.windowStart,
       windowEnd: s.windowEnd,
-
       bonus,
-      bonusEdit: Math.max(minBonusAllowed.value, bonus),
-
       effectiveTotal: Math.max(curTotal, Math.max(curUsed, s.lftTotal)),
-
-      newTotal: curTotal
     }
   } catch (e: unknown) {
     console.error('[vacationModal] error loading LFT summary', e)
     vacForm.value = {
-      ...vacForm.value, // conserva id
       id: (u.id || '').trim(),
       name: u.name,
       email: u.email,
@@ -1149,166 +1092,61 @@ async function openVacationModal(u: AdminUser) {
       windowStart: '',
       windowEnd: '',
       bonus: 0,
-      bonusEdit: 0,
-      effectiveTotal: curTotal,
-      newTotal: curTotal
+      effectiveTotal: curTotal
     }
-    pushToast('No se pudo cargar el resumen LFT. Aún puedes ajustar el total.', 'warn')
+    pushToast('No se pudo cargar el resumen LFT. Aún puedes agregar bono.', 'warn')
   }
 }
 
 function closeVacModal() {
   showVacModal.value = false
   vacError.value = null
+  bonusToAdd.value = 0
 }
 
-/** Ajuste relativo del bono (+/-) */
-async function applyBonusDelta(delta: number) {
+/** ÚNICA ACCIÓN: guardar aumento de bono */
+async function saveBonusIncrease() {
   const userId = (vacForm.value.id || selectedUser.value?.id || '').trim()
   if (!userId) {
     vacError.value = 'No hay usuario activo en el modal'
     pushToast('No hay usuario activo en el modal', 'error')
     return
   }
+  const delta = Math.floor(Number(bonusToAdd.value ?? 0))
+  if (!Number.isInteger(delta) || delta <= 0) {
+    vacError.value = 'Ingresa un entero mayor a 0.'
+    pushToast('Ingresa un entero mayor a 0.', 'warn')
+    return
+  }
 
-  if (bonusWouldGoUnderLaw(delta)) return
   try {
     savingVac.value = true
-    const vd: VacationDays = await userService.adjustVacationBonus(userId, { delta })
-    updateRowFromVD(userId, vd)
+    // 1) Aumentar bono en backend
+    await VacSvcNS.adjustAdminBonus(userId, delta)
 
-    // No dependemos del listado para reflejar UI; aún así, intentamos refrescar
-    await fetchUsers().catch(() => void 0)
-
-    // Prioriza endpoint → summary → row
-    const vdBonus = [
-      (vd as unknown as VacationDaysExtended).adminBonus,
-      (vd as unknown as VacationDaysExtended).bonusAdmin,
-      (vd as unknown as VacationDaysExtended).adminExtra
-    ].find(v => Number.isFinite(Number(v)))
-
+    // 2) Refrescar summary y recalcular fila
     const sum = await vacationService.getWindowsSummaryFixed(userId)
-    const sumBonus = Number.isFinite(Number(sum?.bonusAdmin)) ? Number(sum!.bonusAdmin) : undefined
-    const rowBonus = readRowBonus(userId)
-    const newBonus = Number(vdBonus ?? sumBonus ?? rowBonus ?? 0)
-
+    const newBonus = Number.isFinite(Number(sum?.bonusAdmin)) ? Number(sum!.bonusAdmin) : vacForm.value.bonus
     const totals = computeRowFromSummary(sum, newBonus)
     applyRowTotals(userId, totals)
-    recomputeWindowsAvailable(newBonus)
 
-    vacForm.value.id = userId
-    vacForm.value.currentTotal = totals.total
-    vacForm.value.bonus = newBonus
-    vacForm.value.bonusEdit = newBonus
-    vacForm.value.effectiveTotal = Math.max(totals.total, Math.max(vacForm.value.used, vacForm.value.lftTotal))
-
-    pushToast(`Bono actualizado. Total: ${totals.total}`, 'success')
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'No se pudo ajustar el bono'
-    vacError.value = msg
-    pushToast(msg, 'error')
-    console.error('[applyBonusDelta] ERROR', e)
-  } finally {
-    savingVac.value = false
-  }
-}
-
-/** Fijar bono a un valor específico */
-async function applyBonusValue() {
-  const userId = (vacForm.value.id || selectedUser.value?.id || '').trim()
-  if (!userId) {
-    vacError.value = 'No hay usuario activo en el modal'
-    pushToast('No hay usuario activo en el modal', 'error')
-    return
-  }
-
-  const b = Math.floor(Number(vacForm.value.bonusEdit ?? 0))
-  const minB = minBonusAllowed.value
-  const safeBonus = Math.max(b, minB)
-
-  try {
-    savingVac.value = true
-    const vd: VacationDays = await userService.adjustVacationBonus(userId, { value: safeBonus })
-    updateRowFromVD(userId, vd)
-
-    await fetchUsers().catch(() => void 0)
-
-    const vdBonus = [
-      (vd as unknown as VacationDaysExtended).adminBonus,
-      (vd as unknown as VacationDaysExtended).bonusAdmin,
-      (vd as unknown as VacationDaysExtended).adminExtra
-    ].find(v => Number.isFinite(Number(v)))
-
-    const sum = await vacationService.getWindowsSummaryFixed(userId)
-    const sumBonus = Number.isFinite(Number(sum?.bonusAdmin)) ? Number(sum!.bonusAdmin) : undefined
-    const rowBonus = readRowBonus(userId)
-    const newBonus = Number(vdBonus ?? sumBonus ?? rowBonus ?? 0)
-
-    const totals = computeRowFromSummary(sum, newBonus)
-    applyRowTotals(userId, totals)
-    recomputeWindowsAvailable(newBonus)
-
-    vacForm.value.id = userId
-    vacForm.value.currentTotal = totals.total
-    vacForm.value.bonus = newBonus
-    vacForm.value.bonusEdit = newBonus
-    vacForm.value.effectiveTotal = Math.max(totals.total, Math.max(vacForm.value.used, vacForm.value.lftTotal))
-
-    pushToast(`Bono fijado. Total: ${totals.total}`, 'success')
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'No se pudo fijar el bono'
-    vacError.value = msg
-    pushToast(msg, 'error')
-    console.error('[applyBonusValue] ERROR', e)
-  } finally {
-    savingVac.value = false
-  }
-}
-
-/** Guardado legacy de total absoluto (respetando límites LFT y usados) */
-async function saveVacationTotal() {
-  const userId = (vacForm.value.id || selectedUser.value?.id || '').trim()
-  if (!userId) {
-    vacError.value = 'No hay usuario activo en el modal'
-    pushToast('No hay usuario activo en el modal', 'error')
-    return
-  }
-
-  try {
-    savingVac.value = true
-    const newTotal = Math.max(
-      vacForm.value.lftTotal,
-      vacForm.value.used,
-      Math.floor(Number(vacForm.value.newTotal ?? 0))
-    )
-    if (newTotal === vacForm.value.currentTotal) {
-      pushToast('No hay cambios en el total de días', 'info')
-      return closeVacModal()
+    // 3) Actualizar “Ver saldo” si está abierto
+    if (showWindowsModal.value) {
+      winModal.value.summary = sum
     }
 
-    const vd = await userService.setVacationTotal(userId, { total: newTotal })
-    updateRowFromVD(userId, vd)
+    // 4) Sincronizar el modal actual
+    vacForm.value.bonus = newBonus
+    vacForm.value.currentTotal = totals.total
+    vacForm.value.effectiveTotal = Math.max(totals.total, Math.max(vacForm.value.used, vacForm.value.lftTotal))
+    bonusToAdd.value = 0
 
-    // 🔽 Recalcula filas desde ventanas + bono
-    await fetchUsers()
-
-    // Sincroniza el modal con lo recalculado
-    const row = users.value.find(u => u.id === userId)
-    const rowTotal = row ? total(row) : vd.total
-
-    vacForm.value.id = userId
-    vacForm.value.currentTotal = rowTotal
-    vacForm.value.effectiveTotal = rowTotal
-    vacForm.value.bonus = rowTotal - vacForm.value.lftTotal
-    vacForm.value.bonusEdit = vacForm.value.bonus
-
-    closeVacModal()
-    pushToast(`Días de vacaciones actualizados: total ${rowTotal}`, 'success')
+    pushToast('Bono aumentado correctamente', 'success')
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'No se pudieron guardar los días'
+    const msg = e instanceof Error ? e.message : 'No se pudo aumentar el bono'
     vacError.value = msg
     pushToast(msg, 'error')
-    console.error('[saveVacationTotal] ERROR', e)
+    console.error('[saveBonusIncrease] ERROR', e)
   } finally {
     savingVac.value = false
   }
@@ -1334,46 +1172,6 @@ function remainingOf(w: VacationWindow): number {
   return Math.max((w?.days ?? 0) - (w?.used ?? 0), 0)
 }
 
-function recomputeWindowsAvailable(bonus: number) {
-  if (!showWindowsModal.value || !winModal.value.summary) return
-  const windows = winModal.value.summary.windows || []
-  const baseRemaining = windows.reduce((acc, w) => {
-    const d = Number(w?.days) || 0
-    const u = Number(w?.used) || 0
-    return acc + Math.max(0, d - u)
-  }, 0)
-  winModal.value.summary.bonusAdmin = Math.max(0, Math.floor(bonus))
-  winModal.value.summary.available = baseRemaining + winModal.value.summary.bonusAdmin
-}
-
-function updateRowFromVD(id: string, vd: VacationDaysExtended) {
-  const idx = users.value.findIndex(u => u.id === id)
-  if (idx === -1) return
-
-  const row = users.value[idx]
-
-  // Mezcla segura del subdoc de vacaciones
-  const mergedVac: VacationDaysExtended = {
-    ...(row.vacationDays ?? {}),
-    ...vd,
-  }
-
-  // Toma el bono desde cualquiera de las 3 claves conocidas
-  const bonus = [vd.adminBonus, vd.bonusAdmin, vd.adminExtra]
-    .find((v): v is number => typeof v === 'number' && Number.isFinite(v))
-
-  if (typeof bonus === 'number') {
-    // Normaliza a adminExtra para compatibilidad en el front
-    mergedVac.adminExtra = Math.floor(bonus)
-  }
-
-  // Solo sincroniza el subdoc; total/used/available los recalcula fetchUsers()
-  users.value[idx] = {
-    ...row,
-    vacationDays: mergedVac,
-  }
-}
-
 async function openWindowsModal(u: AdminUser) {
   showWindowsModal.value = true
   winModal.value.userName = u.name
@@ -1383,7 +1181,6 @@ async function openWindowsModal(u: AdminUser) {
   winModal.value.summary = null
 
   try {
-    // Usa el cálculo consolidado del service
     const sum = await vacationService.getWindowsSummaryFixed(u.id, dateOnly(u.hireDate) || undefined)
     winModal.value.summary = sum
   } catch (e: unknown) {
@@ -1483,7 +1280,7 @@ function closeWindowsModal() {
 .icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
 .empty-state { padding: 2rem; text-align: center; color: #718096; }
 
-/* Modal base */
+/* estilos del resto de modales y tablas idénticos a los tuyos */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1525,7 +1322,7 @@ function closeWindowsModal() {
   padding: 0.625rem;
   border: 1px solid #e2e8f0;
   border-radius: 0.375rem;
-  transition: border-color 0.2s; /* FIX: antes tenía 'border-color: 0.2s' */
+  transition: border-color 0.2s;
 }
 .form-group input:focus, .form-group select:focus { outline: none; border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66,153,225,0.2); }
 .input-error { border-color: #e53e3e !important; }
@@ -1557,48 +1354,12 @@ function closeWindowsModal() {
 .stat .value { font-weight: 600; color: #1a202c; }
 .text-warn { color: #c05621; }
 
-/* Controles de bono */
-.bonus-row {
-  display: flex;
-  gap: .5rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.pill-btn {
-  border: 1px solid #cbd5e0;
-  background: #edf2f7;
-  padding: .4rem .7rem;
-  border-radius: 9999px;
-  font-weight: 600;
-}
-.pill-btn:disabled { opacity: .5; cursor: not-allowed; }
+/* Única acción de bono */
+.bonus-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 .bonus-input { max-width: 120px; }
-.apply-btn {
-  background: #4299e1;
-  color: white;
-  padding: .5rem .9rem;
-  border-radius: .375rem;
-}
 
-@media (max-height: 700px) {
-  .modal-content { max-height: 96vh; }
-}
-
-/* Ventana (tabla) */
 .window-column { width: 18%; }
 .window-cell { white-space: nowrap; }
-.win-range { font-weight: 600; color: #1a202c; }
-.win-left { font-size: .8rem; color: #4a5568; }
-.text-warn { color: #c05621; }
-
-/* La columna de acciones no se encoge y mantiene los botones a la vista */
-.actions-column { width: 140px; min-width: 140px; }
-.actions-cell { display: flex; gap: 0.5rem; white-space: nowrap; }
-
-/* La celda de Ventana usa tipografía pequeña y puede partir línea */
-.window-cell small { display: block; color: #718096; margin-top: .125rem; }
-
-/* Botón "Ver saldo" */
 .win-btn {
   padding: .375rem .75rem;
   border-radius: .375rem;

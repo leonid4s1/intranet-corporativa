@@ -2,7 +2,7 @@
 import bcrypt from 'bcryptjs'
 import User from '../models/User.js'
 import VacationData from '../models/VacationData.js'
-import { getUsedDaysInCurrentCycle, ensureWindowsAndCompute } from '../services/vacationService.js';
+import { getUsedDaysInCurrentCycle, ensureWindowsAndCompute } from '../services/vacationService.js'
 
 // --- LFT MX 2023: utilidades y servicio de cómputo del ciclo vigente
 import {
@@ -143,12 +143,12 @@ export const getUsers = async (_req, res) => {
     // 2) Trae ventanas/bono por usuario (las que usas para el modal)
     const userIds = users.map(u => u._id)
     const vacDocs = await VacationData.find({ user: { $in: userIds } })
-      .select('user windows bonusAdmin') // ajusta si tu esquema usa otro nombre
+      .select('user windows bonusAdmin')
       .lean()
       .exec()
     const vacByUser = new Map(vacDocs.map(v => [String(v.user), v]))
 
-    // 3) (Sigue igual) usados del ciclo vigente por usuario para el mapeo LFT
+    // 3) Usados del ciclo vigente por usuario
     const usedList = await Promise.all(
       users.map(u => u.hireDate ? getUsedDaysInCurrentCycle(u._id, u.hireDate) : Promise.resolve(0))
     )
@@ -157,16 +157,15 @@ export const getUsers = async (_req, res) => {
     const data = users.map((u, idx) => {
       const base = mapUserWithVacationLFT(u, usedList[idx])
 
-      // Ventanas y bono para el resumen de la tabla
+      // Ventanas/bono para el resumen de la tabla
       const vd = vacByUser.get(String(u._id))
-      const windows = vd?.windows ?? []                         // las mismas del modal
+      const windows = vd?.windows ?? []
       const bonus = Number.isFinite(Number(vd?.bonusAdmin))
         ? Number(vd.bonusAdmin)
         : Number(u?.vacationDays?.adminExtra ?? 0)
 
       const s = summarizeWindows(windows, bonus)
 
-      // Devuelve las 3 columnas que lee tu tabla:
       return {
         ...base,
         used: s.usedCurrent,           // USADOS (año en curso)
@@ -823,18 +822,24 @@ export const getUserVacationSummary = async (req, res) => {
 }
 
 /* ==============================
-   NUEVO — Bono admin (aumentar o disminuir)
+   NUEVO — Bono admin (SOLO aumentar)
    PATCH /api/users/:id/vacation/bonus
    Body: { delta?: number }  ó  { value?: number }
-   Regla: adminExtra >= 0  → total = derecho + adminExtra (no puede bajar del derecho)
+   Reglas:
+     - Si viene delta → delta debe ser > 0 (incremento)
+     - Si viene value → value no puede ser menor al bono actual
+   Persistimos:
+     - User.vacationDays.adminExtra
+     - VacationData.bonusAdmin (para el modal y resumen)
 ============================== */
 export const adjustAdminExtra = async (req, res) => {
   try {
     const { id } = req.params
+
     const hasDelta = Number.isFinite(Number(req.body?.delta))
     const hasValue = Number.isFinite(Number(req.body?.value))
     if (!hasDelta && !hasValue) {
-      return res.status(400).json({ success: false, message: 'Debes enviar delta o value numérico' })
+      return res.status(400).json({ success: false, message: 'Debes enviar delta>0 o value>=0' })
     }
 
     const user = await User.findById(id).select('hireDate vacationDays').lean()
@@ -846,12 +851,24 @@ export const adjustAdminExtra = async (req, res) => {
     const right = currentEntitlementDays(user.hireDate)
     const currentExtra = toInt(user?.vacationDays?.adminExtra ?? 0, 0)
 
-    let newExtra = hasValue
+    // Validaciones (solo incremento)
+    if (hasDelta) {
+      const d = Math.floor(Number(req.body.delta))
+      if (!Number.isFinite(d) || d <= 0) {
+        return res.status(400).json({ success: false, message: 'delta debe ser un entero > 0' })
+      }
+    }
+    if (hasValue) {
+      const v = Math.floor(Number(req.body.value))
+      if (!Number.isFinite(v) || v < currentExtra) {
+        return res.status(400).json({ success: false, message: 'value no puede ser menor al bono actual' })
+      }
+    }
+
+    // Cálculo del nuevo bono (solo incrementa)
+    const newExtra = hasValue
       ? Math.floor(Number(req.body.value))
       : currentExtra + Math.floor(Number(req.body.delta))
-
-    if (!Number.isFinite(newExtra)) newExtra = currentExtra
-    if (newExtra < 0) newExtra = 0
 
     // 1) Persistimos en User
     await User.updateOne(
@@ -865,7 +882,7 @@ export const adjustAdminExtra = async (req, res) => {
     const totalCompat = right + newExtra
     const remainingCompat = Math.max(totalCompat - used, 0)
 
-    // 3) Sincronizamos VacationData guardando también adminBonus
+    // 3) Sincronizamos VacationData (incluye bonusAdmin)
     try {
       await VacationData.updateOne(
         { user: id },
@@ -874,7 +891,7 @@ export const adjustAdminExtra = async (req, res) => {
             total: totalCompat,
             used,
             remaining: remainingCompat,
-            bonusAdmin: newExtra,      // ← clave: persistimos el bono aquí
+            bonusAdmin: newExtra,
             lastUpdate: new Date(),
           },
           $setOnInsert: { user: id },
@@ -891,7 +908,7 @@ export const adjustAdminExtra = async (req, res) => {
               total: totalCompat,
               used,
               remaining: remainingCompat,
-              bonusAdmin: newExtra,    // ← también en el reintento
+              bonusAdmin: newExtra,
               lastUpdate: new Date(),
             },
           },
@@ -907,8 +924,8 @@ export const adjustAdminExtra = async (req, res) => {
       data: {
         right,
         adminExtra: newExtra,
-        adminBonus: newExtra,     // por comodidad en el front
-        bonusAdmin: newExtra,  // y en ambos nombres (como en VacationData)
+        adminBonus: newExtra,  // alias para el front
+        bonusAdmin: newExtra,  // alias usado en VacationData
         total: totalCompat,
         used,
         remaining: remainingCompat,
@@ -922,4 +939,3 @@ export const adjustAdminExtra = async (req, res) => {
 
 // Alias para rutas/servicios que esperan adjustAdminBonus
 export { adjustAdminExtra as adjustAdminBonus }
-

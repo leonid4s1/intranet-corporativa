@@ -56,8 +56,11 @@ export function yearsOfService(hireDate, onDate = new Date()) {
 }
 
 /**
- * Ventana del ciclo vigente (aniversario + 6 meses).
- * Antes del primer aniversario: devuelve [primer aniversario, +6 meses] (ambas futuras).
+ * Ventana NOMINAL del ciclo vigente:
+ *  - start: aniversario más reciente (o el primero, si aún no llega)
+ *  - end:   start + 1 año - 1 día
+ * La VIGENCIA real de 18 meses (start + 18m) se calcula en el service.
+ * Antes del primer aniversario: devuelve [primer aniversario, primer aniversario + 1y - 1d] (ambas futuras).
  */
 export function currentAnniversaryWindow(hireDate, onDate = new Date()) {
   const hd = dayjs.utc(hireDate);
@@ -68,7 +71,7 @@ export function currentAnniversaryWindow(hireDate, onDate = new Date()) {
   if (today.isBefore(firstAnniv, 'day')) {
     return {
       start: firstAnniv.toDate(),
-      end: firstAnniv.add(6, 'month').toDate(),
+      end: firstAnniv.add(1, 'year').subtract(1, 'day').toDate(),
     };
   }
 
@@ -76,7 +79,7 @@ export function currentAnniversaryWindow(hireDate, onDate = new Date()) {
   let start = safeAnniversaryUTC(hd, today.year());
   if (today.isBefore(start, 'day')) start = safeAnniversaryUTC(hd, today.year() - 1);
 
-  const end = start.add(6, 'month');
+  const end = start.add(1, 'year').subtract(1, 'day');
   return { start: start.toDate(), end: end.toDate() };
 }
 
@@ -89,7 +92,7 @@ export function currentEntitlementDays(hireDate, onDate = new Date()) {
   return entitlementDaysByYearsMX(yos);
 }
 
-/** ¿[startDate, endDate] está dentro de la ventana vigente (6 meses)? */
+/** ¿[startDate, endDate] está dentro de la ventana nominal vigente (1 año)? */
 export function isWithinCurrentWindow(hireDate, startDate, endDate, onDate = new Date()) {
   const win = currentAnniversaryWindow(hireDate, onDate);
   if (!win) return false;

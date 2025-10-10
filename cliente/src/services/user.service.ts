@@ -8,6 +8,7 @@ export interface VacationDays {
   total: number
   used: number
   remaining: number
+  /** Cualquiera de estos puede venir del backend; normalizamos a adminExtra */
   adminExtra?: number
   adminBonus?: number
   bonusAdmin?: number
@@ -61,7 +62,9 @@ export interface UpdateUserMetaPayload {
 export interface SetVacationTotalPayload { total: number }
 
 export interface AdjustVacationBonusPayload {
+  /** valor absoluto del bono (solo crecer) */
   value?: number
+  /** incremento del bono (debe ser > 0) */
   delta?: number
 }
 
@@ -86,8 +89,8 @@ function toBool(v: unknown): boolean | undefined {
 }
 
 function toNum(v: unknown): number | undefined {
-  if (typeof v === 'number' && !Number.isNaN(v)) return v
-  if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v)
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v)
   return undefined
 }
 
@@ -112,6 +115,30 @@ function requireId(id: string | undefined | null): string {
   const v = (id ?? '').toString().trim()
   if (!v) throw new Error('Falta el id del usuario')
   return v
+}
+
+/** Normaliza VacationDays desde una respuesta del backend */
+function parseVacationDays(payload: unknown): VacationDays {
+  const root = isRecord(payload) && isRecord(payload.data) ? payload.data : (payload as Record<string, unknown> | undefined) || {}
+  const total = toNum(get(root, 'total')) ?? 0
+  const used  = toNum(get(root, 'used'))  ?? 0
+  const remaining = toNum(get(root, 'remaining')) ?? Math.max(0, total - used)
+
+  // Cualquiera de estos nombres puede venir; preferimos el que exista y sea válido
+  const bonusCandidates = [
+    toNum(get(root, 'adminBonus')),
+    toNum(get(root, 'bonusAdmin')),
+    toNum(get(root, 'adminExtra')),
+  ]
+  const bonus = bonusCandidates.find(v => typeof v === 'number')
+
+  const vd: VacationDays = { total, used, remaining }
+  if (typeof bonus === 'number') {
+    vd.adminExtra = Math.floor(Math.max(0, bonus))
+    vd.adminBonus = vd.adminExtra
+    vd.bonusAdmin = vd.adminExtra
+  }
+  return vd
 }
 
 /** Normaliza un usuario del backend */
@@ -143,10 +170,8 @@ function normalizeUser(raw: unknown): User | null {
   let vacationDays: VacationDays | undefined
   const vDays = get<Record<string, unknown>>(r, 'vacationDays')
   if (isRecord(vDays)) {
-    const totalV = toNum(get(vDays, 'total')) ?? 0
-    const usedV = toNum(get(vDays, 'used')) ?? 0
-    const remainingV = toNum(get(vDays, 'remaining')) ?? Math.max(0, totalV - usedV)
-    vacationDays = { total: totalV, used: usedV, remaining: remainingV }
+    const parsed = parseVacationDays(vDays)
+    vacationDays = parsed
   }
 
   const used = toNum(get(r, 'used'))
@@ -171,11 +196,20 @@ function normalizeUser(raw: unknown): User | null {
   }
 }
 
-/** Limpia el payload del bonus */
+/** Limpia y valida el payload del bono: solo incrementos */
 function cleanBonusPayload(p: AdjustVacationBonusPayload): AdjustVacationBonusPayload {
   const result: AdjustVacationBonusPayload = {}
-  if (typeof p.value === 'number' && Number.isFinite(p.value)) result.value = Math.floor(p.value)
-  if (typeof p.delta === 'number' && Number.isFinite(p.delta)) result.delta = Math.floor(p.delta)
+
+  if (typeof p.value === 'number' && Number.isFinite(p.value)) {
+    const v = Math.floor(p.value)
+    if (v < 0) throw new Error('El bono no puede ser negativo')
+    result.value = v
+  }
+  if (typeof p.delta === 'number' && Number.isFinite(p.delta)) {
+    const d = Math.floor(p.delta)
+    if (d <= 0) throw new Error('Solo se permiten incrementos positivos del bono')
+    result.delta = d
+  }
   return result
 }
 
@@ -193,7 +227,7 @@ export async function login(payload: LoginPayload): Promise<void> {
 }
 
 export async function getProfile(): Promise<User> {
-  const { data } = await api.get('/auth/profile')
+  const { data } = await api.get('/auth/profile', { params: { _t: Date.now() } })
   const user = normalizeUser(data)
   if (!user) throw new Error('Respuesta inválida al cargar perfil')
   return user
@@ -291,29 +325,27 @@ export async function setVacationTotal(
 ): Promise<VacationDays> {
   const id = requireId(userId)
   const { data } = await api.patch(`/users/${encodeURIComponent(id)}/vacation/total`, {
-    total: Number(payload.total),
+    total: Math.max(0, Math.floor(Number(payload.total))),
   })
-  const d = isRecord(data) && isRecord(data.data) ? data.data : (data as Record<string, unknown>)
-  const total = toNum(get(d, 'total')) ?? 0
-  const used = toNum(get(d, 'used')) ?? 0
-  return { total, used, remaining: Math.max(0, total - used) }
+  return parseVacationDays(data)
 }
 
+/** (Legacy opcional) añadir días absolutos */
 export async function addVacationDays(userId: string, payload: { days: number }): Promise<void> {
   const id = requireId(userId)
   await api.post(`/users/${encodeURIComponent(id)}/vacation/add`, {
-    days: Number(payload.days),
+    days: Math.max(0, Math.floor(Number(payload.days))),
   })
 }
 
 export async function setVacationUsed(userId: string, payload: { used: number }): Promise<void> {
   const id = requireId(userId)
   await api.patch(`/users/${encodeURIComponent(id)}/vacation/used`, {
-    used: Number(payload.used),
+    used: Math.max(0, Math.floor(Number(payload.used))),
   })
 }
 
-/** NUEVO: Ajustar bono admin */
+/** NUEVO: Ajustar bono admin — SOLO INCREMENTOS */
 export async function adjustVacationBonus(
   userId: string,
   payload: AdjustVacationBonusPayload
@@ -321,15 +353,13 @@ export async function adjustVacationBonus(
   const id = requireId(userId)
   const body = cleanBonusPayload(payload)
   if (!('delta' in body) && !('value' in body)) {
-    throw new Error('Debes enviar delta o value para ajustar el bono')
+    throw new Error('Debes enviar delta>0 o value>=0 para ajustar el bono')
   }
   const { data } = await api.patch(`/users/${encodeURIComponent(id)}/vacation/bonus`, body)
-  const d = isRecord(data) && isRecord(data.data) ? data.data : (data as Record<string, unknown>)
-  const total = toNum(get(d, 'total')) ?? 0
-  const used = toNum(get(d, 'used')) ?? 0
-  return { total, used, remaining: Math.max(0, total - used) }
+  return parseVacationDays(data)
 }
 
+/** Azúcar: incremento directo del bono */
 export async function adjustAdminBonus(userId: string, delta: number): Promise<VacationDays> {
   return adjustVacationBonus(userId, { delta })
 }

@@ -807,6 +807,28 @@ export async function getApprovedAdmin(params?: {
 }
 
 /* =========================
+ * Bono admin (sumar delta >= 0)
+ * ========================= */
+
+/**
+ * Aumenta el bono admin del usuario en +delta (entero >= 0).
+ * El backend recalcula total/remaining.
+ */
+export async function adjustAdminBonus(userId: string, delta: number): Promise<void> {
+  if (!userId) throw new Error('userId requerido');
+  if (!Number.isInteger(delta) || delta < 0) {
+    throw new Error('delta debe ser un entero >= 0');
+  }
+  // Ajusta la ruta si tu API usa otra convención
+  await api.patch<void>(`/users/${userId}/vacation/bonus/admin`, { delta });
+}
+
+/** Para usos con `import { VacationService } ...` */
+export const VacationService = {
+  adjustAdminBonus,
+};
+
+/* =========================
  * Export por defecto
  * ========================= */
 export default {
@@ -842,4 +864,7 @@ export default {
   approve,
   reject,
   getApprovedAdmin,
+
+  // Bono admin
+  adjustAdminBonus,
 };
