@@ -813,9 +813,17 @@ onMounted(async () => {
 .vacations-page{ display:flex; flex-direction:column; gap:1rem; color:var(--text); background:var(--bg); }
 
 /* KPIs */
-.kpi-grid{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; }
-@media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(2,1fr) } }
-@media (max-width:640px){ .kpi-grid{ grid-template-columns:1fr } }
+.kpi-grid{
+  display:grid;
+  grid-template-columns:repeat(5, minmax(0,1fr)); /* 5 tarjetas en una fila */
+  gap:1rem;
+}
+@media (max-width:1100px){
+  .kpi-grid{ grid-template-columns:repeat(2,1fr) }
+}
+@media (max-width:640px){
+  .kpi-grid{ grid-template-columns:1fr }
+}
 
 .kpi-card{ position:relative; background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .kpi-value{ font-size:2rem; font-weight:700; }
