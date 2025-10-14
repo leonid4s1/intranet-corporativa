@@ -806,21 +806,66 @@ export async function getApprovedAdmin(params?: {
     .filter((x): x is AdminApprovedRow => !!x);
 }
 
+/** Respuesta al ajustar bono admin */
+export type AdjustBonusResponse = {
+  right: number;
+  adminExtra: number;
+  adminBonus?: number; // alias amigable para el front
+  bonusAdmin?: number; // nombre en VacationData
+  total: number;
+  used: number;
+  remaining: number;
+};
+
 /* =========================
- * Bono admin (sumar delta >= 0)
+ * Bono admin (delta o value)
  * ========================= */
 
-/**
- * Aumenta el bono admin del usuario en +delta (entero >= 0).
- * El backend recalcula total/remaining.
- */
-export async function adjustAdminBonus(userId: string, delta: number): Promise<void> {
+// Overloads
+export function adjustAdminBonus(userId: string, delta: number): Promise<AdjustBonusResponse>;
+export function adjustAdminBonus(
+  userId: string,
+  payload: { delta?: number; value?: number }
+): Promise<AdjustBonusResponse>;
+
+// Impl
+export async function adjustAdminBonus(
+  userId: string,
+  arg2: number | { delta?: number; value?: number }
+): Promise<AdjustBonusResponse> {
   if (!userId) throw new Error('userId requerido');
-  if (!Number.isInteger(delta) || delta < 0) {
-    throw new Error('delta debe ser un entero >= 0');
+
+  const body: Record<string, number> = {};
+  if (typeof arg2 === 'number') {
+    if (!Number.isInteger(arg2) || arg2 < 0) {
+      throw new Error('delta debe ser un entero >= 0');
+    }
+    body.delta = Math.floor(arg2);
+  } else {
+    const { delta, value } = arg2 ?? {};
+    if (Number.isFinite(value as number)) body.value = Math.floor(Number(value));
+    if (Number.isFinite(delta as number)) body.delta = Math.floor(Number(delta));
+    if (!('value' in body) && !('delta' in body)) {
+      throw new Error('Debes enviar delta o value');
+    }
   }
-  // Ajusta la ruta si tu API usa otra convención
-  await api.patch<void>(`/users/${userId}/vacation/bonus/admin`, { delta });
+
+  // ✅ ruta correcta del server:
+  // PATCH /api/users/:id/vacation/bonus
+  const { data } = await api.patch(`/users/${encodeURIComponent(userId)}/vacation/bonus`, body);
+
+  // el controller responde { success, data: { right, adminExtra, total, used, remaining, ... } }
+  const payload = (data?.data ?? data) as Partial<AdjustBonusResponse> | undefined;
+
+  return {
+    right: Number(payload?.right ?? 0),
+    adminExtra: Number(payload?.adminExtra ?? payload?.adminBonus ?? payload?.bonusAdmin ?? 0),
+    adminBonus: Number(payload?.adminBonus ?? payload?.bonusAdmin ?? payload?.adminExtra ?? 0),
+    bonusAdmin: Number(payload?.bonusAdmin ?? payload?.adminBonus ?? payload?.adminExtra ?? 0),
+    total: Number(payload?.total ?? 0),
+    used: Number(payload?.used ?? 0),
+    remaining: Math.max(0, Number(payload?.remaining ?? 0)),
+  };
 }
 
 /** Para usos con `import { VacationService } ...` */
