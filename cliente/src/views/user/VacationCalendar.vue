@@ -806,7 +806,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* ====== Paleta de marca (toma tokens globales si existen) ====== */
+/* ====== Tokens de marca (usa los globales si existen) ====== */
 :root{
   --text: var(--brand-ink, #4b5055);
   --line: var(--brand-gray-300, #cdcdcd);
@@ -814,22 +814,22 @@ onMounted(async () => {
   --card: #ffffff;
   --muted:#6b7280;
 
-  /* estados (mantengo semánticos) */
+  /* semáforos (como antes) */
   --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#3b82f6;
 
-  /* acentos derivados de marca */
+  /* marca */
   --brand: var(--brand-ink, #4b5055);
   --brand-weak: color-mix(in oklab, var(--brand) 70%, white);
   --brand-ring: color-mix(in oklab, var(--brand) 25%, transparent);
 }
 
-/* Oculta posibles widgets/debug flotantes */
+/* Oculta widgets/debug */
 .tweak-fab,.debug-fab,.ui-tweak-toggle,.fab-settings,.fab-debug,.debug-box,.meta-debug{ display:none!important; }
 
 /* Toast */
 .toast{
   position:fixed; right:16px; bottom:16px;
-  background: var(--brand); color:#fff;
+  background: #111827; color:#fff;
   padding:.6rem .9rem; border-radius:10px;
   box-shadow:0 8px 20px rgba(0,0,0,.25);
   z-index:99; max-width:80vw;
@@ -841,7 +841,7 @@ onMounted(async () => {
 /* ====== KPIs ====== */
 .kpi-grid{
   display:grid;
-  grid-template-columns:repeat(5, minmax(0,1fr)); /* 5 tarjetas en una fila */
+  grid-template-columns:repeat(5, minmax(0,1fr));
   gap:1rem;
 }
 @media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(2,1fr) } }
@@ -856,32 +856,34 @@ onMounted(async () => {
 .kpi-value{ font-size:2rem; font-weight:700; color:var(--text); }
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
 
-/* Barra “Disponibles” = color de marca */
+/* ✅ Disponibles: vuelve el verde con degradado original */
 .kpi-card:first-child .kpi-bar{
   margin-top:.6rem; height:8px; width:100%;
-  background: var(--brand-weak); border:1px solid var(--line);
+  background:#f1f5f9; border:1px solid #eef2f7;
   border-radius:999px; overflow:hidden;
 }
 .kpi-card:first-child .kpi-bar-fill{
-  height:100%; background: var(--brand);
+  height:100%;
+  background:linear-gradient(90deg,#16a34a,#22c55e,#86efac);
   transition:width .35s;
 }
 
-/* “Usados” (pill neutro) */
+/* Usados: pill neutro */
 .kpi-card:nth-child(2) small{
   display:inline-block; margin-top:.4rem; font-weight:700;
-  padding:.2rem .55rem; border-radius:999px; color: var(--brand);
-  background: #f7f7f7; border:1px solid var(--line);
+  padding:.2rem .55rem; border-radius:999px; color:#fff;
+  background:linear-gradient(90deg,#3b82f6,#6366f1);
+  box-shadow:0 6px 16px rgba(99,102,241,.18);
 }
 
-/* “Anuales” (pill suave) */
+/* Anuales: pill suave */
 .kpi-card:nth-child(3) small{
-  display:inline-block; margin-top:.4rem; color: var(--brand);
-  background: var(--brand-weak); border:1px solid var(--line);
+  display:inline-block; margin-top:.4rem; color:#065f46;
+  background:#ecfdf5; border:1px solid #a7f3d0;
   border-radius:999px; padding:.18rem .55rem;
 }
 
-/* Periodos (vigente + próximo) */
+/* Periodos: mantiene formato */
 .kpi-card.kpi-period .period-dates{
   font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; color:var(--text);
 }
@@ -890,18 +892,21 @@ onMounted(async () => {
 .kpi-card.kpi-period .badge-soft{
   display:inline-block; margin-top:.4rem;
   padding:.18rem .55rem; border-radius:999px; font-size:.8rem;
-  background: var(--brand-weak); color: var(--brand); border:1px solid var(--line);
+  background:#eef2ff; color:#1e40af; border:1px solid #c7d2fe;
 }
+
+/* ✅ Barras de periodo: azul como tenías */
 .kpi-card.kpi-period .period-bar{
   margin-top:.6rem; height:8px; width:100%;
-  background:#f6f6f6; border-radius:999px; overflow:hidden; border:1px solid var(--line);
+  background:#f1f5f9; border-radius:999px; overflow:hidden; border:1px solid #eef2f7;
 }
 .kpi-card.kpi-period .period-fill{
-  height:100%; background: var(--brand);
+  height:100%;
+  background:linear-gradient(90deg,#0ea5e9,#60a5fa,#93c5fd);
   transition:width .35s;
 }
 
-/* Periodo inactivo (próximo/no vigente) */
+/* Periodo inactivo */
 .kpi-card.kpi-period.inactive{
   filter: grayscale(.2);
   opacity:.85; cursor:pointer;
@@ -910,12 +915,12 @@ onMounted(async () => {
 /* Tooltip periodos inactivos */
 .period-tip{
   position:absolute; right:1rem; bottom:1rem; max-width:260px;
-  background: var(--brand); color:#fff;
+  background: #111827; color:#f9fafb;
   border-radius:10px; padding:.65rem .8rem;
   box-shadow:0 10px 24px rgba(0,0,0,.25); z-index:5;
 }
 .period-tip p{ margin:0; font-size:.9rem; line-height:1.2; }
-.tip-close{ position:absolute; top:.2rem; right:.25rem; border:0; background:transparent; color:#fff; opacity:.8; cursor:pointer; }
+.tip-close{ position:absolute; top:.2rem; right:.25rem; border:0; background:transparent; color:#e5e7eb; cursor:pointer; }
 
 /* Animación tooltip */
 .fade-enter-active, .fade-leave-active { transition: opacity .15s ease; }
@@ -966,24 +971,25 @@ onMounted(async () => {
 }
 .badge{
   font-size:.68rem; line-height:1; padding:.12rem .38rem; border-radius:8px; border:1px solid;
-  background:#fafafa; color:var(--text); border-color:var(--line);
+  background:#f8fafc; color:#334155; border-color:var(--line);
   box-shadow:0 1px 0 rgba(0,0,0,.02);
 }
-.badge--holiday{ background:#f3f6ff; color:#1d4ed8; border-color:#c7d2fe }
-.badge--weekend{ background:var(--brand-weak); color:var(--brand); border-color: var(--line); }
+.badge--holiday{ background:#eef6ff; color:#1d4ed8; border-color:#bfdbfe }
+.badge--weekend{ background:#f3f4f6; color:#475569; border-color: var(--line); }
 .badge--count{ margin-left:auto; background:#e7f9ef; color:#166534; border-color:#86efac; font-weight:700 }
 .badge--count.is-full{ background:#fff1f2; color:#991b1b; border-color:#fecaca }
 
+/* ✅ Selección: vuelve el azul de tu selección original */
 .day-cell.is-selected{
-  background:linear-gradient(180deg, color-mix(in oklab, var(--brand) 12%, white) 0%, #fff 80%);
-  border-color: var(--brand-weak);
-  box-shadow:inset 0 0 0 1.5px var(--brand-weak), 0 0 0 3px color-mix(in oklab, var(--brand) 10%, transparent);
+  background:linear-gradient(180deg,#eff6ff 0%,#fff 80%);
+  border-color:#bfdbfe;
+  box-shadow:inset 0 0 0 1.5px #93c5fd, 0 0 0 3px rgba(37,99,235,.10);
 }
-.day-cell.is-selected .day-number{ color: var(--brand); }
+.day-cell.is-selected .day-number{ color:#1e3a8a }
 
 .day-cell.is-full{ background:#fff7ed; border-color:#fed7aa }
-.day-cell.is-holiday:not(.is-full){ background:#f3f6ff; border-color:#c7d2fe }
-.day-cell.is-weekend:not(.is-full):not(.is-holiday){ background:var(--brand-weak) }
+.day-cell.is-holiday:not(.is-full){ background:#eff6ff; border-color:#bfdbfe }
+.day-cell.is-weekend:not(.is-full):not(.is-holiday){ background:#fafafa }
 
 .day-number{ font-weight:600; color:var(--text); }
 .dot{ position:absolute; right:8px; bottom:8px; width:9px; height:9px; border-radius:999px }
@@ -1016,14 +1022,15 @@ onMounted(async () => {
 .actions{ display:flex; align-items:center; gap:.5rem }
 .btn{
   padding:.45rem .7rem; border-radius:10px; border:1.5px solid var(--line);
-  background: var(--brand-weak); color: var(--brand); cursor:pointer;
+  background:#f8fafc; color: var(--text); cursor:pointer;
 }
-.btn:hover{ background: #eee }
+.btn:hover{ background:#eef2ff }
 .btn-danger{ background:#fee2e2; color:#991b1b; border-color:#fecaca }
 .btn-danger:hover{ background:#fecaca }
 .ml-2{ margin-left:.5rem }
 .badge-success{ display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.15rem .6rem; font-size:.8rem; background:#ecfdf5; color:#065f46 }
 
-/* Selección de texto con acento de marca */
-.vacations-page ::selection{ background: color-mix(in oklab, var(--brand) 20%, transparent); }
+/* Selección de texto */
+.vacations-page ::selection{ background:rgba(37,99,235,.15) }
 </style>
+
