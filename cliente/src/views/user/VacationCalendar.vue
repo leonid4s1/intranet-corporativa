@@ -31,22 +31,55 @@
         <small>{{ availableDays }} días restantes</small>
       </div>
 
-      <!-- Periodo vigente (mejorado) -->
-      <div class="kpi-card kpi-period">
-        <div class="period-dates">
-          <template v-if="windowStart && windowEnd">
-            <span class="date">{{ windowStartFmt }}</span>
-            <span class="arrow">→</span>
-            <span class="date">{{ windowEndFmt }}</span>
-          </template>
-          <template v-else>—</template>
+      <!-- Periodos (vigente + próximo) con mismo formato -->
+      <template v-if="periodCards.length">
+        <div
+          v-for="p in periodCards"
+          :key="p.key"
+          class="kpi-card kpi-period"
+          :class="{ inactive: !p.active }"
+          :aria-disabled="!p.active"
+          tabindex="0"
+          @click="onPeriodClick(p)"
+          @keydown.enter.prevent="onPeriodClick(p)"
+        >
+          <div class="period-dates">
+            <template v-if="p.start && p.end">
+              <span class="date">{{ p.startFmt }}</span>
+              <span class="arrow">→</span>
+              <span class="date">{{ p.endFmt }}</span>
+            </template>
+            <template v-else>—</template>
+          </div>
+
+          <div class="kpi-label">{{ p.label }}</div>
+
+          <small class="badge-soft" v-if="p.end">
+            {{ p.daysLeft }} {{ p.daysLeft === 1 ? 'día' : 'días' }} restantes
+          </small>
+
+          <div class="kpi-bar period-bar">
+            <div class="kpi-bar-fill period-fill" :style="{ width: p.progress + '%' }" />
+          </div>
+
+          <!-- Tooltip inactivos -->
+          <transition name="fade">
+            <div
+              v-if="openTipKey === p.key && !p.active"
+              class="period-tip"
+              role="status"
+            >
+              <p v-if="p.upcoming">
+                Se habilita el <strong>{{ p.startFmt }}</strong>.
+              </p>
+              <p v-else>
+                Periodo vencido desde <strong>{{ p.endFmt }}</strong>.
+              </p>
+              <button class="tip-close" @click.stop="openTipKey = null" aria-label="Cerrar aviso">✕</button>
+            </div>
+          </transition>
         </div>
-        <div class="kpi-label">Periodo vigente</div>
-        <small class="badge-soft" v-if="windowEnd">{{ daysLeft }} días restantes</small>
-        <div class="kpi-bar period-bar">
-          <div class="kpi-bar-fill period-fill" :style="{ width: periodPct + '%' }" />
-        </div>
-      </div>
+      </template>
     </div>
 
     <div class="content-grid">
@@ -282,12 +315,82 @@ const availableDays = ref(0)
 const usedDays = ref(0)
 const totalAnnualDays = ref(0)
 
-// Ventana vigente
+/* ============ Ventana vigente ============ */
 const windowStart = ref<string>('') // YYYY-MM-DD
 const windowEnd   = ref<string>('') // YYYY-MM-DD
-const windowStartFmt = computed(() => windowStart.value ? dayjs(windowStart.value).format('DD MMM YYYY') : '')
-const windowEndFmt   = computed(() => windowEnd.value   ? dayjs(windowEnd.value).format('DD MMM YYYY')   : '')
 
+/* ============ Próxima ventana ============ */
+const nextWindowStart = ref<string>('') // YYYY-MM-DD
+const nextWindowEnd   = ref<string>('') // YYYY-MM-DD
+
+/* Tooltip control para periodos inactivos */
+const openTipKey = ref<'current' | 'next' | null>(null)
+function onPeriodClick(p: PeriodCard) {
+  if (p.active) { openTipKey.value = null; return }
+  openTipKey.value = openTipKey.value === p.key ? null : p.key
+}
+
+/* ===== Helpers de periodo (para mantener formato) ===== */
+type PeriodCard = {
+  key: 'current' | 'next'
+  start: string
+  end: string
+  startFmt: string
+  endFmt: string
+  label: string
+  daysLeft: number
+  progress: number // 0..100
+  active: boolean
+  upcoming: boolean
+}
+
+function calcDaysLeft(endISO: string): number {
+  if (!endISO) return 0
+  const today = new Date(); today.setUTCHours(0,0,0,0)
+  const end   = new Date(`${endISO}T00:00:00Z`)
+  const ms    = Math.max(0, end.getTime() - today.getTime())
+  return Math.ceil(ms / 86400000)
+}
+function calcProgress(startISO: string, endISO: string): number {
+  if (!startISO || !endISO) return 0
+  const start = new Date(`${startISO}T00:00:00Z`)
+  const end   = new Date(`${endISO}T00:00:00Z`)
+  const today = new Date(); today.setUTCHours(0,0,0,0)
+
+  const totalDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000))
+  const leftDays  = Math.max(0, Math.ceil((end.getTime() - today.getTime())  / 86400000))
+  const pct = (leftDays / totalDays) * 100
+  return Math.max(0, Math.min(100, Math.round(pct)))
+}
+function decoratePeriod(key: 'current'|'next', startISO: string, endISO: string): PeriodCard {
+  const s = dayjs(startISO)
+  const e = dayjs(endISO)
+  const t = dayjs().startOf('day')
+
+  const active   = !!startISO && !!endISO && (t.isAfter(s.subtract(1,'day')) && t.isBefore(e.add(1,'day')))
+  const upcoming = !!startISO && t.isBefore(s, 'day')
+
+  return {
+    key,
+    start: startISO,
+    end: endISO,
+    startFmt: startISO ? s.format('DD MMM YYYY') : '',
+    endFmt: endISO ? e.format('DD MMM YYYY') : '',
+    label: active ? 'Periodo vigente' : (upcoming ? 'Próximo periodo' : 'Periodo no vigente'),
+    daysLeft: calcDaysLeft(endISO),
+    progress: calcProgress(startISO, endISO),
+    active,
+    upcoming
+  }
+}
+const periodCards = computed<PeriodCard[]>(() => {
+  const out: PeriodCard[] = []
+  if (windowStart.value && windowEnd.value) out.push(decoratePeriod('current', windowStart.value, windowEnd.value))
+  if (nextWindowStart.value && nextWindowEnd.value) out.push(decoratePeriod('next', nextWindowStart.value, nextWindowEnd.value))
+  return out
+})
+
+/* ===== Resto de tu lógica original ===== */
 const holidays = ref<Holiday[]>([])
 const holidaysSet = computed(() => new Set(holidays.value.map(h => h.date)))
 const teamVacations = ref<TeamVacation[]>([])
@@ -626,15 +729,46 @@ async function loadUserRequests() {
   rejectedRequests.value = rejected as unknown as VacationRequest[]
 }
 
-// Cargar resumen (ventana vigente)
+// Cargar resumen (ventanas: vigente + próxima)
 async function loadSummary() {
   try {
     const s = await getMyEntitlement()
-    windowStart.value = s.cycle.window.start?.slice(0,10) || ''
-    windowEnd.value   = s.cycle.window.end?.slice(0,10)   || ''
+
+    // Vigente
+    windowStart.value = s.cycle?.window?.start?.slice(0,10) || ''
+    windowEnd.value   = s.cycle?.window?.end?.slice(0,10)   || ''
+
+    // Intentar leer nextWindow aunque no esté tipado en EntitlementCycle
+    const cycleUnknown: unknown = s.cycle
+    let nextStart = ''
+    let nextEnd = ''
+
+    if (
+      cycleUnknown &&
+      typeof cycleUnknown === 'object' &&
+      'nextWindow' in cycleUnknown
+    ) {
+      // Narrowing a un shape mínimo sin usar `any`
+      const nw = (cycleUnknown as { nextWindow?: { start?: string; end?: string } }).nextWindow
+      nextStart = nw?.start?.slice(0, 10) ?? ''
+      nextEnd   = nw?.end?.slice(0, 10) ?? ''
+    }
+
+    // Si backend no manda nextWindow, derivamos sumando 1 año al vigente
+    if (!nextStart || !nextEnd) {
+      if (windowStart.value && windowEnd.value) {
+        nextStart = dayjs(windowStart.value).add(1, 'year').format('YYYY-MM-DD')
+        nextEnd   = dayjs(windowEnd.value).add(1, 'year').format('YYYY-MM-DD')
+      }
+    }
+
+    nextWindowStart.value = nextStart
+    nextWindowEnd.value   = nextEnd
   } catch {
     windowStart.value = ''
     windowEnd.value   = ''
+    nextWindowStart.value = ''
+    nextWindowEnd.value   = ''
   }
 }
 
@@ -657,26 +791,6 @@ async function cancel(id: string) {
     await Promise.all([loadUserRequests(), loadBalance(), loadCalendarData(), loadSummary()])
   } catch {}
 }
-
-const daysLeft = computed(() => {
-  if (!windowEnd.value) return 0
-  const today = new Date(); today.setUTCHours(0,0,0,0)
-  const end   = new Date(`${windowEnd.value}T00:00:00Z`)
-  const ms    = Math.max(0, end.getTime() - today.getTime())
-  return Math.ceil(ms / 86400000)
-})
-
-const periodPct = computed(() => {
-  if (!windowStart.value || !windowEnd.value) return 0
-  const start = new Date(`${windowStart.value}T00:00:00Z`)
-  const end   = new Date(`${windowEnd.value}T00:00:00Z`)
-  const today = new Date(); today.setUTCHours(0,0,0,0)
-
-  const totalDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000))
-  const leftDays  = Math.max(0, Math.ceil((end.getTime() - today.getTime())  / 86400000))
-  const pct = (leftDays / totalDays) * 100
-  return Math.max(0, Math.min(100, Math.round(pct)))
-})
 
 onMounted(async () => {
   await Promise.all([loadBalance(), loadCalendarData(), loadUserRequests(), loadSummary()])
@@ -703,7 +817,7 @@ onMounted(async () => {
 @media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(2,1fr) } }
 @media (max-width:640px){ .kpi-grid{ grid-template-columns:1fr } }
 
-.kpi-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
+.kpi-card{ position:relative; background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .kpi-value{ font-size:2rem; font-weight:700; }
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
 
@@ -725,6 +839,34 @@ onMounted(async () => {
 }
 .kpi-card.kpi-period .period-bar{ margin-top:.6rem; height:8px; width:100%; background:#f1f5f9; border-radius:999px; overflow:hidden; border:1px solid #eef2f7; }
 .kpi-card.kpi-period .period-fill{ height:100%; background:linear-gradient(90deg,#0ea5e9,#60a5fa,#93c5fd); transition:width .35s; }
+
+/* Periodo inactivo (próximo/no vigente) */
+.kpi-card.kpi-period.inactive{
+  filter: grayscale(.25);
+  opacity: .75;
+  cursor: pointer;
+}
+
+/* Tooltip para periodos inactivos */
+.period-tip{
+  position:absolute;
+  right:1rem; bottom:1rem;
+  max-width:260px;
+  background:#111827; color:#f9fafb;
+  border-radius:10px; padding:.65rem .8rem;
+  box-shadow:0 10px 24px rgba(0,0,0,.25);
+  z-index:5;
+}
+.period-tip p{ margin:0; font-size:.9rem; line-height:1.2; }
+.period-tip strong{ color:#fff; }
+.tip-close{
+  position:absolute; top:.2rem; right:.25rem;
+  border:0; background:transparent; color:#e5e7eb; cursor:pointer;
+}
+
+/* Animación tooltip */
+.fade-enter-active, .fade-leave-active { transition: opacity .15s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
 /* Layout principal */
 .content-grid{ display:grid; grid-template-columns:1fr 320px; gap:1rem; }
