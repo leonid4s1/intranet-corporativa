@@ -1,4 +1,9 @@
 /* color palette from <https://github.com/vuejs/theme> */
+@import "@/assets/styles/brand.css";
+@import "@/assets/styles/fonts.css";
+@import "@/assets/styles/tailwind.css";
+
+
 :root {
   --vt-c-white: #ffffff;
   --vt-c-white-soft: #f8f8f8;

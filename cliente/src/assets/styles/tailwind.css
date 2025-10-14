@@ -1,3 +1,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base{
+  :root{
+    --brand-ink:#4b5055;
+    --brand-gray-300:#cdcdcd;
+    --brand-gray-100:#f0f0f0;
+  }
+  html, body{
+    @apply text-brand-ink bg-white font-brand;
+  }
+}

@@ -1,0 +1,44 @@
+:root{
+  /* Colores de marca (según guía) */
+  --brand-ink: #4b5055;   /* PMS 7540 C */
+  --brand-gray-300: #cdcdcd; /* Cool Gray 1C 40% aprox */
+  --brand-gray-100: #f0f0f0; /* Cool Gray 2C aprox */
+
+  /* Derivados útiles */
+  --brand-ink-80: #5c6166;
+  --brand-ink-60: #7a8086;
+  --brand-ink-40: #9ca2a8;
+  --brand-ink-20: #c2c6ca;
+
+  /* UI */
+  --bg-page: #ffffff;
+  --bg-card: #ffffff;
+  --line: var(--brand-gray-300);
+  --text: var(--brand-ink);
+}
+
+html, body{
+  color: var(--text);
+  background: var(--bg-page);
+}
+
+/* Utilidades rápidas */
+.text-brand{ color: var(--brand-ink); }
+.bg-brand{ background: var(--brand-ink); color:#fff; }
+.bg-brand-100{ background: var(--brand-gray-100); }
+.border-brand{ border-color: var(--brand-ink); }
+
+.btn-brand{
+  background: var(--brand-ink);
+  color:#fff;
+  border: 1px solid transparent;
+  padding:.6rem .9rem;
+  border-radius:.5rem;
+}
+.btn-brand:hover{ filter: brightness(1.05); }
+.badge-brand{
+  background: var(--brand-gray-100);
+  color: var(--brand-ink);
+  border:1px solid var(--brand-gray-300);
+  padding:.2rem .5rem; border-radius:.375rem;
+}

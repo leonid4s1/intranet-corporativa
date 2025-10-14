@@ -1,0 +1,95 @@
+/* === Neue Haas Grotesk Display (auto-hospedada) === */
+/* Mapea pesos estándar (100–900) para que tailwind/CSS los reconozcan bien. */
+/* Normal */
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayThin.ttf") format("truetype");
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayLight.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayRoman.ttf") format("truetype");
+  font-weight: 400; /* Regular */
+  font-style: normal;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayMedium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayBold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayBlack.ttf") format("truetype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Italic */
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayThinItalic.ttf") format("truetype");
+  font-weight: 100;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayLightItalic.ttf") format("truetype");
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayRomanItalic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayMediumItalic.ttf") format("truetype");
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayBoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face{
+  font-family: "Neue Haas Grotesk Display";
+  src: url("@/assets/fonts/NeueHaasDisplayBlackItalic.ttf") format("truetype");
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Variable global + aplicación */
+:root{
+  --font-brand: "Neue Haas Grotesk Display", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+}
+html, body, #app{ font-family: var(--font-brand); }
