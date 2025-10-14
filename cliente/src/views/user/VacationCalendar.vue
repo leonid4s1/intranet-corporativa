@@ -276,7 +276,7 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted } from 'vue'
 import dayjs, { Dayjs } from 'dayjs'
-import 'dayjs/locale/es' // para formato en español
+import 'dayjs/locale/es'
 import VacationRequestDialog from '@/components/vacations/VacationRequestDialog.vue'
 import {
   getVacationBalance,
@@ -390,7 +390,7 @@ const periodCards = computed<PeriodCard[]>(() => {
   return out
 })
 
-/* ===== Resto de tu lógica original ===== */
+/* ===== Resto de la lógica ===== */
 const holidays = ref<Holiday[]>([])
 const holidaysSet = computed(() => new Set(holidays.value.map(h => h.date)))
 const teamVacations = ref<TeamVacation[]>([])
@@ -729,41 +729,49 @@ async function loadUserRequests() {
   rejectedRequests.value = rejected as unknown as VacationRequest[]
 }
 
-// Cargar resumen (ventanas: vigente + próxima)
+/* ===== Ventanas de 18 meses como en "Saldo por ventanas" ===== */
+const DISPLAY_WINDOW_MONTHS = 18
+
+function computeDisplayWindow(startISO: string): { start: string; end: string } {
+  if (!startISO) return { start: '', end: '' }
+  const start = dayjs(startISO).format('YYYY-MM-DD')
+  const end = dayjs(startISO).add(DISPLAY_WINDOW_MONTHS, 'month').subtract(1, 'day').format('YYYY-MM-DD')
+  return { start, end }
+}
+
+// Cargar resumen (vigente + próxima) usando 18 meses
 async function loadSummary() {
   try {
     const s = await getMyEntitlement()
 
-    // Vigente
-    windowStart.value = s.cycle?.window?.start?.slice(0,10) || ''
-    windowEnd.value   = s.cycle?.window?.end?.slice(0,10)   || ''
+    const baseStart = s.cycle?.window?.start?.slice(0, 10) || ''
 
-    // Intentar leer nextWindow aunque no esté tipado en EntitlementCycle
+    if (baseStart) {
+      const cur = computeDisplayWindow(baseStart)
+      windowStart.value = cur.start
+      windowEnd.value   = cur.end
+    } else {
+      windowStart.value = ''
+      windowEnd.value   = ''
+    }
+
+    // next: +1 año desde el inicio base, o el start que mande el backend, siempre con duración 18m
+    let nextStart = baseStart ? dayjs(baseStart).add(1, 'year').format('YYYY-MM-DD') : ''
+
     const cycleUnknown: unknown = s.cycle
-    let nextStart = ''
-    let nextEnd = ''
-
-    if (
-      cycleUnknown &&
-      typeof cycleUnknown === 'object' &&
-      'nextWindow' in cycleUnknown
-    ) {
-      // Narrowing a un shape mínimo sin usar `any`
-      const nw = (cycleUnknown as { nextWindow?: { start?: string; end?: string } }).nextWindow
-      nextStart = nw?.start?.slice(0, 10) ?? ''
-      nextEnd   = nw?.end?.slice(0, 10) ?? ''
+    if (cycleUnknown && typeof cycleUnknown === 'object' && 'nextWindow' in cycleUnknown) {
+      const nw = (cycleUnknown as { nextWindow?: { start?: string } }).nextWindow
+      if (nw?.start) nextStart = nw.start.slice(0, 10)
     }
 
-    // Si backend no manda nextWindow, derivamos sumando 1 año al vigente
-    if (!nextStart || !nextEnd) {
-      if (windowStart.value && windowEnd.value) {
-        nextStart = dayjs(windowStart.value).add(1, 'year').format('YYYY-MM-DD')
-        nextEnd   = dayjs(windowEnd.value).add(1, 'year').format('YYYY-MM-DD')
-      }
+    if (nextStart) {
+      const nxt = computeDisplayWindow(nextStart)
+      nextWindowStart.value = nxt.start
+      nextWindowEnd.value   = nxt.end
+    } else {
+      nextWindowStart.value = ''
+      nextWindowEnd.value   = ''
     }
-
-    nextWindowStart.value = nextStart
-    nextWindowEnd.value   = nextEnd
   } catch {
     windowStart.value = ''
     windowEnd.value   = ''
@@ -818,12 +826,8 @@ onMounted(async () => {
   grid-template-columns:repeat(5, minmax(0,1fr)); /* 5 tarjetas en una fila */
   gap:1rem;
 }
-@media (max-width:1100px){
-  .kpi-grid{ grid-template-columns:repeat(2,1fr) }
-}
-@media (max-width:640px){
-  .kpi-grid{ grid-template-columns:1fr }
-}
+@media (max-width:1100px){ .kpi-grid{ grid-template-columns:repeat(2,1fr) } }
+@media (max-width:640px){ .kpi-grid{ grid-template-columns:1fr } }
 
 .kpi-card{ position:relative; background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .kpi-value{ font-size:2rem; font-weight:700; }
@@ -880,7 +884,7 @@ onMounted(async () => {
 .content-grid{ display:grid; grid-template-columns:1fr 320px; gap:1rem; }
 @media (max-width:1100px){ .content-grid{ grid-template-columns:1fr } }
 
-/* Calendario y resto (sin cambios de color) */
+/* Calendario y resto */
 .calendar-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem; }
 .calendar-header{ display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; }
 .month-title{ flex:1; text-align:center; text-transform:capitalize; font-weight:700; }
