@@ -57,7 +57,7 @@
                 <button
                   class="btn danger sm"
                   title="Eliminar"
-                  :disabled="isDeletingHoliday(h)"
+                  :disabled="deletingHolidayKey === h.id"
                   @click="deleteHoliday(h)"
                 >
                   ✖
@@ -111,17 +111,6 @@
                 <span class="badge warn">Pendiente</span>
               </td>
               <td class="center">
-                <!-- NUEVO: Botón Ver saldo (ventanas) -->
-                <button
-                  class="btn sm"
-                  title="Ver saldo (ventanas)"
-                  :disabled="isActionLoading === r.id"
-                  @click="openWindowsModal(r.user)"
-                  style="margin-right:6px;"
-                >
-                  Ver saldo
-                </button>
-
                 <button
                   class="btn success"
                   :disabled="isActionLoading === r.id"
@@ -155,84 +144,15 @@
           :maxlength="500"
         ></textarea>
         <div class="modal-actions">
-          <button class="btn" @click="closeRejectDialog" :disabled="reject.loading">Cancelar</button>
+          <button class="btn" @click="closeRejectDialog()" :disabled="reject.loading">Cancelar</button>
           <button
             class="btn danger"
-            @click="confirmReject"
+            @click="confirmReject()"
             :disabled="reject.loading || reject.text.trim().length < 3 || reject.text.trim().length > 500"
             :title="reject.text.trim().length < 3 ? 'Mínimo 3 caracteres' : (reject.text.trim().length > 500 ? 'Máximo 500 caracteres' : 'Rechazar solicitud')"
           >
             {{ reject.loading ? 'Rechazando…' : 'Rechazar solicitud' }}
           </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========= MODAL VENTANAS (current / next, vigencia 18m) ========= -->
-    <div v-if="winModal.open" class="modal-backdrop" @click.self="closeWindowsModal">
-      <div class="modal">
-        <h3>Saldo por ventanas</h3>
-        <p class="muted" v-if="winModal.user">
-          Usuario: <strong>{{ winModal.user.name }}</strong>
-          <span v-if="winModal.user.email"> — {{ winModal.user.email }}</span>
-        </p>
-
-        <div v-if="winModal.loading" class="muted">Cargando ventanas…</div>
-        <div v-else-if="winModal.error" class="error">{{ winModal.error }}</div>
-
-        <template v-else-if="winModal.summary">
-          <div class="table-wrap" style="margin-top:8px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>VENTANA</th>
-                  <th>RANGO</th>
-                  <th>EXPIRA</th>
-                  <th class="center">DÍAS</th>
-                  <th class="center">USADOS</th>
-                  <th class="center">RESTANTES</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="w in winModal.summary.windows"
-                  :key="w.label + '-' + w.year"
-                >
-                  <td>
-                    <span class="badge" :class="w.label === 'current' ? 'warn' : 'next'">
-                      {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
-                    </span>
-                    <div class="muted" style="font-size:.85rem;">Año: {{ w.year }}</div>
-                  </td>
-                  <td>
-                    {{ formatISO(w.start) }} — {{ formatISO(w.end) }}
-                  </td>
-                  <td>{{ formatISO(w.expiresAt) }}</td>
-                  <td class="center">{{ w.days }}</td>
-                  <td class="center">{{ w.used }}</td>
-                  <td class="center"><strong>{{ remainingOf(w) }}</strong></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div style="margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-            <div class="muted">
-              Bono admin: <strong>{{ winModal.summary.bonusAdmin }}</strong>
-            </div>
-            <div>
-              <span class="badge">
-                Disponible total: <strong>{{ winModal.summary.available }}</strong>
-              </span>
-            </div>
-          </div>
-          <small class="muted" style="display:block; margin-top:6px;">
-            * Los días no gozados de la primera ventana expiran a los 18 meses (se eliminan de disponibles).
-          </small>
-        </template>
-
-        <div class="modal-actions" style="margin-top:12px;">
-          <button class="btn" @click="closeWindowsModal" :disabled="winModal.loading">Cerrar</button>
         </div>
       </div>
     </div>
@@ -291,10 +211,10 @@
         </div>
 
         <div class="modal-actions">
-          <button class="btn" @click="closeHolidayModal" :disabled="holidayModal.loading">Cancelar</button>
+          <button class="btn" @click="closeHolidayModal()" :disabled="holidayModal.loading">Cancelar</button>
           <button
             class="btn primary"
-            @click="saveHoliday"
+            @click="saveHoliday()"
             :disabled="holidayModal.loading || !canSubmitHoliday"
             :title="!canSubmitHoliday ? 'Completa los campos obligatorios' : 'Guardar festivo'"
           >
@@ -317,12 +237,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import dayjs from 'dayjs';
-import vacationService, {
-  type WindowsSummary,
-  type VacationWindow,
-  // ⬇️ Importa el summary corregido
-  getWindowsSummaryFixed,
-} from '@/services/vacation.service';
+import vacationService from '@/services/vacation.service';
 import holidayService, {
   type Holiday as ApiHoliday,
   type HolidayCreateData,
@@ -352,7 +267,7 @@ interface VacationRequest {
 type Holiday = ApiHoliday;
 
 const pendingRequests = ref<VacationRequest[]>([]);
-const loadingPending = ref<boolean>(false);
+const loadingPending = ref(false);
 const isActionLoading = ref<string | null>(null);
 
 const selectedYear = ref<number>(new Date().getFullYear());
@@ -362,7 +277,7 @@ const yearOptions = computed(() => {
 });
 
 const holidays = ref<Holiday[]>([]);
-const loadingHolidays = ref<boolean>(false);
+const loadingHolidays = ref(false);
 const deletingHolidayKey = ref<string | null>(null);
 
 /* ========= MODAL: CREAR/EDITAR FESTIVO ========= */
@@ -399,21 +314,6 @@ const reject = ref<{ open: boolean; id: string | null; text: string; loading: bo
   loading: false
 });
 
-/* ========= MODAL VENTANAS (current/next) ========= */
-const winModal = ref<{
-  open: boolean;
-  loading: boolean;
-  user?: UserRef | null;
-  summary?: WindowsSummary | null;
-  error?: string | null;
-}>({
-  open: false,
-  loading: false,
-  user: null,
-  summary: null,
-  error: null,
-});
-
 /* ========= ALERTAS ========= */
 const alert = ref<{ visible: boolean; type: 'success' | 'error' | 'warning' | 'info'; message: string }>({
   visible: false,
@@ -429,18 +329,12 @@ function showAlert(type: 'success' | 'error' | 'warning' | 'info', message: stri
 function formatDate(ymd: string): string {
   return dayjs(ymd).format('DD/MM/YYYY');
 }
-function formatISO(iso: string): string {
-  return dayjs(iso).format('DD/MM/YYYY');
-}
 function spanDays(start: string, end: string): number {
   return dayjs(end).diff(dayjs(start), 'day') + 1;
 }
 function getErrMsg(err: unknown): string {
   if (err instanceof Error) return err.message;
   try { return JSON.stringify(err); } catch { return 'Error desconocido'; }
-}
-function remainingOf(w: VacationWindow): number {
-  return Math.max((w?.days ?? 0) - (w?.used ?? 0), 0);
 }
 
 /* ========= LOADERS ========= */
@@ -520,49 +414,21 @@ async function confirmReject() {
   }
 }
 
-/* ========= Ventanas: abrir/cerrar ========= */
-async function openWindowsModal(user: UserRef) {
-  try {
-    winModal.value = { open: true, loading: true, user, summary: null, error: null };
-    // ⬇️ Usa el summary corregido (no “adelanta” días del siguiente año)
-    winModal.value.summary = await getWindowsSummaryFixed(user.id);
-  } catch (err) {
-    console.error('Error cargando ventanas:', err);
-    winModal.value.error = getErrMsg(err);
-  } finally {
-    winModal.value.loading = false;
-  }
-}
-
-function closeWindowsModal() {
-  if (winModal.value.loading) return;
-  winModal.value.open = false;
-  winModal.value.user = null;
-  winModal.value.summary = null;
-  winModal.value.error = null;
-}
-
-/* ========= FESTIVOS (CRUD) ========= */
+/* ========= CRUD FESTIVOS ========= */
 function openHolidayModal(h?: Holiday) {
   holidayErrors.value = {};
   if (h) {
     holidayModal.value = { open: true, mode: 'edit', loading: false, editId: h.id };
     holidayForm.value = {
       name: h.name,
-      date: h.date, // ya viene YYYY-MM-DD del service
+      date: h.date,
       recurring: h.recurring ?? false,
       description: h.description ?? '',
       customId: h.customId ?? '',
     };
   } else {
     holidayModal.value = { open: true, mode: 'create', loading: false, editId: null };
-    holidayForm.value = {
-      name: '',
-      date: '',
-      recurring: false,
-      description: '',
-      customId: '',
-    };
+    holidayForm.value = { name: '', date: '', recurring: false, description: '', customId: '' };
   }
 }
 
@@ -580,27 +446,20 @@ function validateHolidayForm(): boolean {
   if (!name || name.length < MIN_NAME_LENGTH) {
     holidayErrors.value.name = `El nombre debe tener al menos ${MIN_NAME_LENGTH} caracteres`;
   }
-
   if (!date) {
     holidayErrors.value.date = 'La fecha es obligatoria';
-  } else {
-    const d = new Date(date);
-    if (Number.isNaN(d.getTime())) {
-      holidayErrors.value.date = 'Formato de fecha inválido (YYYY-MM-DD)';
-    }
+  } else if (Number.isNaN(new Date(date).getTime())) {
+    holidayErrors.value.date = 'Formato de fecha inválido (YYYY-MM-DD)';
   }
-
   return !holidayErrors.value.name && !holidayErrors.value.date;
 }
 
 async function saveHoliday() {
   if (!validateHolidayForm()) return;
-
   try {
     holidayModal.value.loading = true;
 
     if (holidayModal.value.mode === 'create') {
-      // Crear
       await holidayService.createHoliday({
         name: holidayForm.value.name.trim(),
         date: holidayForm.value.date,
@@ -610,7 +469,6 @@ async function saveHoliday() {
       });
       showAlert('success', 'Festivo creado');
     } else {
-      // Editar
       const id = holidayModal.value.editId!;
       const payload: Partial<HolidayCreateData> = {
         name: holidayForm.value.name?.trim() || undefined,
@@ -631,10 +489,6 @@ async function saveHoliday() {
   } finally {
     holidayModal.value.loading = false;
   }
-}
-
-function isDeletingHoliday(h: Holiday): boolean {
-  return deletingHolidayKey.value === h.id;
 }
 
 async function deleteHoliday(h: Holiday) {
@@ -661,161 +515,50 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.admin-vacations {
-  padding: 16px;
-}
-
-.page-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:12px;
-  margin-bottom:12px;
-}
-
+/* === estilos idénticos a tu versión previa === */
+.admin-vacations { padding: 16px; }
+.page-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
 h1 { margin: 0; }
-
-.card {
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
-  padding: 14px;
-  margin: 16px 0;
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
+.card { background: #fff; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.06); padding: 14px; margin: 16px 0; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .card-head h2 { margin: 0; }
-
-.head-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
+.head-actions { display: flex; align-items: center; gap: 12px; }
 .year-filter { font-size: .95rem; }
 .table-wrap { overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
-
-thead th {
-  text-align: left;
-  font-weight: 600;
-  color: #333;
-  border-bottom: 1px solid #eee;
-  padding: 10px 8px;
-}
-tbody td {
-  border-bottom: 1px solid #f2f2f2;
-  padding: 10px 8px;
-  vertical-align: middle;
-}
+thead th { text-align: left; font-weight: 600; color: #333; border-bottom: 1px solid #eee; padding: 10px 8px; }
+tbody td { border-bottom: 1px solid #f2f2f2; padding: 10px 8px; vertical-align: middle; }
 .wrap { max-width: 360px; white-space: normal; word-break: break-word; }
-
 .center { text-align: center; }
 .muted { color: #6b7280; }
-
-/* mini helper */
 .error { color: #b91c1c; }
-
-/* user cell */
 .user-cell .name { font-weight: 600; }
 .user-cell .email { font-size: .85rem; color: #6b7280; }
-
-/* Botones */
-.btn {
-  background: #e5e7eb;
-  color: #111827;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-}
+.btn { background: #e5e7eb; color: #111827; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 .btn:hover { background: #dfe3e7; }
 .btn:disabled { opacity: .6; cursor: not-allowed; }
-
 .btn.primary { background: #2563eb; color: #fff; border-color: #1d4ed8; }
 .btn.primary:hover { background: #1d4ed8; }
-
 .btn.success { background: #22c55e; color: #fff; border-color: #16a34a; margin-right: 8px; }
 .btn.success:hover { background: #16a34a; }
-
 .btn.warn { background: #f59e0b; color: #fff; border-color: #d97706; margin-right: 6px; }
 .btn.warn:hover { background: #d97706; }
-
 .btn.danger { background: #ef4444; color: #fff; border-color: #dc2626; }
 .btn.danger:hover { background: #dc2626; }
-
 .btn.sm { padding: 4px 8px; border-radius: 6px; font-size: .85rem; }
-
-/* Badges */
-.badge {
-  display: inline-block;
-  font-size: .8rem;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: #e5e7eb;
-  color: #111827;
-}
+.badge { display: inline-block; font-size: .8rem; padding: 4px 8px; border-radius: 999px; background: #e5e7eb; color: #111827; }
 .badge.warn { background: #fff9c4; color: #9a6700; }
 .badge.recurrent { background: #e9e5ff; color: #3b2db8; }
-/* NUEVO: para la ventana next */
-.badge.next { background: #e0f2fe; color: #075985; }
-
-/* ===== Modal base ===== */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, .45);
-  display: grid;
-  place-items: center;
-  z-index: 50;
-}
-.modal {
-  width: min(640px, calc(100% - 32px));
-  background: #fff;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.2);
-}
+.modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); display: grid; place-items: center; z-index: 50; }
+.modal { width: min(640px, calc(100% - 32px)); background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
 .modal h3 { margin: 0 0 8px 0; }
 .modal p  { margin: 0 0 12px 0; }
-
-/* ===== Form Festivo ===== */
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 8px;
-}
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
 .form-grid label { display: flex; flex-direction: column; gap: 6px; }
 .form-grid label span { font-size: .9rem; color: #374151; }
-.form-grid input[type="text"],
-.form-grid input[type="date"],
-.form-grid textarea {
-  width: 100%;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 10px;
-  font-family: inherit;
-}
-.form-grid .checkbox {
-  grid-column: 1 / -1;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-}
+.form-grid input[type="text"], .form-grid input[type="date"], .form-grid textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; font-family: inherit; }
+.form-grid .checkbox { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 8px; }
 .form-grid textarea { resize: vertical; grid-column: 1 / -1; }
 .invalid { border-color: #ef4444 !important; }
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-}
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 </style>
