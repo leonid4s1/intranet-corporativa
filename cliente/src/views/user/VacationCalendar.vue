@@ -86,16 +86,16 @@
       <!-- Calendario -->
       <section class="calendar-card">
         <header class="calendar-header">
-          <button class="nav-btn" @click="goPrevMonth">‹</button>
+          <button class="nav-btn" @click="goPrevMonth" aria-label="Mes anterior">‹</button>
           <h2 class="month-title">{{ currentDate.format('MMMM YYYY') }}</h2>
-          <button class="nav-btn" @click="goNextMonth">›</button>
+          <button class="nav-btn" @click="goNextMonth" aria-label="Mes siguiente">›</button>
         </header>
 
         <div class="legend">
-          <span><span class="dot dot--green" /> Disponible</span>
-          <span><span class="dot dot--yellow" /> Festivo / Fin de semana</span>
-          <span><span class="dot dot--red" /> Cupo lleno</span>
-          <span v-if="selectedStart || selectedEnd"><span class="dot dot--blue" /> Selección</span>
+          <span><span class="dot dot--green"></span> Disponible</span>
+          <span><span class="dot dot--yellow"></span> Festivo / Fin de semana</span>
+          <span><span class="dot dot--red"></span> Cupo lleno</span>
+          <span v-if="selectedStart || selectedEnd"><span class="dot dot--blue"></span> Selección</span>
         </div>
 
         <div class="weekday-row">
