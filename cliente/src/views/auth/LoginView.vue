@@ -160,15 +160,28 @@ if (authStore.isAuthenticated) {
 }
 
 /* ===== Lockup de marca (sustituye al H1) ===== */
+/* Centrar el lockup (logo + textos) */
 .brand-hero{
-  display:flex; align-items:center; gap: .9rem;
-  margin-bottom: 1rem;
+  display:flex;
+  align-items:center;
+  justify-content:center;   /* ← centra horizontalmente */
+  gap:.9rem;
+  margin-bottom:1rem;
+  flex-wrap:wrap;           /* ← si hay poco ancho, permite salto a dos líneas */
 }
 .brand-hero__logo{
   width:48px; height:48px; object-fit:contain;
   filter: grayscale(100%);     /* monocromo sobrio */
 }
-.brand-hero__text{ display:flex; flex-direction:column; line-height:1.05; }
+.brand-hero__text{
+  display:flex;
+  flex-direction:column;
+  line-height:1.05;
+  text-align:center;        /* ← centra los textos respecto al logo */
+}
+@media (max-width: 420px){
+  .brand-hero__logo{ width:42px; height:42px; }
+}
 .brand-hero__name{
   font-weight: 900;
   color:#111827;
