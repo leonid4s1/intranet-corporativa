@@ -1,15 +1,13 @@
 <template>
   <div class="auth-container">
-    <!-- Cabecera de marca -->
-    <div class="brand-head" aria-label="Odes Construction">
-      <img class="brand-logo" :src="logoUrl" alt="Logo Odes Construction" />
-      <div class="brand-meta">
-        <strong class="brand-name">Odes Construction</strong>
-        <span class="brand-sub">Acceso a intranet</span>
+    <!-- HERO DE MARCA (reemplaza al H1) -->
+    <div class="brand-hero" aria-label="Odes Construction">
+      <img class="brand-hero__logo" :src="logoUrl" alt="Logo Odes Construction" />
+      <div class="brand-hero__text">
+        <div class="brand-hero__name">Odes Construction</div>
+        <div class="brand-hero__sub">Acceso a intranet</div>
       </div>
     </div>
-
-    <h1>Iniciar Sesión</h1>
 
     <form @submit.prevent="handleSubmit" class="auth-form">
       <div class="form-group">
@@ -27,7 +25,6 @@
       <div class="form-group">
         <label for="password">Contraseña:</label>
 
-        <!-- Wrapper con botón "ojito" -->
         <div class="password-wrapper">
           <input
             :type="showPassword ? 'text' : 'password'"
@@ -68,9 +65,7 @@
     </form>
 
     <div class="auth-footer">
-      <p class="hint">
-        ¿Problemas para entrar? Contacta al administrador.
-      </p>
+      <p class="hint">¿Problemas para entrar? Contacta al administrador.</p>
     </div>
   </div>
 </template>
@@ -79,67 +74,47 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
-import logoUrl from '@/assets/odes-mark.png'; // coloca tu icono aquí (svg/png)
+import logoUrl from '@/assets/odes-mark.png'; // coloca aquí tu icono (svg o png)
 
 const isLoading = ref(false);
 const email = ref('');
 const password = ref('');
 const error = ref('');
-
-// Mostrar/ocultar contraseña
 const showPassword = ref(false);
 
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 
-// Tipos auxiliares para errores
 type ApiErrorData = { message?: string };
-type AxiosLikeError = {
-  message?: string;
-  response?: { data?: ApiErrorData };
-};
+type AxiosLikeError = { message?: string; response?: { data?: ApiErrorData } };
 
-// Utils
 function safeDecodeRedirect(raw: unknown): string | null {
   if (typeof raw !== 'string' || !raw) return null;
   try {
     const dec = decodeURIComponent(raw);
-    if (dec.startsWith('/') && !dec.startsWith('//') && dec !== '/login') {
-      return dec;
-    }
+    if (dec.startsWith('/') && !dec.startsWith('//') && dec !== '/login') return dec;
     return null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function extractErrorMessage(err: unknown): string {
   if (typeof err === 'object' && err !== null) {
     const e = err as AxiosLikeError;
     const apiMsg = e.response?.data?.message;
-    if (typeof apiMsg === 'string' && apiMsg.trim().length > 0) return apiMsg;
-    if (typeof e.message === 'string' && e.message.trim().length > 0) return e.message;
+    if (typeof apiMsg === 'string' && apiMsg.trim()) return apiMsg;
+    if (typeof e.message === 'string' && e.message.trim()) return e.message;
   }
   return 'Error al iniciar sesión. Intente nuevamente';
 }
 
-// Submit
 const handleSubmit = async () => {
   isLoading.value = true;
   error.value = '';
-
   try {
-    await authStore.login({
-      email: email.value.trim(),
-      password: password.value.trim(),
-    });
-
+    await authStore.login({ email: email.value.trim(), password: password.value.trim() });
     const redirectPath = safeDecodeRedirect(route.query.redirect);
-    if (redirectPath) {
-      return router.replace(redirectPath);
-    }
-
+    if (redirectPath) return router.replace(redirectPath);
     return router.replace({ name: authStore.isAdmin ? 'admin-dashboard' : 'home' });
   } catch (err: unknown) {
     error.value = extractErrorMessage(err);
@@ -149,73 +124,66 @@ const handleSubmit = async () => {
   }
 };
 
-// Usuario ya autenticado no debe quedarse en /login
 if (authStore.isAuthenticated) {
   router.replace({ name: authStore.isAdmin ? 'admin-dashboard' : 'home' });
 }
 </script>
 
 <style scoped>
-/* === Tokens (negros y grises con fallbacks) === */
+/* ===== Paleta sobria (negros y grises) y tokens de marca ===== */
 :root{
-  --brand: var(--brand-ink, #1f2937);
-  --brand-700: color-mix(in oklab, var(--brand) 85%, black);
-  --brand-600: color-mix(in oklab, var(--brand) 75%, black);
-  --brand-500: var(--brand);
-  --ring: color-mix(in oklab, var(--brand) 25%, transparent);
+  --ink: #0f172a;             /* texto principal */
+  --brand-ink: #4b5055;       /* “ink” corporativo */
+  --g-300: #cdcdcd;
+  --g-100: #f0f0f0;
 
-  --ink: #0f172a;          /* texto principal */
-  --muted: #374151;        /* texto secundario */
-  --line: #9ca3af;         /* borde inputs */
-  --line-strong: #6b7280;  /* hover */
-  --bg: #ffffff;
+  --line: #9ca3af;
+  --line-strong: #6b7280;
+  --ring: rgba(75,80,85,.25);
+
+  --card: #ffffff;
+  --btn-bg: #111827;          /* botón visible */
+  --btn-bg-hover: #0b1220;
+  --btn-text: #ffffff;
 }
 
-/* === Card/Login === */
+/* ===== Contenedor ===== */
 .auth-container{
-  max-width: 560px;
+  max-width: 620px;
   margin: 3rem auto;
   padding: 2rem 2.25rem;
   border-radius: 18px;
-  background: var(--bg);
-  border: 1px solid #e5e7eb;
+  background: var(--card);
+  border: 1px solid var(--g-300);
   box-shadow: 0 22px 60px rgba(15,23,42,.12);
   color: var(--ink);
 }
 
-/* Cabecera de marca */
-.brand-head{
-  display:flex; align-items:center; gap:.8rem;
-  margin-bottom:.5rem;
+/* ===== Lockup de marca (sustituye al H1) ===== */
+.brand-hero{
+  display:flex; align-items:center; gap: .9rem;
+  margin-bottom: 1rem;
 }
-.brand-logo{
-  width:40px; height:40px; object-fit:contain;
-  filter: grayscale(100%); /* versión monocroma para el login sobrio */
+.brand-hero__logo{
+  width:48px; height:48px; object-fit:contain;
+  filter: grayscale(100%);     /* monocromo sobrio */
 }
-.brand-meta{ display:flex; flex-direction:column; line-height:1.1; }
-.brand-name{ color:#111827; font-weight:900; font-size:1.05rem; letter-spacing:.2px; }
-.brand-sub{ color:#6b7280; font-size:.85rem; }
-
-h1{
-  text-align: center;
-  color: var(--ink);
-  margin: .5rem 0 1.25rem;
+.brand-hero__text{ display:flex; flex-direction:column; line-height:1.05; }
+.brand-hero__name{
   font-weight: 900;
-  letter-spacing: .2px;
+  color:#111827;
+  font-size: 1.35rem;          /* protagonista, reemplaza H1 */
+  letter-spacing:.2px;
 }
-h1::after{
-  content:"";
-  display:block;
-  width:72px;height:3px;
-  margin:.6rem auto 0;
-  background: var(--brand-600);
-  border-radius: 999px;
+.brand-hero__sub{
+  color:#6b7280;
+  font-size:.9rem;
 }
 
-/* === Form === */
+/* ===== Form ===== */
 .auth-form{ display:flex; flex-direction:column; gap: 1.2rem; }
 .form-group{ display:flex; flex-direction:column; gap:.55rem; }
-label{ font-weight: 800; color: var(--ink); }
+label{ font-weight: 800; color:#111827; }
 
 /* Inputs con contraste alto */
 input{
@@ -224,52 +192,44 @@ input{
   border: 2px solid var(--line);
   border-radius: 12px;
   color: var(--ink);
-  background: #ffffff;
+  background: #fff;
   transition: border-color .15s, box-shadow .15s, background .15s;
 }
-input::placeholder{
-  color: #4b5563;  /* placeholder visible */
-  opacity: 1;
-}
+input::placeholder{ color:#4b5563; opacity:1; }
 input:hover{ border-color: var(--line-strong); }
 input:focus{
-  outline: 0;
-  border-color: var(--brand-600);
+  outline:0;
+  border-color: #4b5055;        /* ink corporativo */
   box-shadow: 0 0 0 4px var(--ring);
-  background: #fff;
 }
 
-/* Password + ojito */
-.password-wrapper{ position: relative; display:flex; align-items:center; }
+/* Campo contraseña + ojito */
+.password-wrapper{ position:relative; display:flex; align-items:center; }
 .password-input{ width:100%; padding-right: 3rem; }
 .toggle-btn{
   position:absolute; right:.5rem; top:50%; transform:translateY(-50%);
   width: 2.25rem; height: 2.25rem;
   display:inline-grid; place-items:center;
-  border: 1px solid #e5e7eb;
-  background:#f9fafb;
+  border: 1px solid var(--g-300);
+  background: var(--g-100);
   border-radius: 8px;
   cursor:pointer;
 }
-.toggle-btn:hover{ background:#eef2ff; border-color:#c7d2fe; }
-.toggle-btn:focus-visible{ outline: 3px solid var(--ring); }
-.icon{ width: 1.15rem; height:1.15rem; fill: #111827; }
+.toggle-btn:hover{ background:#e8ecf2; }
+.toggle-btn:focus-visible{ outline:3px solid var(--ring); }
+.icon{ width:1.15rem; height:1.15rem; fill:#111827; }
 
-/* Mensajes */
+/* Mensajes de error */
 .error-message{
-  color:#b91c1c;
-  background:#fef2f2;
-  border:1px solid #fecaca;
-  padding:.6rem .75rem;
-  border-radius:12px;
-  text-align:center;
+  color:#b91c1c; background:#fef2f2; border:1px solid #fecaca;
+  padding:.6rem .75rem; border-radius:12px; text-align:center;
 }
 
-/* Botón visible en negro/gris */
+/* ===== Botón visible ===== */
 .auth-button{
-  padding: 1rem 1rem;
-  background: var(--brand-700);
-  color: #ffffff;
+  padding: 1rem;
+  background: var(--btn-bg);
+  color: var(--btn-text);
   border: 0;
   border-radius: 12px;
   font-weight: 900;
@@ -278,18 +238,12 @@ input:focus{
   transition: transform .02s ease, filter .15s, box-shadow .15s;
   box-shadow: 0 16px 36px rgba(0,0,0,.20);
 }
-.auth-button:hover{ filter: brightness(.95); }
+.auth-button:hover{ background: var(--btn-bg-hover); }
 .auth-button:active{ transform: translateY(1px); }
 .auth-button:focus-visible{ outline: 4px solid var(--ring); }
-
-.auth-button:disabled{
-  background:#9ca3af;
-  color:#1f2937;
-  box-shadow:none;
-  cursor: not-allowed;
-}
+.auth-button:disabled{ background:#9ca3af; color:#1f2937; box-shadow:none; cursor:not-allowed; }
 
 /* Footer */
-.auth-footer{ margin-top: 1rem; text-align:center; color: var(--muted); }
+.auth-footer{ margin-top: 1rem; text-align:center; color:#4b5563; }
 .hint{ margin-top:.25rem; font-size:.95rem; }
 </style>
