@@ -16,88 +16,17 @@
   --border-radius: 12px;
   --box-shadow: 0 8px 24px rgba(15,23,42,.06);
 
-  --sidebar-width: 220px;
+  --sidebar-width: 220px; /* la maneja el layout; aquí no se usa directamente */
   --card-bg: #fff;
 }
 
 /* ==================== */
-/* LAYOUT GLOBAL        */
+/* CONTENEDOR HOME      */
 /* ==================== */
 .home {
-  display: flex;
-  min-height: 100vh;
+  /* Ya no usamos display:flex ni fondos aquí; el layout controla el fondo y el margen. */
   font-family: var(--font-brand, "Neue Haas Grotesk Display", system-ui, sans-serif);
   color: var(--text-color);
-  background: var(--bg-light);
-}
-
-/* ==================== */
-/* SIDEBAR              */
-/* ==================== */
-.sidebar {
-  width: var(--sidebar-width);
-  background-color: var(--primary-color);
-  color: var(--white);
-  padding: 1.5rem 1rem;
-  height: 100vh;
-  position: fixed;
-  inset: 0 auto 0 0; /* top:0; right:auto; bottom:0; left:0 */
-  border-right: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.sidebar__logo {
-  font-size: 1.25rem;
-  margin-bottom: 1.25rem;
-  font-weight: 700;
-  text-align: center;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  letter-spacing: .5px;
-}
-
-.sidebar__menu { list-style: none; padding: 0; margin: 0; }
-.sidebar__menu li { margin-bottom: .35rem; }
-
-.sidebar__menu button {
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.85);
-  width: 100%;
-  text-align: left;
-  padding: .6rem .8rem;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: .95rem;
-  display: flex; align-items: center; gap: .5rem;
-  transition: all .2s ease;
-  font-family: inherit;
-}
-.sidebar__menu button:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-.sidebar__menu li.active button {
-  background-color: var(--accent-color);
-  color: #fff;
-  font-weight: 600;
-}
-
-.badge {
-  background-color: #e74c3c; color: #fff;
-  border-radius: 999px;
-  padding: 0.18rem 0.5rem;
-  font-size: .7rem; margin-left: auto; font-weight: 700;
-}
-
-/* ==================== */
-/* MAIN CONTENT         */
-/* ==================== */
-.main-content {
-  flex: 1;
-  padding: 2rem 2.5rem;
-  margin-left: var(--sidebar-width);
-  min-height: 100vh;
-  background-color: var(--bg-light);
 }
 
 /* ==================== */
@@ -165,13 +94,7 @@
 /* ==================== */
 /* VACACIONES highlight */
 /* ==================== */
-.sidebar__menu .vacation-link {
-  color: var(--vacation-color) !important; font-weight: 600;
-}
-.sidebar__menu .vacation-link:hover {
-  background-color: rgba(39, 174, 96, .12) !important;
-}
-.sidebar__menu .vacation-link i { margin-right: 8px; font-size: .95rem; }
+/* (Quitamos reglas del sidebar; mantenemos solo la tarjeta de acceso rápido) */
 .access-card.vacation-card { border-top: 3px solid var(--vacation-color); }
 .access-card.vacation-card:hover { border-color: var(--vacation-color); }
 .access-card.vacation-card i,
@@ -192,7 +115,7 @@
   font-size: 1.1rem; margin: 0 0 1rem; color: var(--primary-color); font-weight: 700;
 }
 
-/* OJO: en tu template usas .new-item/.new-title/.new-excerpt */
+/* En tu template usas .new-item/.new-title/.new-excerpt */
 .new-item { padding: .9rem 0; border-bottom: 1px solid #eee; }
 .new-item:last-child { border-bottom: none; }
 .new-title { font-size: 1rem; color: var(--primary-color); margin: 0 0 .35rem; font-weight: 700; }
@@ -257,6 +180,11 @@
 .error-message { color: #e74c3c; font-size: .9rem; margin-top: .5rem; }
 
 /* ==================== */
-/* MISC                 */
+/* BADGE (genérica)     */
 /* ==================== */
-.main-content .badge { align-self: center; }
+.badge {
+  background-color: #e74c3c; color: #fff;
+  border-radius: 999px;
+  padding: 0.18rem 0.5rem;
+  font-size: .7rem; font-weight: 700;
+}

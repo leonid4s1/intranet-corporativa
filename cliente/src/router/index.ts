@@ -1,29 +1,28 @@
 // src/router/index.ts
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
-import { authGuard } from './guards';
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { authGuard } from './guards'
+
+// ⬅️ IMPORTA EL LAYOUT
+import DefaultLayout from '@/layouts/DefaultLayout.vue'
 
 // Vistas (lazy)
-const LoginView               = () => import('@/views/auth/LoginView.vue');
-// ⛔️ Registro eliminado del router (solo admin crea usuarios)
-// const RegisterView         = () => import('@/views/auth/RegisterView.vue');
-const EmailVerificationView   = () => import('@/views/auth/EmailVerificationView.vue');
+const LoginView               = () => import('@/views/auth/LoginView.vue')
+// const RegisterView         = () => import('@/views/auth/RegisterView.vue') // eliminado
+const EmailVerificationView   = () => import('@/views/auth/EmailVerificationView.vue')
 
-const AdminDashboard          = () => import('@/views/admin/AdminHome.vue');
-const UserRolesAdmin          = () => import('@/views/admin/UserRolesAdmin.vue');
-const UserManagement          = () => import('@/views/admin/UserManagement.vue');
-const VacationManagement      = () => import('@/views/admin/AdminVacationManagement.vue');
-const VacationsApprovedAdmin  = () => import('@/views/admin/VacationsApprovedAdmin.vue'); // NUEVO
+const AdminDashboard          = () => import('@/views/admin/AdminHome.vue')
+const UserRolesAdmin          = () => import('@/views/admin/UserRolesAdmin.vue')
+const UserManagement          = () => import('@/views/admin/UserManagement.vue')
+const VacationManagement      = () => import('@/views/admin/AdminVacationManagement.vue')
+const VacationsApprovedAdmin  = () => import('@/views/admin/VacationsApprovedAdmin.vue')
 
-const UserDashboard           = () => import('@/views/user/Home.vue');
-const VacationCalendar        = () => import('@/views/user/VacationCalendar.vue');
+const UserDashboard           = () => import('@/views/user/Home.vue')
+const VacationCalendar        = () => import('@/views/user/VacationCalendar.vue')
 
-const ForbiddenView           = () => import('@/views/errors/ForbiddenView.vue');
-const NotFoundView            = () => import('@/views/errors/NotFoundView.vue');
+const ForbiddenView           = () => import('@/views/errors/ForbiddenView.vue')
+const NotFoundView            = () => import('@/views/errors/NotFoundView.vue')
 
 const routes: Array<RouteRecordRaw> = [
-  // Raíz -> el guard decidirá según sesión
-  { path: '/', redirect: { name: 'home' } },
-
   // Públicas (solo invitados)
   {
     path: '/login',
@@ -31,37 +30,53 @@ const routes: Array<RouteRecordRaw> = [
     component: LoginView,
     meta: { public: true, guestOnly: true, title: 'Iniciar Sesión', requiresVerifiedEmail: false }
   },
-  // 🔁 Redirect legado de /register -> /login
   {
     path: '/register',
     redirect: { name: 'login' },
     meta: { public: true }
   },
 
-  // Verificación de email (pública para soportar el enlace desde el correo)
+  // Verificación de email (pública)
   {
     path: '/verify-email/:token?',
     name: 'email-verification',
     component: EmailVerificationView,
     props: true,
-    meta: {
-      public: true,
-      title: 'Verificación de Email',
-      requiresVerifiedEmail: false
-    }
+    meta: { public: true, title: 'Verificación de Email', requiresVerifiedEmail: false }
   },
-  // Alias interno
   {
     path: '/email-verification/:token?',
-    redirect: (to) => ({
-      name: 'email-verification',
-      params: to.params,
-      query: to.query
-    }),
+    redirect: (to) => ({ name: 'email-verification', params: to.params, query: to.query }),
     meta: { public: true }
   },
 
-  // Admin
+  // 🟦 ÁREA DE USUARIO BAJO EL LAYOUT (Sidebar en todas estas rutas)
+  {
+    path: '/',
+    component: DefaultLayout, // ← aquí vive el sidebar + drawer móvil
+    meta: { requiresAuth: true }, // guard general para todo el bloque
+    children: [
+      { path: '', redirect: { name: 'home' } }, // raíz -> home
+      {
+        path: 'home',
+        name: 'home',
+        component: UserDashboard,
+        meta: { title: 'Inicio' }
+      },
+      {
+        path: 'vacaciones',
+        name: 'vacations',
+        component: VacationCalendar,
+        meta: { title: 'Calendario de Vacaciones' }
+      },
+      // 👉 aquí puedes añadir más vistas de usuario (docs, formatos, tareas) y ya heredan el layout
+      // { path: 'tareas', name: 'tareas', component: () => import('@/views/Tasks.vue'), meta: { title: 'Tareas' } },
+      // { path: 'documentacion', name: 'docs', component: () => import('@/views/Docs.vue'), meta: { title: 'Documentación' } },
+      // { path: 'formatos', name: 'formatos', component: () => import('@/views/Formats.vue'), meta: { title: 'Formatos' } },
+    ],
+  },
+
+  // Admin (sin el DefaultLayout de usuario; si quieres, podemos crear un AdminLayout aparte)
   {
     path: '/admin',
     name: 'admin-dashboard',
@@ -87,24 +102,10 @@ const routes: Array<RouteRecordRaw> = [
     meta: { requiresAuth: true, requiresAdmin: true, title: 'Gestión de Vacaciones' }
   },
   {
-    path: '/admin/vacations/approved',                             // ← NUEVO
-    name: 'vacations-approved-admin',                              // ← NUEVO
-    component: VacationsApprovedAdmin,                             // ← NUEVO
-    meta: { requiresAuth: true, requiresAdmin: true, title: 'Vacaciones aprobadas' } // ← NUEVO
-  },
-
-  // Usuario
-  {
-    path: '/home',
-    name: 'home',
-    component: UserDashboard,
-    meta: { requiresAuth: true, title: 'Inicio' }
-  },
-  {
-    path: '/vacaciones',
-    name: 'vacations',
-    component: VacationCalendar,
-    meta: { requiresAuth: true, title: 'Calendario de Vacaciones' }
+    path: '/admin/vacations/approved',
+    name: 'vacations-approved-admin',
+    component: VacationsApprovedAdmin,
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Vacaciones aprobadas' }
   },
 
   // Errores
@@ -120,23 +121,23 @@ const routes: Array<RouteRecordRaw> = [
     component: NotFoundView,
     meta: { public: true, title: 'Página no encontrada', requiresVerifiedEmail: false }
   }
-];
+]
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
   scrollBehavior(_to, _from, saved) {
-    return saved || { top: 0 };
+    return saved || { top: 0 }
   }
-});
+})
 
-// Guard centralizado (auth/admin/verificación/redirect)
-router.beforeEach(authGuard);
+// Guard centralizado
+router.beforeEach(authGuard)
 
 // Título de página
 router.afterEach((to) => {
-  const title = typeof to.meta.title === 'string' ? to.meta.title : 'Intranet Corporativa';
-  if (typeof document !== 'undefined') document.title = title;
-});
+  const title = typeof to.meta.title === 'string' ? to.meta.title : 'Intranet Corporativa'
+  if (typeof document !== 'undefined') document.title = title
+})
 
-export default router;
+export default router
