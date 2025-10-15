@@ -14,8 +14,15 @@
         ☰
       </button>
 
-      <!-- La marca también abre Home -->
-      <RouterLink to="/home" class="brand" :title="brandTitle">ODES</RouterLink>
+      <!-- La marca va a Home y se oculta cuando está colapsado -->
+      <RouterLink
+        to="/home"
+        class="brand"
+        :title="brandTitle"
+        :aria-hidden="collapsed ? 'true' : 'false'"
+      >
+        ODES
+      </RouterLink>
     </div>
 
     <nav class="side-nav">
@@ -107,11 +114,19 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 }
 .burger:hover{ background: rgba(255,255,255,.12); }
 
+/* Marca */
 .brand{
   font-weight: 800; letter-spacing: .8px;
   color: #fff; text-decoration: none;
 }
 .brand:hover{ text-decoration: underline; }
+
+/* Ocultar marca y centrar el botón cuando está colapsado */
+.app-sidebar.is-collapsed .brand{ display: none; }
+.app-sidebar.is-collapsed .side-head{
+  justify-content: center;
+  padding: .7rem .5rem;
+}
 
 /* nav */
 .side-nav{ padding: .6rem; display: grid; gap: .35rem; }
@@ -129,10 +144,10 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
   filter: saturate(.95) opacity(.95);
 }
 
-/* Estado activo tipo “pill” claro (como la referencia) */
+/* Estado activo tipo “pill” claro */
 .side-link.active{
   background: #ffffff;
-  color: #1f2937;                /* gris-800 para texto */
+  color: #1f2937;
   box-shadow: 0 2px 8px rgba(0,0,0,.06);
 }
 .side-link.active .ico{ filter: none; }
