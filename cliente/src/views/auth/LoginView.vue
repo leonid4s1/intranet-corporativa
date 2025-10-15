@@ -146,123 +146,128 @@ if (authStore.isAuthenticated) {
 </script>
 
 <style scoped>
-/* === Tokens de marca (toma los globales si existen) === */
+/* === Tokens (con fallbacks) === */
 :root{
-  --brand: var(--brand-ink, #4b5055);
-  --brand-ring: color-mix(in oklab, var(--brand) 25%, transparent);
-  --brand-600: color-mix(in oklab, var(--brand) 88%, black);
+  --brand: var(--brand-ink, #1f2937);             /* gris corporativo oscuro */
+  --brand-700: color-mix(in oklab, var(--brand) 85%, black);
+  --brand-600: color-mix(in oklab, var(--brand) 75%, black);
   --brand-500: var(--brand);
-  --brand-400: color-mix(in oklab, var(--brand) 85%, white);
+  --ring: color-mix(in oklab, var(--brand) 25%, transparent);
 
-  --ink: var(--brand-ink, #4b5055);
-  --muted: #6b7280;
-  --line: var(--brand-gray-300, #e5e7eb);
+  --ink: #0f172a;          /* texto principal (muy oscuro) */
+  --muted: #374151;        /* texto secundario con buen contraste */
+  --line: #9ca3af;         /* borde de inputs (≥3:1 sobre blanco) */
+  --line-strong: #6b7280;  /* hover */
   --bg: #ffffff;
 }
 
 /* === Card/Login === */
-.auth-container {
-  max-width: 480px;
+.auth-container{
+  max-width: 520px;
   margin: 3rem auto;
-  padding: 2rem;
+  padding: 2rem 2.25rem;
   border-radius: 16px;
   background: var(--bg);
-  border: 1px solid var(--line);
-  box-shadow: 0 10px 30px rgba(15,23,42,.08);
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 12px 36px rgba(15,23,42,.10);
+  color: var(--ink);
 }
 
-h1 {
+h1{
   text-align: center;
   color: var(--ink);
   margin-bottom: 1.25rem;
   font-weight: 800;
+  letter-spacing: .2px;
 }
-
-/* Subrayado fino de marca debajo del título */
 h1::after{
   content:"";
   display:block;
-  width:64px; height:3px;
-  margin:.5rem auto 0;
-  border-radius:999px;
-  background: var(--brand-500);
-  opacity:.6;
+  width:64px;height:3px;
+  margin:.6rem auto 0;
+  background: var(--brand-600);
+  border-radius: 999px;
 }
 
-.auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.1rem;
-}
+/* === Form === */
+.auth-form{ display:flex; flex-direction:column; gap: 1.2rem; }
+.form-group{ display:flex; flex-direction:column; gap:.5rem; }
+label{ font-weight: 700; color: var(--ink); }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: .45rem;
-}
-
-label { font-weight: 600; color: var(--ink); }
-
-input {
-  padding: .8rem .9rem;
-  border: 1.5px solid var(--line);
-  border-radius: 10px;
-  font-size: 1rem;
-  color: var(--ink);
-  background: #fff;
-  transition: border-color .15s, box-shadow .15s;
-}
-
-input:hover { border-color: color-mix(in oklab, var(--line) 60%, var(--brand-400)); }
-
-input:focus {
-  outline: 0;
-  border-color: var(--brand-400);
-  box-shadow: 0 0 0 3px var(--brand-ring);
-}
-
-/* --- Password + ojito --- */
-.password-wrapper { position: relative; display: flex; align-items: center; }
-.password-input { width: 100%; padding-right: 2.6rem; }
-
-.toggle-btn {
-  position: absolute;
-  right: .4rem;
-  width: 2rem; height: 2rem;
-  display: inline-grid; place-items: center;
-  border: 0; background: transparent; cursor: pointer; border-radius: 8px;
-}
-.toggle-btn:hover { background: rgba(0,0,0,.035); }
-.toggle-btn:focus-visible { outline: 2px solid var(--brand-400); outline-offset: 2px; }
-.icon { width: 1.25rem; height: 1.25rem; fill: var(--brand-600); opacity:.8; }
-
-/* --- Mensajes --- */
-.error-message { color: #b91c1c; text-align: center; margin: .25rem 0; }
-
-/* --- Botón principal con color de marca --- */
-.auth-button {
+/* Inputs con contraste alto */
+input{
   padding: .9rem 1rem;
-  background: var(--brand-500);
-  color: #fff;
-  border: 1.5px solid color-mix(in oklab, var(--brand-500) 70%, white);
+  font-size: 1rem;
+  border: 2px solid var(--line);
   border-radius: 10px;
-  font-size: 1rem; font-weight: 700;
-  cursor: pointer;
-  transition: transform .02s ease, box-shadow .15s ease, filter .15s;
-  box-shadow: 0 10px 24px color-mix(in oklab, var(--brand-500) 18%, transparent);
+  color: var(--ink);                /* texto oscuro */
+  background: #ffffff;
+  transition: border-color .15s, box-shadow .15s, background .15s;
 }
-.auth-button:hover { filter: brightness(0.95); }
-.auth-button:active { transform: translateY(1px); }
-.auth-button:focus-visible { outline: 3px solid var(--brand-ring); }
+input::placeholder{
+  color: #4b5563;                  /* placeholder más visible (≥4.5:1 sobre blanco) */
+  opacity: 1;
+}
+input:hover{ border-color: var(--line-strong); }
+input:focus{
+  outline: 0;
+  border-color: var(--brand-600);
+  box-shadow: 0 0 0 4px var(--ring);
+  background: #fff;
+}
 
-.auth-button:disabled {
-  background: #e5e7eb;
-  border-color: #e5e7eb;
-  color: #6b7280;
+/* Password + ojito */
+.password-wrapper{ position: relative; display:flex; align-items:center; }
+.password-input{ width:100%; padding-right: 2.75rem; }
+.toggle-btn{
+  position:absolute; right:.45rem;
+  width: 2.1rem; height: 2.1rem;
+  display:inline-grid; place-items:center;
+  border: 1px solid #e5e7eb;
+  background:#f9fafb;
+  border-radius: 8px;
+  cursor:pointer;
+}
+.toggle-btn:hover{ background:#eef2ff; border-color:#c7d2fe; }
+.toggle-btn:focus-visible{ outline: 3px solid var(--ring); }
+.icon{ width: 1.1rem; height:1.1rem; fill: var(--brand-700); }
+
+/* Mensajes */
+.error-message{
+  color:#b91c1c;
+  background:#fef2f2;
+  border:1px solid #fecaca;
+  padding:.55rem .7rem;
+  border-radius:10px;
+  text-align:center;
+}
+
+/* Botón con contraste AA sobre fondo */
+.auth-button{
+  padding: .95rem 1rem;
+  background: var(--brand-700);     /* suficientemente oscuro */
+  color: #ffffff;                   /* contraste ≥ 4.5:1 */
+  border: 2px solid color-mix(in oklab, var(--brand-700) 70%, white);
+  border-radius: 12px;
+  font-weight: 800;
+  letter-spacing:.2px;
+  cursor:pointer;
+  transition: transform .02s ease, filter .15s, box-shadow .15s;
+  box-shadow: 0 12px 28px color-mix(in oklab, var(--brand-700) 18%, transparent);
+}
+.auth-button:hover{ filter: brightness(.95); }
+.auth-button:active{ transform: translateY(1px); }
+.auth-button:focus-visible{ outline: 4px solid var(--ring); }
+
+.auth-button:disabled{
+  background:#9ca3af;
+  border-color:#9ca3af;
+  color:#111827;
   cursor: not-allowed;
-  box-shadow: none;
+  box-shadow:none;
 }
 
-.auth-footer { margin-top: 1rem; text-align: center; color: var(--muted); }
-.hint { margin-top: .25rem; font-size: .95rem; }
+/* Footer */
+.auth-footer{ margin-top: 1rem; text-align:center; color: var(--muted); }
+.hint{ margin-top:.25rem; font-size:.95rem; }
 </style>
