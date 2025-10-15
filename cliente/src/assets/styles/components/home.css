@@ -92,15 +92,6 @@
 }
 
 /* ==================== */
-/* VACACIONES highlight */
-/* ==================== */
-/* (Quitamos reglas del sidebar; mantenemos solo la tarjeta de acceso rápido) */
-.access-card.vacation-card { border-top: 3px solid var(--vacation-color); }
-.access-card.vacation-card:hover { border-color: var(--vacation-color); }
-.access-card.vacation-card i,
-.access-card.vacation-card h4 { color: var(--vacation-color); }
-
-/* ==================== */
 /* NEWS                 */
 /* ==================== */
 .news-section {

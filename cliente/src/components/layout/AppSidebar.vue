@@ -17,6 +17,17 @@
     </div>
 
     <nav class="side-nav">
+      <!-- Botón Menú dentro del sidebar -->
+      <button
+        type="button"
+        class="side-link side-toggle"
+        @click="onBurgerClick"
+        :title="collapsed ? 'Expandir menú' : 'Colapsar menú'"
+      >
+        <i class="fas fa-bars" aria-hidden="true"></i>
+        <span class="lbl" v-if="!collapsed">Menú</span>
+      </button>
+
       <RouterLink
         v-for="item in items"
         :key="item.to"
@@ -46,23 +57,26 @@ const { sidebarCollapsed: collapsed } = storeToRefs(ui)
 
 const MOBILE_BP = 900
 const isMobile = ref(false)
+
 function updateIsMobile() {
   isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches
   if (!isMobile.value) ui.closeSidebarMobile?.()
 }
+
 function onBurgerClick() {
   if (isMobile.value) ui.toggleSidebarMobile()
   else ui.toggleSidebar()
 }
+
 function onNavClick() {
   if (isMobile.value) ui.closeSidebarMobile()
 }
 
-// Marca (puedes ajustar a "ODES")
+// Marca
 const brandTitle = 'ODES'
 const brandShort = 'ODES'
 
-// Items del menú (ajusta rutas/íconos a tu router/fonticons)
+// Items del menú
 const items = computed(() => [
   { to: '/dashboard',     label: 'Dashboard',         icon: 'fas fa-chart-line' },
   { to: '/roles',         label: 'Roles y Funciones', icon: 'fas fa-users-cog' },
@@ -125,6 +139,15 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
   padding:.1rem .5rem; font-weight:700; justify-self: end;
 }
 
+/* Botón Menú como primer item */
+.side-toggle{
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
 /* colapsado (desktop) */
 .app-sidebar.is-collapsed .side-link{
   grid-template-columns: 22px; justify-items: center;
@@ -136,9 +159,11 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 @media (max-width: 900px){
   .app-sidebar{
     transform: translateX(-100%);
-    transition: transform .18s ease;
+    transition: transform .18s ease, width .18s ease;
     box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    width: 260px; /* un poco más ancho en móvil para tocar cómodamente */
   }
+  /* usar :global para leer la clase del contenedor en DefaultLayout */
   :global(.is-mobile-open) .app-sidebar{
     transform: translateX(0);
   }
