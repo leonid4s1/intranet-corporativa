@@ -13,21 +13,12 @@
       >
         ☰
       </button>
-      <span class="brand" :title="brandTitle">{{ brandShort }}</span>
+
+      <!-- La marca también lleva a Home -->
+      <RouterLink to="/home" class="brand" :title="brandTitle">ODES</RouterLink>
     </div>
 
     <nav class="side-nav">
-      <!-- Botón Menú dentro del sidebar -->
-      <button
-        type="button"
-        class="side-link side-toggle"
-        @click="onBurgerClick"
-        :title="collapsed ? 'Expandir menú' : 'Colapsar menú'"
-      >
-        <i class="fas fa-bars" aria-hidden="true"></i>
-        <span class="lbl" v-if="!collapsed">Menú</span>
-      </button>
-
       <RouterLink
         v-for="item in items"
         :key="item.to"
@@ -57,33 +48,30 @@ const { sidebarCollapsed: collapsed } = storeToRefs(ui)
 
 const MOBILE_BP = 900
 const isMobile = ref(false)
-
 function updateIsMobile() {
   isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches
   if (!isMobile.value) ui.closeSidebarMobile?.()
 }
-
 function onBurgerClick() {
   if (isMobile.value) ui.toggleSidebarMobile()
   else ui.toggleSidebar()
 }
-
 function onNavClick() {
   if (isMobile.value) ui.closeSidebarMobile()
 }
 
-// Marca
+// Marca (texto corto/largo)
 const brandTitle = 'ODES'
-const brandShort = 'ODES'
 
-// Items del menú
+// Items del menú: Home primero
 const items = computed(() => [
-  { to: '/dashboard',     label: 'Dashboard',         icon: 'fas fa-chart-line' },
-  { to: '/roles',         label: 'Roles y Funciones', icon: 'fas fa-users-cog' },
-  { to: '/documentacion', label: 'Documentación',     icon: 'fas fa-file-alt' },
-  { to: '/formatos',      label: 'Formatos',          icon: 'fas fa-file' },
-  { to: '/vacaciones',    label: 'Vacaciones',        icon: 'fas fa-calendar-alt' },
-  { to: '/tareas',        label: 'Tareas',            icon: 'fas fa-tasks', badge: () => '' },
+  { to: '/home',          label: 'Inicio',             icon: 'fas fa-home' },
+  { to: '/dashboard',     label: 'Dashboard',          icon: 'fas fa-chart-line' },
+  { to: '/roles',         label: 'Roles y Funciones',  icon: 'fas fa-users-cog' },
+  { to: '/documentacion', label: 'Documentación',      icon: 'fas fa-file-alt' },
+  { to: '/formatos',      label: 'Formatos',           icon: 'fas fa-file' },
+  { to: '/vacaciones',    label: 'Vacaciones',         icon: 'fas fa-calendar-alt' },
+  { to: '/tareas',        label: 'Tareas',             icon: 'fas fa-tasks', badge: () => '' },
 ])
 
 onMounted(() => {
@@ -119,7 +107,13 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
   color: #fff; cursor: pointer;
 }
 .burger:hover{ background: rgba(255,255,255,.12); }
-.brand{ font-weight: 800; letter-spacing: .8px; }
+
+/* la marca ahora es RouterLink */
+.brand{
+  font-weight: 800; letter-spacing: .8px;
+  color: #fff; text-decoration: none;
+}
+.brand:hover{ text-decoration: underline; }
 
 /* nav */
 .side-nav{ padding: .6rem; display: grid; gap: .25rem; }
@@ -139,15 +133,6 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
   padding:.1rem .5rem; font-weight:700; justify-self: end;
 }
 
-/* Botón Menú como primer item */
-.side-toggle{
-  background: transparent;
-  border: 1px solid transparent;
-  cursor: pointer;
-  width: 100%;
-  text-align: left;
-}
-
 /* colapsado (desktop) */
 .app-sidebar.is-collapsed .side-link{
   grid-template-columns: 22px; justify-items: center;
@@ -159,11 +144,9 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 @media (max-width: 900px){
   .app-sidebar{
     transform: translateX(-100%);
-    transition: transform .18s ease, width .18s ease;
+    transition: transform .18s ease;
     box-shadow: 0 10px 30px rgba(0,0,0,.25);
-    width: 260px; /* un poco más ancho en móvil para tocar cómodamente */
   }
-  /* usar :global para leer la clase del contenedor en DefaultLayout */
   :global(.is-mobile-open) .app-sidebar{
     transform: translateX(0);
   }
