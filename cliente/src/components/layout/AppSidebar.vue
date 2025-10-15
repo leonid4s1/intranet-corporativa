@@ -3,7 +3,7 @@
   <aside
     class="app-sidebar"
     :class="{ 'is-collapsed': collapsed }"
-    :style="{'--sidebar-width': collapsed ? '72px' : '220px'}"
+    :style="{ '--sidebar-width': collapsed ? '72px' : '220px' }"
   >
     <div class="side-head">
       <button
@@ -14,7 +14,7 @@
         ☰
       </button>
 
-      <!-- La marca también lleva a Home -->
+      <!-- La marca también abre Home -->
       <RouterLink to="/home" class="brand" :title="brandTitle">ODES</RouterLink>
     </div>
 
@@ -28,7 +28,7 @@
         :title="collapsed ? item.label : ''"
         @click="onNavClick"
       >
-        <i :class="item.icon" aria-hidden="true"></i>
+        <span class="ico" aria-hidden="true">{{ item.emoji }}</span>
         <span class="lbl" v-if="!collapsed">{{ item.label }}</span>
         <span class="badge" v-if="item.badge && !collapsed">{{ item.badge() }}</span>
       </RouterLink>
@@ -60,18 +60,17 @@ function onNavClick() {
   if (isMobile.value) ui.closeSidebarMobile()
 }
 
-// Marca (texto corto/largo)
 const brandTitle = 'ODES'
 
-// Items del menú: Home primero
+/** Menú con emojis */
 const items = computed(() => [
-  { to: '/home',          label: 'Inicio',             icon: 'fas fa-home' },
-  { to: '/dashboard',     label: 'Dashboard',          icon: 'fas fa-chart-line' },
-  { to: '/roles',         label: 'Roles y Funciones',  icon: 'fas fa-users-cog' },
-  { to: '/documentacion', label: 'Documentación',      icon: 'fas fa-file-alt' },
-  { to: '/formatos',      label: 'Formatos',           icon: 'fas fa-file' },
-  { to: '/vacaciones',    label: 'Vacaciones',         icon: 'fas fa-calendar-alt' },
-  { to: '/tareas',        label: 'Tareas',             icon: 'fas fa-tasks', badge: () => '' },
+  { to: '/home',          label: 'Inicio',             emoji: '🏠' },
+  { to: '/dashboard',     label: 'Dashboard',          emoji: '📊' },
+  { to: '/roles',         label: 'Roles y Funciones',  emoji: '👥' },
+  { to: '/documentacion', label: 'Documentación',      emoji: '📄' },
+  { to: '/formatos',      label: 'Formatos',           emoji: '🗂️' },
+  { to: '/vacaciones',    label: 'Vacaciones',         emoji: '📅' },
+  { to: '/tareas',        label: 'Tareas',             emoji: '✅', badge: () => '' },
 ])
 
 onMounted(() => {
@@ -108,7 +107,6 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 }
 .burger:hover{ background: rgba(255,255,255,.12); }
 
-/* la marca ahora es RouterLink */
 .brand{
   font-weight: 800; letter-spacing: .8px;
   color: #fff; text-decoration: none;
@@ -116,17 +114,30 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 .brand:hover{ text-decoration: underline; }
 
 /* nav */
-.side-nav{ padding: .6rem; display: grid; gap: .25rem; }
+.side-nav{ padding: .6rem; display: grid; gap: .35rem; }
 .side-link{
-  display: grid; grid-template-columns: 22px 1fr auto; align-items: center;
+  display: grid; grid-template-columns: 26px 1fr auto; align-items: center;
   gap: .6rem; border-radius: 10px;
-  padding: .55rem .6rem; color: rgba(255,255,255,.9); text-decoration: none;
-  border: 1px solid transparent;
+  padding: .55rem .6rem; color: rgba(255,255,255,.92); text-decoration: none;
+  border: 1px solid transparent; transition: background .15s ease, color .15s ease;
 }
-.side-link .lbl{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.side-link i{ text-align: center; }
 .side-link:hover{ background: rgba(255,255,255,.10); color: #fff; }
-.side-link.active{ background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.24); }
+
+/* Emoji icono */
+.ico{
+  font-size: 18px; line-height: 1; text-align: center;
+  filter: saturate(.95) opacity(.95);
+}
+
+/* Estado activo tipo “pill” claro (como la referencia) */
+.side-link.active{
+  background: #ffffff;
+  color: #1f2937;                /* gris-800 para texto */
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+.side-link.active .ico{ filter: none; }
+
+.side-link .lbl{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .badge{
   background:#e74c3c; color:#fff; border-radius:999px; font-size:.7rem;
@@ -135,7 +146,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 
 /* colapsado (desktop) */
 .app-sidebar.is-collapsed .side-link{
-  grid-template-columns: 22px; justify-items: center;
+  grid-template-columns: 26px; justify-items: center;
 }
 .app-sidebar.is-collapsed .side-link .lbl,
 .app-sidebar.is-collapsed .side-link .badge { display: none; }
