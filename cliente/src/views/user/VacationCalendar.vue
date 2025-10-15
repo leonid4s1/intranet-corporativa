@@ -252,7 +252,7 @@
                 </template>
               </div>
               <div class="actions">
-                <span class="badge" style="background:#fee2e2; color:#991b1b;">Rechazada</span>
+                <span class="badge-danger">Rechazada</span>
               </div>
             </div>
           </div>
@@ -1032,5 +1032,23 @@ onMounted(async () => {
 
 /* Selección de texto */
 .vacations-page ::selection{ background:rgba(37,99,235,.15) }
+
+.badge-danger{
+  display:inline-flex;
+  align-items:center;
+  gap:.35rem;
+  border-radius:999px;
+  padding:.15rem .6rem;
+  font-size:.8rem;
+  background:#fef2f2;   /* fondo rojo muy suave */
+  color:#991b1b;        /* texto rojo oscuro */
+  border:1px solid #fecaca; /* contorno suave como las pills */
+}
+
+.side-panels .panel:nth-of-type(4) .request-row{
+  border-left:4px solid var(--danger);
+  background:#fef2f2;
+}
+
 </style>
 
