@@ -146,110 +146,123 @@ if (authStore.isAuthenticated) {
 </script>
 
 <style scoped>
+/* === Tokens de marca (toma los globales si existen) === */
+:root{
+  --brand: var(--brand-ink, #4b5055);
+  --brand-ring: color-mix(in oklab, var(--brand) 25%, transparent);
+  --brand-600: color-mix(in oklab, var(--brand) 88%, black);
+  --brand-500: var(--brand);
+  --brand-400: color-mix(in oklab, var(--brand) 85%, white);
+
+  --ink: var(--brand-ink, #4b5055);
+  --muted: #6b7280;
+  --line: var(--brand-gray-300, #e5e7eb);
+  --bg: #ffffff;
+}
+
+/* === Card/Login === */
 .auth-container {
-  max-width: 400px;
-  margin: 2rem auto;
+  max-width: 480px;
+  margin: 3rem auto;
   padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  border-radius: 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(15,23,42,.08);
 }
 
 h1 {
   text-align: center;
-  color: #2c3e50;
-  margin-bottom: 1.5rem;
+  color: var(--ink);
+  margin-bottom: 1.25rem;
+  font-weight: 800;
+}
+
+/* Subrayado fino de marca debajo del título */
+h1::after{
+  content:"";
+  display:block;
+  width:64px; height:3px;
+  margin:.5rem auto 0;
+  border-radius:999px;
+  background: var(--brand-500);
+  opacity:.6;
 }
 
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 1.2rem;
+  gap: 1.1rem;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: .45rem;
 }
 
-label {
-  font-weight: 500;
-  color: #2c3e50;
-}
+label { font-weight: 600; color: var(--ink); }
 
 input {
-  padding: 0.8rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  padding: .8rem .9rem;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
   font-size: 1rem;
+  color: var(--ink);
+  background: #fff;
+  transition: border-color .15s, box-shadow .15s;
 }
 
-/* --- Estilos para el campo de contraseña con ojito --- */
-.password-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
+input:hover { border-color: color-mix(in oklab, var(--line) 60%, var(--brand-400)); }
+
+input:focus {
+  outline: 0;
+  border-color: var(--brand-400);
+  box-shadow: 0 0 0 3px var(--brand-ring);
 }
-.password-input {
-  width: 100%;
-  padding-right: 2.6rem; /* espacio para el botón */
-}
+
+/* --- Password + ojito --- */
+.password-wrapper { position: relative; display: flex; align-items: center; }
+.password-input { width: 100%; padding-right: 2.6rem; }
+
 .toggle-btn {
   position: absolute;
-  right: 0.4rem;
-  width: 2rem;
-  height: 2rem;
-  display: inline-grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 6px;
+  right: .4rem;
+  width: 2rem; height: 2rem;
+  display: inline-grid; place-items: center;
+  border: 0; background: transparent; cursor: pointer; border-radius: 8px;
 }
-.toggle-btn:focus-visible {
-  outline: 2px solid #3498db;
-  outline-offset: 2px;
-}
-.icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  fill: #5b667b;
-}
+.toggle-btn:hover { background: rgba(0,0,0,.035); }
+.toggle-btn:focus-visible { outline: 2px solid var(--brand-400); outline-offset: 2px; }
+.icon { width: 1.25rem; height: 1.25rem; fill: var(--brand-600); opacity:.8; }
 
-.error-message {
-  color: #e74c3c;
-  text-align: center;
-  margin: 0.5rem 0;
-}
+/* --- Mensajes --- */
+.error-message { color: #b91c1c; text-align: center; margin: .25rem 0; }
 
+/* --- Botón principal con color de marca --- */
 .auth-button {
-  padding: 0.8rem;
-  background-color: #3498db;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  font-size: 1rem;
+  padding: .9rem 1rem;
+  background: var(--brand-500);
+  color: #fff;
+  border: 1.5px solid color-mix(in oklab, var(--brand-500) 70%, white);
+  border-radius: 10px;
+  font-size: 1rem; font-weight: 700;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: transform .02s ease, box-shadow .15s ease, filter .15s;
+  box-shadow: 0 10px 24px color-mix(in oklab, var(--brand-500) 18%, transparent);
 }
-
-.auth-button:hover {
-  background-color: #2980b9;
-}
+.auth-button:hover { filter: brightness(0.95); }
+.auth-button:active { transform: translateY(1px); }
+.auth-button:focus-visible { outline: 3px solid var(--brand-ring); }
 
 .auth-button:disabled {
-  background-color: #95a5a6;
+  background: #e5e7eb;
+  border-color: #e5e7eb;
+  color: #6b7280;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
-.auth-footer {
-  margin-top: 1.5rem;
-  text-align: center;
-  color: #7f8c8d;
-}
-
-.hint {
-  margin-top: 0.5rem;
-  font-size: 0.95rem;
-}
+.auth-footer { margin-top: 1rem; text-align: center; color: var(--muted); }
+.hint { margin-top: .25rem; font-size: .95rem; }
 </style>
