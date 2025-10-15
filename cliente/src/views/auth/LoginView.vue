@@ -1,5 +1,14 @@
 <template>
   <div class="auth-container">
+    <!-- Cabecera de marca -->
+    <div class="brand-head" aria-label="Odes Construction">
+      <img class="brand-logo" :src="logoUrl" alt="Logo Odes Construction" />
+      <div class="brand-meta">
+        <strong class="brand-name">Odes Construction</strong>
+        <span class="brand-sub">Acceso a intranet</span>
+      </div>
+    </div>
+
     <h1>Iniciar Sesión</h1>
 
     <form @submit.prevent="handleSubmit" class="auth-form">
@@ -70,27 +79,28 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
+import logoUrl from '@/assets/odes-mark.png'; // coloca tu icono aquí (svg/png)
 
 const isLoading = ref(false);
 const email = ref('');
 const password = ref('');
 const error = ref('');
 
-// NUEVO: estado para mostrar/ocultar contraseña
+// Mostrar/ocultar contraseña
 const showPassword = ref(false);
 
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 
-// --- Tipos auxiliares para errores ---
+// Tipos auxiliares para errores
 type ApiErrorData = { message?: string };
 type AxiosLikeError = {
   message?: string;
   response?: { data?: ApiErrorData };
 };
 
-// --- Utils ---
+// Utils
 function safeDecodeRedirect(raw: unknown): string | null {
   if (typeof raw !== 'string' || !raw) return null;
   try {
@@ -114,7 +124,7 @@ function extractErrorMessage(err: unknown): string {
   return 'Error al iniciar sesión. Intente nuevamente';
 }
 
-// --- Submit ---
+// Submit
 const handleSubmit = async () => {
   isLoading.value = true;
   error.value = '';
@@ -146,44 +156,57 @@ if (authStore.isAuthenticated) {
 </script>
 
 <style scoped>
-/* === Tokens (con fallbacks) === */
+/* === Tokens (negros y grises con fallbacks) === */
 :root{
-  --brand: var(--brand-ink, #1f2937);             /* gris corporativo oscuro */
+  --brand: var(--brand-ink, #1f2937);
   --brand-700: color-mix(in oklab, var(--brand) 85%, black);
   --brand-600: color-mix(in oklab, var(--brand) 75%, black);
   --brand-500: var(--brand);
   --ring: color-mix(in oklab, var(--brand) 25%, transparent);
 
-  --ink: #0f172a;          /* texto principal (muy oscuro) */
-  --muted: #374151;        /* texto secundario con buen contraste */
-  --line: #9ca3af;         /* borde de inputs (≥3:1 sobre blanco) */
+  --ink: #0f172a;          /* texto principal */
+  --muted: #374151;        /* texto secundario */
+  --line: #9ca3af;         /* borde inputs */
   --line-strong: #6b7280;  /* hover */
   --bg: #ffffff;
 }
 
 /* === Card/Login === */
 .auth-container{
-  max-width: 520px;
+  max-width: 560px;
   margin: 3rem auto;
   padding: 2rem 2.25rem;
-  border-radius: 16px;
+  border-radius: 18px;
   background: var(--bg);
   border: 1px solid #e5e7eb;
-  box-shadow: 0 12px 36px rgba(15,23,42,.10);
+  box-shadow: 0 22px 60px rgba(15,23,42,.12);
   color: var(--ink);
 }
+
+/* Cabecera de marca */
+.brand-head{
+  display:flex; align-items:center; gap:.8rem;
+  margin-bottom:.5rem;
+}
+.brand-logo{
+  width:40px; height:40px; object-fit:contain;
+  filter: grayscale(100%); /* versión monocroma para el login sobrio */
+}
+.brand-meta{ display:flex; flex-direction:column; line-height:1.1; }
+.brand-name{ color:#111827; font-weight:900; font-size:1.05rem; letter-spacing:.2px; }
+.brand-sub{ color:#6b7280; font-size:.85rem; }
 
 h1{
   text-align: center;
   color: var(--ink);
-  margin-bottom: 1.25rem;
-  font-weight: 800;
+  margin: .5rem 0 1.25rem;
+  font-weight: 900;
   letter-spacing: .2px;
 }
 h1::after{
   content:"";
   display:block;
-  width:64px;height:3px;
+  width:72px;height:3px;
   margin:.6rem auto 0;
   background: var(--brand-600);
   border-radius: 999px;
@@ -191,21 +214,21 @@ h1::after{
 
 /* === Form === */
 .auth-form{ display:flex; flex-direction:column; gap: 1.2rem; }
-.form-group{ display:flex; flex-direction:column; gap:.5rem; }
-label{ font-weight: 700; color: var(--ink); }
+.form-group{ display:flex; flex-direction:column; gap:.55rem; }
+label{ font-weight: 800; color: var(--ink); }
 
 /* Inputs con contraste alto */
 input{
-  padding: .9rem 1rem;
+  padding: .95rem 1rem;
   font-size: 1rem;
   border: 2px solid var(--line);
-  border-radius: 10px;
-  color: var(--ink);                /* texto oscuro */
+  border-radius: 12px;
+  color: var(--ink);
   background: #ffffff;
   transition: border-color .15s, box-shadow .15s, background .15s;
 }
 input::placeholder{
-  color: #4b5563;                  /* placeholder más visible (≥4.5:1 sobre blanco) */
+  color: #4b5563;  /* placeholder visible */
   opacity: 1;
 }
 input:hover{ border-color: var(--line-strong); }
@@ -218,10 +241,10 @@ input:focus{
 
 /* Password + ojito */
 .password-wrapper{ position: relative; display:flex; align-items:center; }
-.password-input{ width:100%; padding-right: 2.75rem; }
+.password-input{ width:100%; padding-right: 3rem; }
 .toggle-btn{
-  position:absolute; right:.45rem;
-  width: 2.1rem; height: 2.1rem;
+  position:absolute; right:.5rem; top:50%; transform:translateY(-50%);
+  width: 2.25rem; height: 2.25rem;
   display:inline-grid; place-items:center;
   border: 1px solid #e5e7eb;
   background:#f9fafb;
@@ -230,30 +253,30 @@ input:focus{
 }
 .toggle-btn:hover{ background:#eef2ff; border-color:#c7d2fe; }
 .toggle-btn:focus-visible{ outline: 3px solid var(--ring); }
-.icon{ width: 1.1rem; height:1.1rem; fill: var(--brand-700); }
+.icon{ width: 1.15rem; height:1.15rem; fill: #111827; }
 
 /* Mensajes */
 .error-message{
   color:#b91c1c;
   background:#fef2f2;
   border:1px solid #fecaca;
-  padding:.55rem .7rem;
-  border-radius:10px;
+  padding:.6rem .75rem;
+  border-radius:12px;
   text-align:center;
 }
 
-/* Botón con contraste AA sobre fondo */
+/* Botón visible en negro/gris */
 .auth-button{
-  padding: .95rem 1rem;
-  background: var(--brand-700);     /* suficientemente oscuro */
-  color: #ffffff;                   /* contraste ≥ 4.5:1 */
-  border: 2px solid color-mix(in oklab, var(--brand-700) 70%, white);
+  padding: 1rem 1rem;
+  background: var(--brand-700);
+  color: #ffffff;
+  border: 0;
   border-radius: 12px;
-  font-weight: 800;
+  font-weight: 900;
   letter-spacing:.2px;
   cursor:pointer;
   transition: transform .02s ease, filter .15s, box-shadow .15s;
-  box-shadow: 0 12px 28px color-mix(in oklab, var(--brand-700) 18%, transparent);
+  box-shadow: 0 16px 36px rgba(0,0,0,.20);
 }
 .auth-button:hover{ filter: brightness(.95); }
 .auth-button:active{ transform: translateY(1px); }
@@ -261,10 +284,9 @@ input:focus{
 
 .auth-button:disabled{
   background:#9ca3af;
-  border-color:#9ca3af;
-  color:#111827;
-  cursor: not-allowed;
+  color:#1f2937;
   box-shadow:none;
+  cursor: not-allowed;
 }
 
 /* Footer */
