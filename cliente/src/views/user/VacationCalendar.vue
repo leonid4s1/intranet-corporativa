@@ -817,7 +817,7 @@ onMounted(async () => {
   --card: #ffffff;
   --muted:#6b7280;
 
-  /* semáforos (como antes) */
+  /* semáforos */
   --ok:#22c55e; --warn:#f59e0b; --danger:#ef4444; --info:#3b82f6;
 
   /* marca */
@@ -832,7 +832,7 @@ onMounted(async () => {
 /* Toast */
 .toast{
   position:fixed; right:16px; bottom:16px;
-  background: #111827; color:#fff;
+  background:#111827; color:#fff;
   padding:.6rem .9rem; border-radius:10px;
   box-shadow:0 8px 20px rgba(0,0,0,.25);
   z-index:99; max-width:80vw;
@@ -842,7 +842,7 @@ onMounted(async () => {
 .vacations-page{
   display:flex; flex-direction:column; gap:1rem;
   color:var(--text); background:var(--bg);
-  font-family: var(--font-brand); /* 👈 tipografía de marca */
+  font-family: var(--font-brand); /* tipografía de marca */
 }
 
 /* ====== KPIs ====== */
@@ -864,7 +864,7 @@ onMounted(async () => {
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
 .kpi-value, .kpi-label{ font-family: var(--font-brand); }
 
-/* ✅ Disponibles */
+/* Disponibles */
 .kpi-card:first-child .kpi-bar{
   margin-top:.6rem; height:8px; width:100%;
   background:#f1f5f9; border:1px solid #eef2f7;
@@ -908,7 +908,7 @@ onMounted(async () => {
 }
 .kpi-card.kpi-period .period-fill{
   height:100%;
-  background:linear-gradient(90deg,#0ea5e9,#60a5fa,#93c5fd);
+  background:#1f4cb8; /* Odes */
   transition:width .35s;
 }
 .kpi-card.kpi-period.inactive{
@@ -917,7 +917,7 @@ onMounted(async () => {
 }
 .period-tip{
   position:absolute; right:1rem; bottom:1rem; max-width:260px;
-  background: #111827; color:#f9fafb;
+  background:#111827; color:#f9fafb;
   border-radius:10px; padding:.65rem .8rem;
   box-shadow:0 10px 24px rgba(0,0,0,.25); z-index:5;
 }
@@ -950,9 +950,9 @@ onMounted(async () => {
   color:var(--muted); font-size:.92rem; padding:.25rem 0 .75rem 0;
 }
 .legend .dot{ width:10px; height:10px; border-radius:999px; display:inline-block; margin-right:.35rem; }
-.dot--green{ background:var(--ok) } .dot--yellow{ background:var(--warn) } .dot--red{ background:var(--danger) } .dot--blue{ background:var(--info) }
+.dot--green{ background:var(--ok) } .dot--yellow{ background:var(--warn) } .dot--red{ background:var(--danger) } .dot--blue{ background:#1f4cb8 }
 
-/* ====== NUEVO: sticky + scroll ====== */
+/* ====== sticky + scroll ====== */
 .calendar-wrapper{
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -960,11 +960,7 @@ onMounted(async () => {
   scroll-snap-type: x proximity;
 }
 .sticky-head{
-  position: sticky;
-  top: 0;
-  background: #fff;
-  z-index: 1;
-  margin-bottom: .25rem;
+  position: sticky; top: 0; background: #fff; z-index: 1; margin-bottom: .25rem;
 }
 
 .weekday-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; padding:0 .1rem; }
@@ -1050,22 +1046,14 @@ onMounted(async () => {
 .vacations-page ::selection{ background:rgba(37,99,235,.15) }
 
 .badge-danger{
-  display:inline-flex;
-  align-items:center;
-  gap:.35rem;
-  border-radius:999px;
-  padding:.15rem .6rem;
-  font-size:.8rem;
-  background:#fef2f2;
-  color:#991b1b;
-  border:1px solid #fecaca;
+  display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.15rem .6rem; font-size:.8rem;
+  background:#fef2f2; color:#991b1b; border:1px solid #fecaca;
 }
 .side-panels .panel:nth-of-type(4) .request-row{
-  border-left:4px solid var(--danger);
-  background:#fef2f2;
+  border-left:4px solid var(--danger); background:#fef2f2;
 }
 
-/* ====== Ajustes responsive fuertes para móvil ====== */
+/* ====== Móvil ====== */
 @media (max-width: 640px){
   .weekday-row{ gap:6px; }
   .calendar-grid{ gap:6px; --cell:64px; }
@@ -1075,14 +1063,30 @@ onMounted(async () => {
   .chip{ font-size:.62rem; }
 }
 
-/* === Odes: barras de periodo con #1f4cb8 === */
-.kpi-card.kpi-period .period-bar .period-fill{
-  background: #1f4cb8;          /* color sólido de marca */
+/* ================================
+   Refuerzo tipográfico Odes
+   ================================ */
+.month-title,
+.kpi-value,
+.kpi-label,
+.kpi-card.kpi-period .period-dates,
+.kpi-card.kpi-period .badge-soft,
+.panel h3,
+.requests .request-row,
+.legend,
+.weekday-cell,
+.day-number,
+.badge,
+.chip,
+.kpi-card:nth-child(2) small,
+.kpi-card:nth-child(3) small {
+  font-family: var(--font-brand) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-
-/* (Opcional) que el punto de “Selección” use el mismo tono */
-.dot--blue{
-  background: #1f4cb8;
-}
-
+.kpi-value { font-weight: 800; }
+.month-title { letter-spacing: .2px; }
+.panel h3 { font-weight: 800; letter-spacing: .15px; }
+.weekday-cell, .legend { letter-spacing: .15px; }
+.button, .btn, .toast { font-family: var(--font-brand) !important; }
 </style>

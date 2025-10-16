@@ -17,7 +17,7 @@
         aria-controls="app-sidebar"
         :aria-expanded="isMobile ? (isMobileOpen ? 'true' : 'false') : undefined"
       >
-        <img :src="logoUrl" alt="ODES menú" width="28" height="28" />
+        <img :src="logoUrl" alt="Logo Odes" width="28" height="28" />
       </button>
 
       <!-- Marca (solo visible sin colapsar) -->
@@ -27,7 +27,8 @@
         :title="brandTitle"
         :aria-hidden="collapsed ? 'true' : 'false'"
       >
-        ODES
+        <img class="brand-logo" :src="logoUrl" alt="" aria-hidden="true" />
+        <span class="brand-text">ODES</span>
       </RouterLink>
     </div>
 
@@ -56,9 +57,6 @@ import { useRoute } from 'vue-router'
 import { useUiStore } from '@/stores/ui.store'
 import { storeToRefs } from 'pinia'
 
-// Usa el logo de assets para que Vite lo resuelva en build
-import logoAsset from '@/assets/logo.svg'
-
 const route = useRoute()
 const ui = useUiStore()
 const { sidebarCollapsed: collapsed } = storeToRefs(ui)
@@ -66,7 +64,13 @@ const { sidebarCollapsed: collapsed } = storeToRefs(ui)
 const MOBILE_BP = 900
 const isMobile = ref(false)
 const isMobileOpen = computed(() => ui.sidebarMobileOpen)
-const logoUrl = logoAsset
+
+/**
+ * Usamos el archivo público para que no haya problemas en build/paths.
+ * Asegúrate de que exista: /cliente/public/odes-mark.png
+ * Si más adelante tienes SVG, cambia a '/odes.svg'.
+ */
+const logoUrl = '/odes-mark.png'
 
 function updateIsMobile() {
   isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches
@@ -87,21 +91,17 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-onBeforeMount(() => {
-  updateIsMobile()
-})
-
+onBeforeMount(() => { updateIsMobile() })
 onMounted(() => {
   window.addEventListener('resize', updateIsMobile)
   window.addEventListener('keydown', onKeydown)
 })
-
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateIsMobile)
   window.removeEventListener('keydown', onKeydown)
 })
 
-const brandTitle = 'ODES'
+const brandTitle = 'Ir a inicio'
 
 /** Menú con emojis */
 const items = computed(() => [
@@ -119,12 +119,12 @@ const items = computed(() => [
 .app-sidebar{
   position: fixed; inset: 0 auto 0 0;
   width: var(--sidebar-width, 220px);
-  background: var(--primary-color, #4b5055);
+  background: var(--brand-ink, #4b5055);
   color: #fff;
   border-right: 1px solid rgba(255,255,255,.12);
   display: flex; flex-direction: column;
   transition: width .18s ease, transform .18s ease;
-  z-index: 1100; /* por encima del overlay móvil */
+  z-index: 1100;
 }
 
 /* header */
@@ -147,19 +147,26 @@ const items = computed(() => [
 .brand-btn img{ width: 28px; height: 28px; display:block; }
 @media (hover:hover){ .brand-btn:hover{ background: rgba(255,255,255,.12); transform: translateY(-1px); } }
 
+/* Marca (logo + texto) */
+.brand{
+  display:inline-flex; align-items:center; gap:.5rem;
+  text-decoration: none; color:#fff;
+}
+.brand-logo{
+  width: 20px; height: 20px; opacity:.95; border-radius: 4px;
+}
+.brand-text{
+  font-family: var(--font-brand);   /* tipografía corporativa */
+  font-weight: 800; letter-spacing: .2px;
+}
+
 /* Focus accesible */
 .brand-btn:focus-visible,
-.side-link:focus-visible{
+.side-link:focus-visible,
+.brand:focus-visible{
   outline: 2px solid rgba(255,255,255,.7);
   outline-offset: 2px;
 }
-
-/* Marca */
-.brand{
-  font-weight: 800; letter-spacing: .8px;
-  color: #fff; text-decoration: none;
-}
-.brand:hover{ text-decoration: underline; }
 
 /* Colapsado */
 .app-sidebar.is-collapsed .brand{ display: none; }
