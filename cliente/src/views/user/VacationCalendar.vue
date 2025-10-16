@@ -809,8 +809,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* ====== Tokens de marca (usa los globales si existen) ====== */
-:root{
+/* =========================================================
+   Tokens locales (scopeados a esta página)
+   *Si ya tienes tokens globales en theme.css, puedes quitar esto*
+   ========================================================= */
+:where(.vacations-page){
   --text: var(--brand-ink, #4b5055);
   --line: var(--brand-gray-300, #cdcdcd);
   --bg:   #ffffff;
@@ -838,11 +841,11 @@ onMounted(async () => {
   z-index:99; max-width:80vw;
 }
 
-/* Layout */
+/* Layout raíz */
 .vacations-page{
   display:flex; flex-direction:column; gap:1rem;
   color:var(--text); background:var(--bg);
-  font-family: var(--font-brand); /* tipografía de marca */
+  font-family: var(--font-brand); /* tipografía Odes */
 }
 
 /* ====== KPIs ====== */
@@ -860,7 +863,7 @@ onMounted(async () => {
   box-shadow:0 8px 24px rgba(15,23,42,.06);
   padding:1rem 1.25rem;
 }
-.kpi-value{ font-size:2rem; font-weight:700; color:var(--text); }
+.kpi-value{ font-size:2rem; font-weight:800; color:var(--text); }
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
 .kpi-value, .kpi-label{ font-family: var(--font-brand); }
 
@@ -882,6 +885,7 @@ onMounted(async () => {
   padding:.2rem .55rem; border-radius:999px; color:#fff;
   background:linear-gradient(90deg,#3b82f6,#6366f1);
   box-shadow:0 6px 16px rgba(99,102,241,.18);
+  font-family: var(--font-brand);
 }
 
 /* Anuales */
@@ -889,11 +893,13 @@ onMounted(async () => {
   display:inline-block; margin-top:.4rem; color:#065f46;
   background:#ecfdf5; border:1px solid #a7f3d0;
   border-radius:999px; padding:.18rem .55rem;
+  font-family: var(--font-brand);
 }
 
 /* Periodos */
 .kpi-card.kpi-period .period-dates{
   font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; color:var(--text);
+  font-family: var(--font-brand);
 }
 .kpi-card.kpi-period .date{ white-space:nowrap; }
 .kpi-card.kpi-period .arrow{ opacity:.6; }
@@ -901,6 +907,7 @@ onMounted(async () => {
   display:inline-block; margin-top:.4rem;
   padding:.18rem .55rem; border-radius:999px; font-size:.8rem;
   background:#eef2ff; color:#1e40af; border:1px solid #c7d2fe;
+  font-family: var(--font-brand);
 }
 .kpi-card.kpi-period .period-bar{
   margin-top:.6rem; height:8px; width:100%;
@@ -920,6 +927,7 @@ onMounted(async () => {
   background:#111827; color:#f9fafb;
   border-radius:10px; padding:.65rem .8rem;
   box-shadow:0 10px 24px rgba(0,0,0,.25); z-index:5;
+  font-family: var(--font-brand);
 }
 .period-tip p{ margin:0; font-size:.9rem; line-height:1.2; }
 .tip-close{ position:absolute; top:.2rem; right:.25rem; border:0; background:transparent; color:#e5e7eb; cursor:pointer; }
@@ -936,8 +944,9 @@ onMounted(async () => {
 }
 .calendar-header{ display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; }
 .month-title{
-  flex:1; text-align:center; text-transform:capitalize; font-weight:700; color:var(--text);
+  flex:1; text-align:center; text-transform:capitalize; font-weight:800; color:var(--text);
   font-family: var(--font-brand);
+  letter-spacing:.2px;
 }
 .nav-btn{
   width:40px; height:40px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center;
@@ -948,6 +957,7 @@ onMounted(async () => {
 .legend{
   display:flex; gap:1rem; align-items:center; flex-wrap:wrap;
   color:var(--muted); font-size:.92rem; padding:.25rem 0 .75rem 0;
+  font-family: var(--font-brand); letter-spacing:.15px;
 }
 .legend .dot{ width:10px; height:10px; border-radius:999px; display:inline-block; margin-right:.35rem; }
 .dot--green{ background:var(--ok) } .dot--yellow{ background:var(--warn) } .dot--red{ background:var(--danger) } .dot--blue{ background:#1f4cb8 }
@@ -964,7 +974,7 @@ onMounted(async () => {
 }
 
 .weekday-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; padding:0 .1rem; }
-.weekday-cell{ text-align:center; color:var(--muted); font-size:.9rem; }
+.weekday-cell{ text-align:center; color:var(--muted); font-size:.9rem; font-family: var(--font-brand); }
 
 .calendar-grid{ --cell:82px; display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; margin-top:.35rem; }
 .day-cell{
@@ -987,6 +997,7 @@ onMounted(async () => {
   font-size:.68rem; line-height:1; padding:.12rem .38rem; border-radius:8px; border:1px solid;
   background:#f8fafc; color:#334155; border-color:var(--line);
   box-shadow:0 1px 0 rgba(0,0,0,.02);
+  font-family: var(--font-brand);
 }
 .badge--holiday{ background:#eef6ff; color:#1d4ed8; border-color:#bfdbfe }
 .badge--weekend{ background:#f3f4f6; color:#475569; border-color: var(--line); }
@@ -1004,11 +1015,11 @@ onMounted(async () => {
 .day-cell.is-holiday:not(.is-full){ background:#eff6ff; border-color:#bfdbfe }
 .day-cell.is-weekend:not(.is-full):not(.is-holiday){ background:#fafafa }
 
-.day-number{ font-weight:600; color:var(--text); }
+.day-number{ font-weight:600; color:var(--text); font-family: var(--font-brand); }
 .dot{ position:absolute; right:8px; bottom:8px; width:9px; height:9px; border-radius:999px }
 
 .labels{ position:absolute; top:28px; right:6px; display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 12px); }
-.chip{ font-size:.68rem; line-height:1; padding:.05rem .35rem; border-radius:8px; border:1px solid; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chip{ font-size:.68rem; line-height:1; padding:.05rem .35rem; border-radius:8px; border:1px solid; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family: var(--font-brand); }
 .chip--approved{ background:#e7f9ef; color:#166534; border-color:#86efac }
 .chip.more{ font-weight:700 }
 
@@ -1018,13 +1029,14 @@ onMounted(async () => {
   background:var(--card); border:1px solid var(--line); border-radius:16px;
   box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem
 }
-.panel h3{ margin:.25rem 0 .75rem; font-size:1rem; color:var(--text); font-family: var(--font-brand); }
-.instructions{ margin:0 0 0 1.1rem; color:var(--muted) }
-.muted{ color:var(--muted) }
+.panel h3{ margin:.25rem 0 .75rem; font-size:1rem; color:var(--text); font-family: var(--font-brand); font-weight:800; letter-spacing:.15px; }
+.instructions{ margin:0 0 0 1.1rem; color:var(--muted); font-family: var(--font-brand); }
+.muted{ color:var(--muted); font-family: var(--font-brand); }
 .requests{ display:flex; flex-direction:column; gap:.75rem }
 .request-row{
   display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;
-  padding:.65rem .75rem; border:1px dashed var(--line); border-radius:12px; background:#fff
+  padding:.65rem .75rem; border:1px dashed var(--line); border-radius:12px; background:#fff;
+  font-family: var(--font-brand);
 }
 .side-panels .panel:nth-of-type(2) .request-row{ border-left:4px solid var(--warn); background:#fff7ed }
 .side-panels .panel:nth-of-type(3) .request-row{ border-left:4px solid var(--ok); background:#ecfdf5 }
@@ -1036,18 +1048,19 @@ onMounted(async () => {
 .btn{
   padding:.45rem .7rem; border-radius:10px; border:1.5px solid var(--line);
   background:#f8fafc; color: var(--text); cursor:pointer;
+  font-family: var(--font-brand);
 }
 .btn:hover{ background:#eef2ff }
 .btn-danger{ background:#fee2e2; color:#991b1b; border-color:#fecaca }
 .btn-danger:hover{ background:#fecaca }
 .ml-2{ margin-left:.5rem }
-.badge-success{ display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.15rem .6rem; font-size:.8rem; background:#ecfdf5; color:#065f46 }
+.badge-success{ display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.15rem .6rem; font-size:.8rem; background:#ecfdf5; color:#065f46; font-family: var(--font-brand); }
 
 .vacations-page ::selection{ background:rgba(37,99,235,.15) }
 
 .badge-danger{
   display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.15rem .6rem; font-size:.8rem;
-  background:#fef2f2; color:#991b1b; border:1px solid #fecaca;
+  background:#fef2f2; color:#991b1b; border:1px solid #fecaca; font-family: var(--font-brand);
 }
 .side-panels .panel:nth-of-type(4) .request-row{
   border-left:4px solid var(--danger); background:#fef2f2;
@@ -1062,31 +1075,4 @@ onMounted(async () => {
   .badge{ font-size:.62rem; padding:.1rem .3rem; }
   .chip{ font-size:.62rem; }
 }
-
-/* ================================
-   Refuerzo tipográfico Odes
-   ================================ */
-.month-title,
-.kpi-value,
-.kpi-label,
-.kpi-card.kpi-period .period-dates,
-.kpi-card.kpi-period .badge-soft,
-.panel h3,
-.requests .request-row,
-.legend,
-.weekday-cell,
-.day-number,
-.badge,
-.chip,
-.kpi-card:nth-child(2) small,
-.kpi-card:nth-child(3) small {
-  font-family: var(--font-brand) !important;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-.kpi-value { font-weight: 800; }
-.month-title { letter-spacing: .2px; }
-.panel h3 { font-weight: 800; letter-spacing: .15px; }
-.weekday-cell, .legend { letter-spacing: .15px; }
-.button, .btn, .toast { font-family: var(--font-brand) !important; }
 </style>

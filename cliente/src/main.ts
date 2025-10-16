@@ -4,17 +4,18 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import router from './router';
 
+/* ⬇️ IMPORTA TU TEMA GLOBAL DE MARCA */
+import '@/styles/theme.css';
+
 import dayjs from 'dayjs';
 import 'dayjs/locale/es';
 
-// ⬇️ Plugins que ya tenías
+// Plugins ya existentes
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-
-// ⬇️ Plugins necesarios para las comparaciones usadas en el calendario
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
-import isBetween from 'dayjs/plugin/isBetween'; // si chequeas rangos con 'isBetween'
+import isBetween from 'dayjs/plugin/isBetween';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -23,8 +24,7 @@ dayjs.extend(isSameOrAfter);
 dayjs.extend(isBetween);
 dayjs.locale('es');
 
-// (Opcional) fija una zona horaria por defecto si tu backend/UX lo requiere
-// dayjs.tz.setDefault('America/Mexico_City');
+// dayjs.tz.setDefault('America/Mexico_City'); // si lo necesitas
 
 const app = createApp(App);
 const pinia = createPinia();

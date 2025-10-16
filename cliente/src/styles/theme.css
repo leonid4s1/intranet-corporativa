@@ -1,0 +1,53 @@
+/* === Neue Haas Grotesk Display (WOFF2 en /public/fonts) === */
+@font-face{
+  font-family: "NHaasDisp";
+  src: url("/fonts/NHaas-Display-Roman.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face{
+  font-family: "NHaasDisp";
+  src: url("/fonts/NHaas-Display-Medium.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face{
+  font-family: "NHaasDisp";
+  src: url("/fonts/NHaas-Display-Bold.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+/* Opcionales */
+@font-face{
+  font-family: "NHaasDisp";
+  src: url("/fonts/NHaas-Display-Black.woff2") format("woff2");
+  font-weight: 900; font-style: normal; font-display: swap;
+}
+@font-face{
+  font-family: "NHaasDisp";
+  src: url("/fonts/NHaas-Display-RomanItalic.woff2") format("woff2");
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face{
+  font-family: "NHaasDisp";
+  src: url("/fonts/NHaas-Display-MediumItalic.woff2") format("woff2");
+  font-weight: 500; font-style: italic; font-display: swap;
+}
+@font-face{
+  font-family: "NHaasDisp";
+  src: url("/fonts/NHaas-Display-BoldItalic.woff2") format("woff2");
+  font-weight: 700; font-style: italic; font-display: swap;
+}
+@font-face{
+  font-family: "NHaasDisp";
+  src: url("/fonts/NHaas-Display-BlackItalic.woff2") format("woff2");
+  font-weight: 900; font-style: italic; font-display: swap;
+}
+
+/* Token global para usar en toda la app */
+:root{
+  --font-brand: "NHaasDisp", "Neue Haas Grotesk Display",
+                system-ui, -apple-system, Segoe UI, Roboto,
+                "Helvetica Neue", Arial, sans-serif;
+
+  --brand-ink: #4B5055;
+  --brand-gray-100: #F0F0F0;
+  --brand-gray-300: #CDCDCD;
+}
