@@ -839,7 +839,11 @@ onMounted(async () => {
 }
 
 /* Layout */
-.vacations-page{ display:flex; flex-direction:column; gap:1rem; color:var(--text); background:var(--bg); }
+.vacations-page{
+  display:flex; flex-direction:column; gap:1rem;
+  color:var(--text); background:var(--bg);
+  font-family: var(--font-brand); /* 👈 tipografía de marca */
+}
 
 /* ====== KPIs ====== */
 .kpi-grid{
@@ -858,6 +862,7 @@ onMounted(async () => {
 }
 .kpi-value{ font-size:2rem; font-weight:700; color:var(--text); }
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
+.kpi-value, .kpi-label{ font-family: var(--font-brand); }
 
 /* ✅ Disponibles */
 .kpi-card:first-child .kpi-bar{
@@ -930,7 +935,10 @@ onMounted(async () => {
   box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem;
 }
 .calendar-header{ display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; }
-.month-title{ flex:1; text-align:center; text-transform:capitalize; font-weight:700; color:var(--text); }
+.month-title{
+  flex:1; text-align:center; text-transform:capitalize; font-weight:700; color:var(--text);
+  font-family: var(--font-brand);
+}
 .nav-btn{
   width:40px; height:40px; border-radius:12px; display:inline-flex; align-items:center; justify-content:center;
   background:#fafafa; border:1.5px solid var(--line); cursor:pointer;
@@ -969,7 +977,7 @@ onMounted(async () => {
   padding:.55rem .6rem; display:flex; flex-direction:column; justify-content:flex-end;
   cursor:pointer; transition:box-shadow .15s ease, transform .05s ease;
   box-shadow:0 1px 0 rgba(15,23,42,.04);
-  scroll-snap-align: center; /* <-- nuevo para scroll suave */
+  scroll-snap-align: center;
 }
 .day-cell:hover{ outline:2px solid var(--brand-ring) }
 .day-cell.is-other-month{ opacity:.45 }
@@ -1014,7 +1022,7 @@ onMounted(async () => {
   background:var(--card); border:1px solid var(--line); border-radius:16px;
   box-shadow:0 8px 24px rgba(15,23,42,.06); padding:1rem 1.25rem
 }
-.panel h3{ margin:.25rem 0 .75rem; font-size:1rem; color:var(--text); }
+.panel h3{ margin:.25rem 0 .75rem; font-size:1rem; color:var(--text); font-family: var(--font-brand); }
 .instructions{ margin:0 0 0 1.1rem; color:var(--muted) }
 .muted{ color:var(--muted) }
 .requests{ display:flex; flex-direction:column; gap:.75rem }
@@ -1066,4 +1074,15 @@ onMounted(async () => {
   .badge{ font-size:.62rem; padding:.1rem .3rem; }
   .chip{ font-size:.62rem; }
 }
+
+/* === Odes: barras de periodo con #1f4cb8 === */
+.kpi-card.kpi-period .period-bar .period-fill{
+  background: #1f4cb8;          /* color sólido de marca */
+}
+
+/* (Opcional) que el punto de “Selección” use el mismo tono */
+.dot--blue{
+  background: #1f4cb8;
+}
+
 </style>
