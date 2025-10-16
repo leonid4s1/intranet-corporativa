@@ -1,20 +1,26 @@
 <!-- cliente/src/components/layout/AppSidebar.vue -->
 <template>
   <aside
+    id="app-sidebar"
     class="app-sidebar"
     :class="{ 'is-collapsed': collapsed }"
     :style="{ '--sidebar-width': collapsed ? '72px' : '220px' }"
+    role="navigation"
+    aria-label="Menú principal"
   >
     <div class="side-head">
+      <!-- Botón con isotipo (abre/colapsa) -->
       <button
-        class="burger"
+        class="brand-btn"
         @click="onBurgerClick"
-        :aria-label="isMobile ? 'Abrir/cerrar menú' : (collapsed ? 'Expandir menú' : 'Colapsar menú')"
+        :aria-label="isMobile ? (isMobileOpen ? 'Cerrar menú' : 'Abrir menú') : (collapsed ? 'Expandir menú' : 'Colapsar menú')"
+        aria-controls="app-sidebar"
+        :aria-expanded="isMobile ? (isMobileOpen ? 'true' : 'false') : undefined"
       >
-        ☰
+        <img :src="logoUrl" alt="ODES menú" width="28" height="28" />
       </button>
 
-      <!-- La marca va a Home y se oculta cuando está colapsado -->
+      <!-- Marca (solo visible sin colapsar) -->
       <RouterLink
         to="/home"
         class="brand"
@@ -34,6 +40,7 @@
         :class="{ active: route.path === item.to }"
         :title="collapsed ? item.label : ''"
         @click="onNavClick"
+        :aria-current="route.path === item.to ? 'page' : undefined"
       >
         <span class="ico" aria-hidden="true">{{ item.emoji }}</span>
         <span class="lbl" v-if="!collapsed">{{ item.label }}</span>
@@ -44,10 +51,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, onBeforeMount, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUiStore } from '@/stores/ui.store'
 import { storeToRefs } from 'pinia'
+
+// Usa el logo de assets para que Vite lo resuelva en build
+import logoAsset from '@/assets/logo.svg'
 
 const route = useRoute()
 const ui = useUiStore()
@@ -55,6 +65,9 @@ const { sidebarCollapsed: collapsed } = storeToRefs(ui)
 
 const MOBILE_BP = 900
 const isMobile = ref(false)
+const isMobileOpen = computed(() => ui.sidebarMobileOpen)
+const logoUrl = logoAsset
+
 function updateIsMobile() {
   isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches
   if (!isMobile.value) ui.closeSidebarMobile?.()
@@ -66,6 +79,27 @@ function onBurgerClick() {
 function onNavClick() {
   if (isMobile.value) ui.closeSidebarMobile()
 }
+
+// Cerrar con ESC cuando el drawer móvil esté abierto
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && isMobile.value && ui.sidebarMobileOpen) {
+    ui.closeSidebarMobile()
+  }
+}
+
+onBeforeMount(() => {
+  updateIsMobile()
+})
+
+onMounted(() => {
+  window.addEventListener('resize', updateIsMobile)
+  window.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateIsMobile)
+  window.removeEventListener('keydown', onKeydown)
+})
 
 const brandTitle = 'ODES'
 
@@ -79,12 +113,6 @@ const items = computed(() => [
   { to: '/vacaciones',    label: 'Vacaciones',         emoji: '📅' },
   { to: '/tareas',        label: 'Tareas',             emoji: '✅', badge: () => '' },
 ])
-
-onMounted(() => {
-  updateIsMobile()
-  window.addEventListener('resize', updateIsMobile)
-})
-onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 </script>
 
 <style scoped>
@@ -95,8 +123,8 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
   color: #fff;
   border-right: 1px solid rgba(255,255,255,.12);
   display: flex; flex-direction: column;
-  transition: width .18s ease;
-  z-index: 40;
+  transition: width .18s ease, transform .18s ease;
+  z-index: 1100; /* por encima del overlay móvil */
 }
 
 /* header */
@@ -105,14 +133,26 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
   padding: .9rem .75rem;
   border-bottom: 1px solid rgba(255,255,255,.12);
 }
-.burger{
-  width: 34px; height: 34px; border-radius: 8px;
+
+/* Botón con isotipo */
+.brand-btn{
+  width: 40px; height: 40px; border-radius: 10px;
   display: inline-flex; align-items:center; justify-content:center;
   border: 1px solid rgba(255,255,255,.2);
   background: rgba(255,255,255,.06);
-  color: #fff; cursor: pointer;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+  padding: 0;
 }
-.burger:hover{ background: rgba(255,255,255,.12); }
+.brand-btn img{ width: 28px; height: 28px; display:block; }
+@media (hover:hover){ .brand-btn:hover{ background: rgba(255,255,255,.12); transform: translateY(-1px); } }
+
+/* Focus accesible */
+.brand-btn:focus-visible,
+.side-link:focus-visible{
+  outline: 2px solid rgba(255,255,255,.7);
+  outline-offset: 2px;
+}
 
 /* Marca */
 .brand{
@@ -121,7 +161,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 }
 .brand:hover{ text-decoration: underline; }
 
-/* Ocultar marca y centrar el botón cuando está colapsado */
+/* Colapsado */
 .app-sidebar.is-collapsed .brand{ display: none; }
 .app-sidebar.is-collapsed .side-head{
   justify-content: center;
@@ -138,43 +178,42 @@ onBeforeUnmount(() => window.removeEventListener('resize', updateIsMobile))
 }
 .side-link:hover{ background: rgba(255,255,255,.10); color: #fff; }
 
-/* Emoji icono */
-.ico{
-  font-size: 18px; line-height: 1; text-align: center;
-  filter: saturate(.95) opacity(.95);
-}
+/* Emoji */
+.ico{ font-size: 18px; line-height: 1; text-align: center; }
 
-/* Estado activo tipo “pill” claro */
+/* Activo */
 .side-link.active{
   background: #ffffff;
   color: #1f2937;
   box-shadow: 0 2px 8px rgba(0,0,0,.06);
 }
-.side-link.active .ico{ filter: none; }
 
 .side-link .lbl{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
 .badge{
   background:#e74c3c; color:#fff; border-radius:999px; font-size:.7rem;
   padding:.1rem .5rem; font-weight:700; justify-self: end;
 }
 
-/* colapsado (desktop) */
+/* Colapsado (desktop) */
 .app-sidebar.is-collapsed .side-link{
   grid-template-columns: 26px; justify-items: center;
 }
 .app-sidebar.is-collapsed .side-link .lbl,
 .app-sidebar.is-collapsed .side-link .badge { display: none; }
 
-/* ===== Drawer móvil ===== */
+/* Drawer móvil */
 @media (max-width: 900px){
   .app-sidebar{
     transform: translateX(-100%);
-    transition: transform .18s ease;
     box-shadow: 0 10px 30px rgba(0,0,0,.25);
   }
   :global(.is-mobile-open) .app-sidebar{
     transform: translateX(0);
   }
+}
+
+/* Respeta preferencias de reducción de movimiento */
+@media (prefers-reduced-motion: reduce){
+  .app-sidebar, .side-link{ transition: none !important; }
 }
 </style>

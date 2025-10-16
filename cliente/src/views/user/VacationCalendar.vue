@@ -98,79 +98,82 @@
           <span v-if="selectedStart || selectedEnd"><span class="dot dot--blue"></span> Selección</span>
         </div>
 
-        <div class="weekday-row">
-          <div v-for="d in weekDayNames" :key="d" class="weekday-cell">{{ d }}</div>
-        </div>
+        <!-- ====== ENVOLTURA NUEVA: sticky + scroll suave ====== -->
+        <div class="calendar-wrapper">
+          <div class="weekday-row sticky-head">
+            <div v-for="d in weekDayNames" :key="d" class="weekday-cell">{{ d }}</div>
+          </div>
 
-        <div class="calendar-grid">
-          <div
-            v-for="day in calendarDays"
-            :key="day.date"
-            class="day-cell"
-            :class="{
-              'is-other-month': !day.isCurrentMonth,
-              'is-today': day.isToday,
-              'is-weekend': day.isWeekend,
-              'is-holiday': day.isHoliday,
-              'is-full': day.isFull,
-              'is-selected': day.inSelection,
-              'is-available': !day.isFull && !day.isHoliday && !day.isWeekend && !day.inSelection && day.isAvailable,
-              'has-holiday-name': !!day.holidayName,
-              'has-team-approved': day.hasTeamApproved
-            }"
-            :title="getDayTooltip(day)"
-            @click="onClickDay(day)"
-            @mouseenter="onHoverDay(day)"
-          >
-            <div class="badges">
-              <span
-                v-if="day.isHoliday"
-                class="badge badge--holiday"
-                :title="day.holidayName ? 'Festivo: ' + day.holidayName : 'Festivo'"
-              >Festivo</span>
-
-              <span
-                v-else-if="day.isWeekend"
-                class="badge badge--weekend"
-                title="Fin de semana"
-              >Fin de semana</span>
-
-              <span
-                v-if="day.teamCount > 0"
-                class="badge badge--count"
-                :class="{ 'is-full': day.isFull }"
-                :title="day.isFull ? `Cupo lleno (${day.teamCount}/${MAX_PER_DAY})` : `${day.teamCount} en vacaciones`"
-              >
-                {{ day.teamCount }}/{{ MAX_PER_DAY }}
-              </span>
-            </div>
-
-            <div class="day-number">{{ day.day }}</div>
-
-            <div class="labels" v-if="day.hasTeamApproved">
-              <span
-                v-for="(n, i) in day.topTwoNames"
-                :key="i"
-                class="chip chip--approved"
-                :title="day.approvedNamesFull"
-              >{{ n }}</span>
-              <span
-                v-if="day.extraCount > 0"
-                class="chip chip--approved more"
-                :title="day.approvedNamesFull"
-              >+{{ day.extraCount }}</span>
-            </div>
-
-            <span
-              v-if="day.isFull || day.isHoliday || day.isWeekend || day.inSelection || day.isAvailable"
-              class="dot"
+          <div class="calendar-grid">
+            <div
+              v-for="day in calendarDays"
+              :key="day.date"
+              class="day-cell"
               :class="{
-                'dot--red': day.isFull,
-                'dot--yellow': !day.isFull && (day.isHoliday || day.isWeekend),
-                'dot--blue': !day.isFull && !day.isHoliday && !day.isWeekend && day.inSelection,
-                'dot--green': !day.isFull && !day.isHoliday && !day.isWeekend && !day.inSelection && day.isAvailable
+                'is-other-month': !day.isCurrentMonth,
+                'is-today': day.isToday,
+                'is-weekend': day.isWeekend,
+                'is-holiday': day.isHoliday,
+                'is-full': day.isFull,
+                'is-selected': day.inSelection,
+                'is-available': !day.isFull && !day.isHoliday && !day.isWeekend && !day.inSelection && day.isAvailable,
+                'has-holiday-name': !!day.holidayName,
+                'has-team-approved': day.hasTeamApproved
               }"
-            />
+              :title="getDayTooltip(day)"
+              @click="onClickDay(day)"
+              @mouseenter="onHoverDay(day)"
+            >
+              <div class="badges">
+                <span
+                  v-if="day.isHoliday"
+                  class="badge badge--holiday"
+                  :title="day.holidayName ? 'Festivo: ' + day.holidayName : 'Festivo'"
+                >Festivo</span>
+
+                <span
+                  v-else-if="day.isWeekend"
+                  class="badge badge--weekend"
+                  title="Fin de semana"
+                >Fin de semana</span>
+
+                <span
+                  v-if="day.teamCount > 0"
+                  class="badge badge--count"
+                  :class="{ 'is-full': day.isFull }"
+                  :title="day.isFull ? `Cupo lleno (${day.teamCount}/${MAX_PER_DAY})` : `${day.teamCount} en vacaciones`"
+                >
+                  {{ day.teamCount }}/{{ MAX_PER_DAY }}
+                </span>
+              </div>
+
+              <div class="day-number">{{ day.day }}</div>
+
+              <div class="labels" v-if="day.hasTeamApproved">
+                <span
+                  v-for="(n, i) in day.topTwoNames"
+                  :key="i"
+                  class="chip chip--approved"
+                  :title="day.approvedNamesFull"
+                >{{ n }}</span>
+                <span
+                  v-if="day.extraCount > 0"
+                  class="chip chip--approved more"
+                  :title="day.approvedNamesFull"
+                >+{{ day.extraCount }}</span>
+              </div>
+
+              <span
+                v-if="day.isFull || day.isHoliday || day.isWeekend || day.inSelection || day.isAvailable"
+                class="dot"
+                :class="{
+                  'dot--red': day.isFull,
+                  'dot--yellow': !day.isFull && (day.isHoliday || day.isWeekend),
+                  'dot--blue': !day.isFull && !day.isHoliday && !day.isWeekend && day.inSelection,
+                  'dot--green': !day.isFull && !day.isHoliday && !day.isWeekend && !day.inSelection && day.isAvailable
+                }"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -856,7 +859,7 @@ onMounted(async () => {
 .kpi-value{ font-size:2rem; font-weight:700; color:var(--text); }
 .kpi-label{ margin-top:.25rem; color:var(--muted); }
 
-/* ✅ Disponibles: vuelve el verde con degradado original */
+/* ✅ Disponibles */
 .kpi-card:first-child .kpi-bar{
   margin-top:.6rem; height:8px; width:100%;
   background:#f1f5f9; border:1px solid #eef2f7;
@@ -868,7 +871,7 @@ onMounted(async () => {
   transition:width .35s;
 }
 
-/* Usados: pill neutro */
+/* Usados */
 .kpi-card:nth-child(2) small{
   display:inline-block; margin-top:.4rem; font-weight:700;
   padding:.2rem .55rem; border-radius:999px; color:#fff;
@@ -876,14 +879,14 @@ onMounted(async () => {
   box-shadow:0 6px 16px rgba(99,102,241,.18);
 }
 
-/* Anuales: pill suave */
+/* Anuales */
 .kpi-card:nth-child(3) small{
   display:inline-block; margin-top:.4rem; color:#065f46;
   background:#ecfdf5; border:1px solid #a7f3d0;
   border-radius:999px; padding:.18rem .55rem;
 }
 
-/* Periodos: mantiene formato */
+/* Periodos */
 .kpi-card.kpi-period .period-dates{
   font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; color:var(--text);
 }
@@ -894,8 +897,6 @@ onMounted(async () => {
   padding:.18rem .55rem; border-radius:999px; font-size:.8rem;
   background:#eef2ff; color:#1e40af; border:1px solid #c7d2fe;
 }
-
-/* ✅ Barras de periodo: azul como tenías */
 .kpi-card.kpi-period .period-bar{
   margin-top:.6rem; height:8px; width:100%;
   background:#f1f5f9; border-radius:999px; overflow:hidden; border:1px solid #eef2f7;
@@ -905,14 +906,10 @@ onMounted(async () => {
   background:linear-gradient(90deg,#0ea5e9,#60a5fa,#93c5fd);
   transition:width .35s;
 }
-
-/* Periodo inactivo */
 .kpi-card.kpi-period.inactive{
   filter: grayscale(.2);
   opacity:.85; cursor:pointer;
 }
-
-/* Tooltip periodos inactivos */
 .period-tip{
   position:absolute; right:1rem; bottom:1rem; max-width:260px;
   background: #111827; color:#f9fafb;
@@ -921,8 +918,6 @@ onMounted(async () => {
 }
 .period-tip p{ margin:0; font-size:.9rem; line-height:1.2; }
 .tip-close{ position:absolute; top:.2rem; right:.25rem; border:0; background:transparent; color:#e5e7eb; cursor:pointer; }
-
-/* Animación tooltip */
 .fade-enter-active, .fade-leave-active { transition: opacity .15s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
@@ -949,17 +944,32 @@ onMounted(async () => {
 .legend .dot{ width:10px; height:10px; border-radius:999px; display:inline-block; margin-right:.35rem; }
 .dot--green{ background:var(--ok) } .dot--yellow{ background:var(--warn) } .dot--red{ background:var(--danger) } .dot--blue{ background:var(--info) }
 
+/* ====== NUEVO: sticky + scroll ====== */
+.calendar-wrapper{
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: .25rem;
+  scroll-snap-type: x proximity;
+}
+.sticky-head{
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+  margin-bottom: .25rem;
+}
+
 .weekday-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; padding:0 .1rem; }
 .weekday-cell{ text-align:center; color:var(--muted); font-size:.9rem; }
 
 .calendar-grid{ --cell:82px; display:grid; grid-template-columns:repeat(7,1fr); gap:.5rem; margin-top:.35rem; }
-
 .day-cell{
   position:relative; min-height:var(--cell);
   background:#fff; border:1.5px solid var(--line); border-radius:12px;
   padding:.55rem .6rem; display:flex; flex-direction:column; justify-content:flex-end;
   cursor:pointer; transition:box-shadow .15s ease, transform .05s ease;
   box-shadow:0 1px 0 rgba(15,23,42,.04);
+  scroll-snap-align: center; /* <-- nuevo para scroll suave */
 }
 .day-cell:hover{ outline:2px solid var(--brand-ring) }
 .day-cell.is-other-month{ opacity:.45 }
@@ -979,7 +989,6 @@ onMounted(async () => {
 .badge--count{ margin-left:auto; background:#e7f9ef; color:#166534; border-color:#86efac; font-weight:700 }
 .badge--count.is-full{ background:#fff1f2; color:#991b1b; border-color:#fecaca }
 
-/* ✅ Selección: vuelve el azul de tu selección original */
 .day-cell.is-selected{
   background:linear-gradient(180deg,#eff6ff 0%,#fff 80%);
   border-color:#bfdbfe;
@@ -1030,7 +1039,6 @@ onMounted(async () => {
 .ml-2{ margin-left:.5rem }
 .badge-success{ display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.15rem .6rem; font-size:.8rem; background:#ecfdf5; color:#065f46 }
 
-/* Selección de texto */
 .vacations-page ::selection{ background:rgba(37,99,235,.15) }
 
 .badge-danger{
@@ -1040,15 +1048,22 @@ onMounted(async () => {
   border-radius:999px;
   padding:.15rem .6rem;
   font-size:.8rem;
-  background:#fef2f2;   /* fondo rojo muy suave */
-  color:#991b1b;        /* texto rojo oscuro */
-  border:1px solid #fecaca; /* contorno suave como las pills */
+  background:#fef2f2;
+  color:#991b1b;
+  border:1px solid #fecaca;
 }
-
 .side-panels .panel:nth-of-type(4) .request-row{
   border-left:4px solid var(--danger);
   background:#fef2f2;
 }
 
+/* ====== Ajustes responsive fuertes para móvil ====== */
+@media (max-width: 640px){
+  .weekday-row{ gap:6px; }
+  .calendar-grid{ gap:6px; --cell:64px; }
+  .weekday-cell{ font-size:.85rem; }
+  .day-cell{ border-radius:12px; }
+  .badge{ font-size:.62rem; padding:.1rem .3rem; }
+  .chip{ font-size:.62rem; }
+}
 </style>
-

@@ -1,12 +1,12 @@
 <!-- cliente/src/layouts/DefaultLayout.vue -->
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { onMounted, onBeforeUnmount, watch, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import { useUiStore } from '@/stores/ui.store'
 
 const ui = useUiStore()
-const { sidebarCollapsed: collapsed } = storeToRefs(ui)
+const { sidebarCollapsed: collapsed, sidebarMobileOpen } = storeToRefs(ui)
 
 const MOBILE_BP = 900
 const isMobile = ref(false)
@@ -22,32 +22,44 @@ function onMenuClick() {
   else ui.toggleSidebar()
 }
 
+// Sincroniza la clase global que tu CSS usa: :global(.is-mobile-open) .app-sidebar
+function applyMobileOpenClass(open: boolean) {
+  document.documentElement.classList.toggle('is-mobile-open', open)
+}
+
 onMounted(() => {
   ui.hydrate?.()
   updateIsMobile()
+  applyMobileOpenClass(!!sidebarMobileOpen.value)
   window.addEventListener('resize', updateIsMobile)
 })
 
+watch(sidebarMobileOpen, (v) => applyMobileOpenClass(!!v))
+
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateIsMobile)
+  applyMobileOpenClass(false)
 })
 </script>
 
 <template>
   <!-- El layout define --sidebar-width y gestiona estado móvil -->
   <div class="app-shell"
-       :class="{ 'is-mobile-open': ui.sidebarOpenMobile }"
+       :class="{ 'is-mobile-open': sidebarMobileOpen }"
        :style="{ '--sidebar-width': collapsed ? '72px' : '220px' }">
 
     <!-- Sidebar (colapsable en desktop, drawer en móvil) -->
     <AppSidebar />
 
-    <!-- Topbar móvil (incluye botón ☰ compartido) -->
+    <!-- Topbar móvil (incluye botón con logotipo) -->
     <header class="topbar-mobile">
-      <button class="menu-btn"
-              @click="onMenuClick"
-              :aria-label="isMobile ? 'Abrir/cerrar menú' : (collapsed ? 'Expandir menú' : 'Colapsar menú')">
-        ☰
+      <button
+        class="menu-btn"
+        @click="onMenuClick"
+        :aria-label="isMobile ? (sidebarMobileOpen ? 'Cerrar menú' : 'Abrir menú') : (collapsed ? 'Expandir menú' : 'Colapsar menú')"
+      >
+        <!-- Reemplazo de ☰ por el logotipo -->
+        <img class="menu-logo" src="@/assets/logo.svg" alt="Menú" />
       </button>
       <span class="brand">ODES</span>
     </header>
@@ -83,6 +95,14 @@ onBeforeUnmount(() => {
   display: inline-flex; align-items:center; justify-content:center;
   border: 1px solid var(--brand-gray-300, #cdcdcd);
   background: #fff; cursor:pointer;
+  padding: 4px;
+}
+.menu-btn:focus-visible{
+  outline: 2px solid var(--brand-ring, rgba(0,0,0,.2));
+  outline-offset: 2px;
+}
+.menu-logo{
+  width: 22px; height: 22px; object-fit: contain; display: block;
 }
 .topbar-mobile .brand{
   margin-left: .75rem; font-weight: 800; letter-spacing: .6px;
@@ -109,7 +129,7 @@ onBeforeUnmount(() => {
     background: rgba(0,0,0,.35);
     opacity: 0; pointer-events: none;
     transition: opacity .15s ease;
-    z-index: 39;
+    z-index: 39; /* el sidebar tiene z-index: 40 */
   }
   .is-mobile-open .backdrop{
     opacity: 1; pointer-events: auto;
