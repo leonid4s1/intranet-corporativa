@@ -142,9 +142,24 @@ if (authStore.isAuthenticated) {
   --ring: rgba(75,80,85,.25);
 
   --card: #ffffff;
-  --btn-bg: #111827;          /* botón visible */
+  --btn-bg: #111827;
   --btn-bg-hover: #0b1220;
   --btn-text: #ffffff;
+}
+
+/* ===== Tipografía de marca (usa --font-brand definida globalmente) ===== */
+.auth-container,
+.brand-hero__name,
+.brand-hero__sub,
+label,
+input,
+.toggle-btn,
+.auth-button,
+.hint,
+.error-message {
+  font-family: var(--font-brand), system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* ===== Contenedor ===== */
@@ -159,44 +174,38 @@ if (authStore.isAuthenticated) {
   color: var(--ink);
 }
 
-/* ===== Lockup de marca (sustituye al H1) ===== */
-/* Centrar el lockup (logo + textos) */
+/* ===== Lockup de marca (logo + textos centrados) ===== */
 .brand-hero{
-  display:flex;
-  align-items:center;
-  justify-content:center;   /* ← centra horizontalmente */
-  gap:.9rem;
-  margin-bottom:1rem;
-  flex-wrap:wrap;           /* ← si hay poco ancho, permite salto a dos líneas */
+  display:flex; align-items:center; justify-content:center;
+  gap:.9rem; margin-bottom:1rem; flex-wrap:wrap;
 }
 .brand-hero__logo{
-  width:48px; height:48px; object-fit:contain;
-  filter: grayscale(100%);     /* monocromo sobrio */
+  width:48px; height:48px; object-fit:contain; filter: grayscale(100%);
 }
-.brand-hero__text{
-  display:flex;
-  flex-direction:column;
-  line-height:1.05;
-  text-align:center;        /* ← centra los textos respecto al logo */
-}
-@media (max-width: 420px){
-  .brand-hero__logo{ width:42px; height:42px; }
-}
+.brand-hero__text{ display:flex; flex-direction:column; line-height:1.05; text-align:center; }
+@media (max-width: 420px){ .brand-hero__logo{ width:42px; height:42px; } }
+
 .brand-hero__name{
-  font-weight: 900;
+  font-weight: 900;           /* NHaas Bold/Black */
   color:#111827;
-  font-size: 1.35rem;          /* protagonista, reemplaza H1 */
+  font-size: 1.35rem;
   letter-spacing:.2px;
 }
 .brand-hero__sub{
   color:#6b7280;
   font-size:.9rem;
+  font-weight: 500;           /* NHaas Medium */
+  letter-spacing:.1px;
 }
 
 /* ===== Form ===== */
 .auth-form{ display:flex; flex-direction:column; gap: 1.2rem; }
 .form-group{ display:flex; flex-direction:column; gap:.55rem; }
-label{ font-weight: 800; color:#111827; }
+label{
+  font-weight: 800;           /* NHaas Bold */
+  color:#111827;
+  letter-spacing:.15px;
+}
 
 /* Inputs con contraste alto */
 input{
@@ -207,12 +216,13 @@ input{
   color: var(--ink);
   background: #fff;
   transition: border-color .15s, box-shadow .15s, background .15s;
+  font-weight: 500;           /* NHaas Medium */
 }
 input::placeholder{ color:#4b5563; opacity:1; }
 input:hover{ border-color: var(--line-strong); }
 input:focus{
   outline:0;
-  border-color: #4b5055;        /* ink corporativo */
+  border-color: #4b5055;
   box-shadow: 0 0 0 4px var(--ring);
 }
 
@@ -227,6 +237,7 @@ input:focus{
   background: var(--g-100);
   border-radius: 8px;
   cursor:pointer;
+  font-weight: 600;
 }
 .toggle-btn:hover{ background:#e8ecf2; }
 .toggle-btn:focus-visible{ outline:3px solid var(--ring); }
@@ -236,6 +247,7 @@ input:focus{
 .error-message{
   color:#b91c1c; background:#fef2f2; border:1px solid #fecaca;
   padding:.6rem .75rem; border-radius:12px; text-align:center;
+  font-weight:700;
 }
 
 /* ===== Botón visible ===== */
@@ -245,7 +257,7 @@ input:focus{
   color: var(--btn-text);
   border: 0;
   border-radius: 12px;
-  font-weight: 900;
+  font-weight: 900;           /* NHaas Black */
   letter-spacing:.2px;
   cursor:pointer;
   transition: transform .02s ease, filter .15s, box-shadow .15s;
@@ -258,5 +270,5 @@ input:focus{
 
 /* Footer */
 .auth-footer{ margin-top: 1rem; text-align:center; color:#4b5563; }
-.hint{ margin-top:.25rem; font-size:.95rem; }
+.hint{ margin-top:.25rem; font-size:.95rem; font-weight:500; }
 </style>
