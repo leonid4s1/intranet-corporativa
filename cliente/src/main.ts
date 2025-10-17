@@ -6,6 +6,8 @@ import router from './router';
 
 /* ⬇️ IMPORTA TU TEMA GLOBAL DE MARCA */
 import '@/styles/theme.css';
+import './styles/brand.css';
+
 
 import dayjs from 'dayjs';
 import 'dayjs/locale/es';

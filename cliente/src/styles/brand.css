@@ -1,0 +1,407 @@
+/* =========================================================
+   ODES – Tema de Marca (tipografía + colores + fallbacks)
+   ========================================================= */
+
+/* ===== Tipografías (archivos en /public/fonts) ===== */
+
+/* Roman (Regular 400) */
+@font-face {
+  font-family: "Neue Haas Grotesk";
+  src: url("/fonts/NeueHaasDisplayRoman.woff2") format("woff2"),
+       url("/fonts/NeueHaasDisplayRoman.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Neue Haas Grotesk";
+  src: url("/fonts/NeueHaasDisplayRomanItalic.woff2") format("woff2"),
+       url("/fonts/NeueHaasDisplayRomanItalic.woff") format("woff");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Medium (500) */
+@font-face {
+  font-family: "Neue Haas Grotesk";
+  src: url("/fonts/NeueHaasDisplayMedium.woff2") format("woff2"),
+       url("/fonts/NeueHaasDisplayMedium.woff") format("woff");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Neue Haas Grotesk";
+  src: url("/fonts/NeueHaasDisplayMediumItalic.woff2") format("woff2"),
+       url("/fonts/NeueHaasDisplayMediumItalic.woff") format("woff");
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Bold (700) */
+@font-face {
+  font-family: "Neue Haas Grotesk";
+  src: url("/fonts/NeueHaasDisplayBold.woff2") format("woff2"),
+       url("/fonts/NeueHaasDisplayBold.woff") format("woff");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Neue Haas Grotesk";
+  src: url("/fonts/NeueHaasDisplayBoldItalic.woff2") format("woff2"),
+       url("/fonts/NeueHaasDisplayBoldItalic.woff") format("woff");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Black (900) */
+@font-face {
+  font-family: "Neue Haas Grotesk";
+  src: url("/fonts/NeueHaasDisplayBlack.woff2") format("woff2"),
+       url("/fonts/NeueHaasDisplayBlack.woff") format("woff");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Neue Haas Grotesk";
+  src: url("/fonts/NeueHaasDisplayBlackItalic.woff2") format("woff2"),
+       url("/fonts/NeueHaasDisplayBlackItalic.woff") format("woff");
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Render */
+:root {
+  font-synthesis-weight: none;
+  font-synthesis-style: none;
+}
+
+/* ===== Paleta ODES ===== */
+:root {
+  --ink:        #4B5055;
+  --ink-700:    #3F4449;
+  --ink-900:    #2B2F33;
+
+  --gray-100:   #F7F7F7;
+  --gray-150:   #F0F0F0;
+  --gray-300:   #E5E7EB;
+  --gray-400:   #CDCDCD;
+  --white:      #FFFFFF;
+
+  --focus:      #4B5055;
+  --shadow:     0 10px 24px rgba(0,0,0,.06);
+  --radius:     14px;
+}
+
+/* ===== Base ===== */
+html, body {
+  font-family: "Neue Haas Grotesk", system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  color: var(--ink-900);
+  background: var(--gray-150);
+  margin: 0;
+  padding: 0;
+  line-height: 1.5;
+}
+
+h1, h2, h3 {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+h1 { font-size: clamp(28px, 2.4vw, 36px); }
+h2 { font-size: clamp(22px, 1.8vw, 28px); }
+h3 { font-size: clamp(18px, 1.4vw, 22px); }
+
+/* ===== Layouts de páginas ===== */
+.admin-page,
+.user-management-container,
+.vacations-page {
+  padding: 2rem;
+}
+
+/* ===== Tarjetas ===== */
+.card,
+.admin-card,
+.feature-card {
+  background: var(--white);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.card:hover,
+.admin-card:hover,
+.feature-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(0,0,0,.08);
+  border-color: var(--gray-400);
+}
+.card p,
+.feature-card p,
+.admin-card p {
+  color: var(--ink-900);
+  opacity: .8;
+  margin-top: .25rem;
+}
+
+/* ===== Botones ===== */
+.btn,
+.create-btn,
+.logout-btn,
+button[type="button"],
+button[type="submit"] {
+  font-family: inherit;
+  border-radius: 9999px;
+  padding: .65rem 1.1rem;
+  border: 1px solid transparent;
+  background: var(--ink);
+  color: var(--white);
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgba(0,0,0,.08);
+  transition: background-color .15s ease, border-color .15s ease, transform .05s ease;
+  cursor: pointer;
+}
+.btn:hover,
+.create-btn:hover,
+.logout-btn:hover,
+button[type="button"]:hover,
+button[type="submit"]:hover {
+  background: var(--ink-700);
+}
+.btn:active,
+.create-btn:active,
+.logout-btn:active,
+button[type="button"]:active,
+button[type="submit"]:active {
+  transform: translateY(1px);
+}
+/* Variante clara */
+.btn--light, .btn.secondary, .btn-outline {
+  background: var(--white);
+  color: var(--ink);
+  border-color: var(--gray-400);
+}
+.btn--light:hover, .btn.secondary:hover, .btn-outline:hover {
+  border-color: var(--ink);
+}
+
+/* ===== Formularios ===== */
+input, select, textarea {
+  border: 1px solid var(--gray-300);
+  border-radius: 10px;
+  padding: .6rem .8rem;
+  background: var(--white);
+  color: var(--ink-900);
+  font-family: inherit;
+}
+
+/* Focus fallback (Chrome/Edge <111) */
+input:focus,
+select:focus,
+textarea:focus,
+.btn:focus {
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 3px rgba(75, 80, 85, 0.35); /* ≈ var(--focus) al 35% */
+  border-color: var(--focus);
+}
+/* Focus con color-mix si está soportado */
+@supports (color: color-mix(in srgb, #000 50%, #fff 50%)) {
+  input:focus,
+  select:focus,
+  textarea:focus,
+  .btn:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 35%, transparent);
+  }
+}
+
+/* ===== Títulos y enlaces ===== */
+.page-title, .admin-title { margin: 0 0 1.25rem 0; }
+
+/* Fallback enlaces (Chrome/Edge <111) */
+a {
+  color: var(--ink);
+  text-decoration-color: rgba(75, 80, 85, 0.4); /* ≈ 40% de var(--ink) */
+}
+/* Enlaces con color-mix si está soportado */
+@supports (color: color-mix(in srgb, #000 50%, #fff 50%)) {
+  a {
+    text-decoration-color: color-mix(in srgb, var(--ink) 40%, transparent);
+  }
+}
+/* =========================================================
+   SIDEBAR (AppSidebar.vue)
+   ========================================================= */
+
+.app-sidebar {
+  background: var(--gray-150);
+  color: var(--ink-900);
+  border-right: 1px solid var(--gray-300);
+  width: var(--sidebar-width, 220px);
+}
+
+.app-sidebar .side-head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .8rem 1rem;
+  background: var(--gray-150);
+  border-bottom: 1px solid var(--gray-300);
+}
+
+.app-sidebar .burger {
+  appearance: none;
+  background: var(--white);
+  border: 1px solid var(--gray-300);
+  border-radius: 10px;
+  padding: .45rem .6rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, transform .05s ease;
+}
+.app-sidebar .burger:hover { border-color: var(--ink); }
+.app-sidebar .burger:active { transform: translateY(1px); }
+
+.app-sidebar .brand {
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.app-sidebar .side-nav {
+  display: grid;
+  gap: .25rem;
+  padding: .75rem;
+}
+
+.app-sidebar .side-link {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .6rem .75rem;
+  border-radius: 10px;
+  color: var(--ink-900);
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: background-color .12s ease, border-color .12s ease, transform .05s ease;
+}
+.app-sidebar .side-link:hover {
+  background: var(--white);
+  border-color: var(--gray-300);
+  box-shadow: 0 6px 18px rgba(0,0,0,.05);
+}
+.app-sidebar .side-link.active {
+  background: var(--white);
+  border-color: var(--ink);
+}
+.app-sidebar .ico {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  opacity: .9;
+}
+
+/* Estado colapsado */
+.app-sidebar.is-collapsed {
+  width: var(--sidebar-width, 72px);
+}
+.app-sidebar.is-collapsed .side-link {
+  justify-content: center;
+  padding: .6rem;
+}
+
+/* =========================================================
+   HEADER / TOPBAR (DefaultLayout.vue, etc.)
+   ========================================================= */
+
+.app-header,
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--white);
+  border-bottom: 1px solid var(--gray-300);
+  padding: .75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-header .title,
+.header .title,
+.page-title,
+.admin-title {
+  color: var(--ink);
+  font-weight: 700;
+  margin: 0;
+}
+
+/* Acciones del header (botones a la derecha) */
+.header-actions,
+.app-header .actions {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.header .create-btn,
+.app-header .btn {
+  background: var(--ink);
+  color: var(--white);
+  border: 1px solid transparent;
+}
+.header .create-btn:hover,
+.app-header .btn:hover {
+  background: var(--ink-700);
+}
+
+/* Botón “Cerrar sesión” visible y consistente */
+button.logout-btn {
+  background: var(--white);
+  color: var(--ink);
+  border: 1px solid var(--gray-400);
+}
+button.logout-btn:hover {
+  border-color: var(--ink);
+}
+
+/* =========================================================
+   CONTENIDO DEL ADMIN / TARJETAS DE ACCESO
+   ========================================================= */
+
+.admin-grid,
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .admin-grid, .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .admin-grid, .feature-grid { grid-template-columns: 1fr; }
+}
+
+/* Tarjetas grandes del dashboard admin */
+.admin-card, .feature-card {
+  padding: 1.1rem 1.25rem;
+}
+.admin-card h3, .feature-card h3 {
+  margin: 0 0 .25rem 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.admin-card p, .feature-card p {
+  font-size: .95rem;
+  margin: 0;
+}
