@@ -2,7 +2,14 @@
   <div class="admin-home">
     <header class="admin-header">
       <h1>Panel de Administración</h1>
-      <button @click="handleLogout" class="logout-btn" :disabled="loggingOut">
+
+      <!-- Usa el botón de marca -->
+      <button
+        @click="handleLogout"
+        class="btn logout-btn"
+        :disabled="loggingOut"
+        type="button"
+      >
         {{ loggingOut ? 'Saliendo…' : 'Cerrar sesión' }}
       </button>
     </header>
@@ -24,18 +31,13 @@
         </div>
       </router-link>
 
-      <!-- Botón que redirige a Administración de Vacaciones -->
-      <button
-        @click="goToVacations"
-        class="admin-card"
-        style="cursor: pointer; border: none; background: none; padding: 0;"
-      >
+      <router-link to="/admin/vacations" class="admin-card">
         <i class="fas fa-calendar-alt"></i>
         <div class="card-content">
           <h3>Administración de Vacaciones</h3>
           <p>Gestiona solicitudes y días de vacaciones</p>
         </div>
-      </button>
+      </router-link>
     </div>
   </div>
 </template>
@@ -43,28 +45,20 @@
 <script setup lang="ts">
 import { ref, onMounted, defineOptions } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
-import { useRouter } from 'vue-router';
 
 defineOptions({ name: 'AdminHome' });
 
 const auth = useAuthStore();
-const router = useRouter();
 const loggingOut = ref(false);
 
 const handleLogout = async () => {
   if (loggingOut.value) return;
   loggingOut.value = true;
   try {
-    await auth.logout(); // el store hace router.replace('/login')
-  } catch {
+    await auth.logout(); // router.replace('/login')
   } finally {
     loggingOut.value = false;
   }
-};
-
-
-const goToVacations = () => {
-  router.push('/admin/vacations');
 };
 
 onMounted(() => {
@@ -92,27 +86,18 @@ onMounted(() => {
   margin: 0;
 }
 
+/* === Botón de marca (usa reglas .btn de brand.css) === */
 .logout-btn {
-  background-color: #e3342f;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  font-size: 0.9rem;
+  /* sin colores locales: hereda background/hover de .btn */
+  min-width: 146px;
 }
-
-.logout-btn:hover {
-  background-color: #cc1f1a;
-}
-
 .logout-btn:disabled {
-  background-color: #e5e7eb;
-  color: #6b7280;
+  opacity: .6;
   cursor: not-allowed;
+  transform: none;
 }
 
+/* Grid de opciones */
 .admin-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -120,92 +105,50 @@ onMounted(() => {
   margin-top: 2rem;
 }
 
+/* Tarjetas */
 .admin-card {
   display: flex;
   align-items: flex-start;
+  width: 100%;
   padding: 1.5rem;
   background: #ffffff;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  border: 1px solid var(--gray-300, #e5e7eb);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
   text-decoration: none;
-  color: #2c3e50;
-  transition: all 0.3s ease;
+  color: var(--ink-900, #2c3e50);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  cursor: pointer;
 }
-
 .admin-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.10);
+  border-color: var(--gray-400, #cdcdcd);
 }
-
 .admin-card i {
   font-size: 2rem;
   color: #3498db;
   margin-right: 1.5rem;
   margin-top: 0.3rem;
 }
-
 .card-content h3 {
   margin: 0 0 0.5rem 0;
   font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ink, #4B5055);
 }
-
 .card-content p {
   margin: 0;
   color: #666;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
-  .admin-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-  }
-
-  .logout-btn {
-    align-self: flex-end;
-  }
+  .admin-header { flex-direction: column; align-items: flex-start; gap: 1rem; }
+  .logout-btn { align-self: flex-end; }
 }
-
 @media (max-width: 480px) {
-  .admin-options {
-    grid-template-columns: 1fr;
-  }
-}
-
-button.admin-card {
-  display: flex;
-  align-items: center;
-  padding: 1.5rem;
-  background: #ffffff;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-  color: #2c3e50;
-  transition: all 0.3s ease;
-  font: inherit; /* para que tome la fuente igual */
-}
-
-button.admin-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-}
-
-button.admin-card i {
-  font-size: 2rem;
-  color: #3498db;
-  margin-right: 1.5rem;
-  margin-top: 0.3rem;
-}
-
-button.admin-card .card-content h3 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.2rem;
-}
-
-button.admin-card .card-content p {
-  margin: 0;
-  color: #666;
-  font-size: 0.9rem;
+  .admin-options { grid-template-columns: 1fr; }
 }
 </style>
