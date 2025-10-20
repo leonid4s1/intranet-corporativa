@@ -1,28 +1,21 @@
 // cliente/src/stores/ui.store.ts
-import { defineStore } from 'pinia';
+import { defineStore } from 'pinia'
 
-const LS_KEY = 'ui.sidebarCollapsed';
-
-type UiState = {
-  /** ¿Estamos en breakpoint móvil? Lo establece el layout. */
-  isMobile: boolean;
-  /** Estado de colapso en desktop (persistente) */
-  sidebarCollapsed: boolean;
-  /** Estado de apertura del drawer en móvil (no persistente) */
-  sidebarMobileOpen: boolean;
-};
+const LS_KEY = 'ui.sidebarCollapsed'
 
 export const useUiStore = defineStore('ui', {
-  state: (): UiState => ({
-    isMobile: false,
-    sidebarCollapsed: false,
-    sidebarMobileOpen: false,
+  state: () => ({
+    /** Estado de colapso en desktop (persistente) */
+    sidebarCollapsed: false as boolean,
+    /** Estado de apertura en móvil (no persistente) */
+    sidebarMobileOpen: false as boolean,
   }),
 
   getters: {
-    // Compatibilidad con código antiguo (elimínalo cuando ya no se use)
+    // (Opcional) compatibilidad por si algo viejo aún lee sidebarOpenMobile
+    // Elimínalo cuando ya no lo uses en ningún componente.
     sidebarOpenMobile(state): boolean {
-      return state.sidebarMobileOpen;
+      return state.sidebarMobileOpen
     },
   },
 
@@ -30,56 +23,26 @@ export const useUiStore = defineStore('ui', {
     /** Cargar preferencia de colapso desde localStorage */
     hydrate() {
       try {
-        const raw = localStorage.getItem(LS_KEY);
-        if (raw !== null) this.sidebarCollapsed = raw === '1';
-      } catch {
-        /* no-op */
-      }
+        const raw = localStorage.getItem(LS_KEY)
+        if (raw !== null) this.sidebarCollapsed = raw === '1'
+      } catch {}
     },
 
     /** Alternar colapso en desktop (y persistirlo) */
     toggleSidebar() {
-      if (this.isMobile) return; // en móvil no aplica colapsar
-      this.sidebarCollapsed = !this.sidebarCollapsed;
-      try {
-        localStorage.setItem(LS_KEY, this.sidebarCollapsed ? '1' : '0');
-      } catch {
-        /* no-op */
-      }
+      this.sidebarCollapsed = !this.sidebarCollapsed
+      try { localStorage.setItem(LS_KEY, this.sidebarCollapsed ? '1' : '0') } catch {}
     },
 
     /** Fijar colapso en desktop (y persistirlo) */
     setSidebar(v: boolean) {
-      if (this.isMobile) return;
-      this.sidebarCollapsed = v;
-      try {
-        localStorage.setItem(LS_KEY, v ? '1' : '0');
-      } catch {
-        /* no-op */
-      }
-    },
-
-    /** Establece el modo móvil según el breakpoint */
-    setIsMobile(v: boolean) {
-      this.isMobile = v;
-      // Al entrar en móvil, el estado de colapso de desktop deja de tener efecto
-      if (v) this.sidebarCollapsed = false;
-      // Al salir de móvil, cierra el drawer si estuviera abierto
-      if (!v) this.sidebarMobileOpen = false;
+      this.sidebarCollapsed = v
+      try { localStorage.setItem(LS_KEY, v ? '1' : '0') } catch {}
     },
 
     /* ====== MÓVIL (drawer) ====== */
-    openSidebarMobile() {
-      if (!this.isMobile) return;
-      this.sidebarMobileOpen = true;
-    },
-    closeSidebarMobile() {
-      if (!this.isMobile) return;
-      this.sidebarMobileOpen = false;
-    },
-    toggleSidebarMobile() {
-      if (!this.isMobile) return;
-      this.sidebarMobileOpen = !this.sidebarMobileOpen;
-    },
-  },
-});
+    openSidebarMobile() { this.sidebarMobileOpen = true },
+    closeSidebarMobile() { this.sidebarMobileOpen = false },
+    toggleSidebarMobile() { this.sidebarMobileOpen = !this.sidebarMobileOpen },
+  }
+})

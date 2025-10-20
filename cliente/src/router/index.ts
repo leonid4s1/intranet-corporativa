@@ -3,7 +3,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { authGuard } from './guards'
 
 // ⬅️ IMPORTA EL LAYOUT
-import DefaultLayout from '@/layout/DefaultLayout.vue'
+import DefaultLayout from '@/layouts/DefaultLayout.vue'
 
 // Vistas (lazy)
 const LoginView               = () => import('@/views/auth/LoginView.vue')
