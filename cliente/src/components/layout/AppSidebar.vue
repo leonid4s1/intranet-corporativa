@@ -3,7 +3,10 @@
   <aside
     id="app-sidebar"
     class="app-sidebar"
-    :class="{ 'is-collapsed': collapsed }"
+    :class="{ 'is-collapsed': collapsed,
+      'is-mobile': isMobile,
+      'is-open': isMobile && isMobileOpen
+     }"
     :style="{ '--sidebar-width': collapsed ? '72px' : '220px' }"
     role="navigation"
     aria-label="Menú principal"
@@ -119,7 +122,7 @@ const items = computed(() => [
   border-right: 1px solid rgba(255,255,255,.12);
   display: flex; flex-direction: column;
   transition: width .18s ease, transform .18s ease;
-  z-index: 1100;
+  z-index: 1400; /* ↑ para quedar por encima del topbar/overlay */
 }
 
 /* header */
@@ -209,7 +212,7 @@ const items = computed(() => [
     transform: translateX(-100%);
     box-shadow: 0 10px 30px rgba(0,0,0,.25);
   }
-  :global(.is-mobile-open) .app-sidebar{
+  .app-sidebar.is-open{
     transform: translateX(0);
   }
 }

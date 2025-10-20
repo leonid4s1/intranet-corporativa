@@ -127,7 +127,7 @@ onBeforeUnmount(() => {
   .backdrop{
     position: fixed; inset: 0;
     background: rgba(0,0,0,.35);
-    z-index: 39; /* el sidebar debe estar por encima (z-index: 40+) */
+    z-index: 1390; /* debajo del sidebar(1400), sobre el contenido */
   }
 }
 </style>
