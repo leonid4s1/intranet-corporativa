@@ -15,7 +15,7 @@
         @click="onBurgerClick"
         :aria-label="isMobile ? (isMobileOpen ? 'Cerrar menú' : 'Abrir menú') : (collapsed ? 'Expandir menú' : 'Colapsar menú')"
         aria-controls="app-sidebar"
-        :aria-expanded="isMobile ? (isMobileOpen ? 'true' : 'false') : undefined"
+        :aria-expanded="isMobile ? isMobileOpen : undefined"
       >
         <img :src="logoUrl" alt="Logo Odes" width="28" height="28" />
       </button>
@@ -52,58 +52,53 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, onBeforeMount, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { useUiStore } from '@/stores/ui.store'
-import { storeToRefs } from 'pinia'
+import { computed, onMounted, onBeforeUnmount, onBeforeMount, ref } from 'vue';
+import { useRoute } from 'vue-router';
+import { useUiStore } from '@/stores/ui.store';
+import { storeToRefs } from 'pinia';
+import logoPng from '@/assets/odes-mark.png'; // ← usa el PNG corporativo
 
-const route = useRoute()
-const ui = useUiStore()
-const { sidebarCollapsed: collapsed } = storeToRefs(ui)
+const route = useRoute();
+const ui = useUiStore();
+const { sidebarCollapsed: collapsed } = storeToRefs(ui);
 
-const MOBILE_BP = 900
-const isMobile = ref(false)
-const isMobileOpen = computed(() => ui.sidebarMobileOpen)
+const MOBILE_BP = 900;
+const isMobile = ref(false);
+const isMobileOpen = computed(() => ui.sidebarMobileOpen);
 
-/**
- * Usamos el archivo público para que no haya problemas en build/paths.
- * Asegúrate de que exista: /cliente/public/odes-mark.png
- * Si más adelante tienes SVG, cambia a '/odes.svg'.
- */
-const logoUrl = '/odes-mark.png'
+const logoUrl = computed(() => logoPng);
 
 function updateIsMobile() {
-  isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches
-  if (!isMobile.value) ui.closeSidebarMobile?.()
+  isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches;
+  if (!isMobile.value) ui.closeSidebarMobile?.();
 }
 function onBurgerClick() {
-  if (isMobile.value) ui.toggleSidebarMobile()
-  else ui.toggleSidebar()
+  if (isMobile.value) ui.toggleSidebarMobile();
+  else ui.toggleSidebar();
 }
 function onNavClick() {
-  if (isMobile.value) ui.closeSidebarMobile()
+  if (isMobile.value) ui.closeSidebarMobile();
 }
 
 // Cerrar con ESC cuando el drawer móvil esté abierto
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && isMobile.value && ui.sidebarMobileOpen) {
-    ui.closeSidebarMobile()
+    ui.closeSidebarMobile();
   }
 }
 
-onBeforeMount(() => { updateIsMobile() })
+onBeforeMount(() => { updateIsMobile(); });
 onMounted(() => {
-  window.addEventListener('resize', updateIsMobile)
-  window.addEventListener('keydown', onKeydown)
-})
+  window.addEventListener('resize', updateIsMobile);
+  window.addEventListener('keydown', onKeydown);
+});
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateIsMobile)
-  window.removeEventListener('keydown', onKeydown)
-})
+  window.removeEventListener('resize', updateIsMobile);
+  window.removeEventListener('keydown', onKeydown);
+});
 
-const brandTitle = 'Ir a inicio'
+const brandTitle = 'Ir a inicio';
 
-/** Menú con emojis */
 const items = computed(() => [
   { to: '/home',          label: 'Inicio',             emoji: '🏠' },
   { to: '/dashboard',     label: 'Dashboard',          emoji: '📊' },
@@ -112,7 +107,7 @@ const items = computed(() => [
   { to: '/formatos',      label: 'Formatos',           emoji: '🗂️' },
   { to: '/vacaciones',    label: 'Vacaciones',         emoji: '📅' },
   { to: '/tareas',        label: 'Tareas',             emoji: '✅', badge: () => '' },
-])
+]);
 </script>
 
 <style scoped>
@@ -156,7 +151,7 @@ const items = computed(() => [
   width: 20px; height: 20px; opacity:.95; border-radius: 4px;
 }
 .brand-text{
-  font-family: var(--font-brand);   /* tipografía corporativa */
+  font-family: var(--font-brand);
   font-weight: 800; letter-spacing: .2px;
 }
 
@@ -219,7 +214,7 @@ const items = computed(() => [
   }
 }
 
-/* Respeta preferencias de reducción de movimiento */
+/* Reduce motion */
 @media (prefers-reduced-motion: reduce){
   .app-sidebar, .side-link{ transition: none !important; }
 }

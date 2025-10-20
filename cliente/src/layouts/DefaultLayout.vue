@@ -1,71 +1,78 @@
 <!-- cliente/src/layouts/DefaultLayout.vue -->
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, watch, ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import AppSidebar from '@/components/layout/AppSidebar.vue'
-import { useUiStore } from '@/stores/ui.store'
+import { onMounted, onBeforeUnmount, watch, ref } from 'vue';
+import { storeToRefs } from 'pinia';
+import AppSidebar from '@/components/layout/AppSidebar.vue';
+import { useUiStore } from '@/stores/ui.store';
+import logoPng from '@/assets/odes-mark.png'; // ← LOGO CORPORATIVO
 
-const ui = useUiStore()
-const { sidebarCollapsed: collapsed, sidebarMobileOpen } = storeToRefs(ui)
+const ui = useUiStore();
+const { sidebarCollapsed: collapsed, sidebarMobileOpen } = storeToRefs(ui);
 
-const MOBILE_BP = 900
-const isMobile = ref(false)
+const MOBILE_BP = 900;
+const isMobile = ref(false);
 
 function updateIsMobile() {
-  isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches
+  isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches;
   // si pasamos a desktop, cierra el drawer móvil
-  if (!isMobile.value) ui.closeSidebarMobile?.()
+  if (!isMobile.value) ui.closeSidebarMobile?.();
 }
 
 function onMenuClick() {
-  if (isMobile.value) ui.toggleSidebarMobile()
-  else ui.toggleSidebar()
+  if (isMobile.value) ui.toggleSidebarMobile();
+  else ui.toggleSidebar();
 }
 
-// Sincroniza la clase global que tu CSS usa: :global(.is-mobile-open) .app-sidebar
+// Sincroniza la clase global para estilos del drawer
 function applyMobileOpenClass(open: boolean) {
-  document.documentElement.classList.toggle('is-mobile-open', open)
+  document.documentElement.classList.toggle('is-mobile-open', open);
 }
 
 onMounted(() => {
-  ui.hydrate?.()
-  updateIsMobile()
-  applyMobileOpenClass(!!sidebarMobileOpen.value)
-  window.addEventListener('resize', updateIsMobile)
-})
+  ui.hydrate?.();
+  updateIsMobile();
+  applyMobileOpenClass(!!sidebarMobileOpen.value);
+  window.addEventListener('resize', updateIsMobile);
+});
 
-watch(sidebarMobileOpen, (v) => applyMobileOpenClass(!!v))
+watch(sidebarMobileOpen, (v) => applyMobileOpenClass(!!v));
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateIsMobile)
-  applyMobileOpenClass(false)
-})
+  window.removeEventListener('resize', updateIsMobile);
+  applyMobileOpenClass(false);
+});
 </script>
 
 <template>
-  <!-- El layout define --sidebar-width y gestiona estado móvil -->
-  <div class="app-shell"
-       :class="{ 'is-mobile-open': sidebarMobileOpen }"
-       :style="{ '--sidebar-width': collapsed ? '72px' : '220px' }">
-
+  <div
+    class="app-shell"
+    :class="{ 'is-mobile-open': sidebarMobileOpen }"
+    :style="{ '--sidebar-width': collapsed ? '72px' : '220px' }"
+  >
     <!-- Sidebar (colapsable en desktop, drawer en móvil) -->
     <AppSidebar />
 
-    <!-- Topbar móvil (incluye botón con logotipo) -->
-    <header class="topbar-mobile">
+    <!-- Topbar móvil -->
+    <header class="topbar-mobile" v-if="isMobile">
       <button
         class="menu-btn"
         @click="onMenuClick"
         :aria-label="isMobile ? (sidebarMobileOpen ? 'Cerrar menú' : 'Abrir menú') : (collapsed ? 'Expandir menú' : 'Colapsar menú')"
+        :aria-expanded="isMobile ? sidebarMobileOpen : undefined"
+        aria-controls="app-sidebar"
       >
-        <!-- Reemplazo de ☰ por el logotipo -->
-        <img class="menu-logo" src="@/assets/logo.svg" alt="Menú" />
+        <img class="menu-logo" :src="logoPng" alt="Menú ODES" />
       </button>
       <span class="brand">ODES</span>
     </header>
 
-    <!-- Overlay para cerrar el drawer tocando fuera (solo móvil) -->
-    <div class="backdrop" @click="ui.closeSidebarMobile()" />
+    <!-- Overlay (solo cuando está abierto y en móvil) -->
+    <div
+      v-if="isMobile && sidebarMobileOpen"
+      class="backdrop"
+      @click="ui.closeSidebarMobile()"
+      aria-hidden="true"
+    />
 
     <!-- Contenido -->
     <main class="app-main">
@@ -80,7 +87,7 @@ onBeforeUnmount(() => {
   background: var(--bg-light, #f0f0f0);
 }
 
-/* El contenido se “empuja” por el sidebar en desktop */
+/* El contenido se empuja por sidebar en desktop */
 .app-main{
   min-height: 100vh;
   margin-left: var(--sidebar-width);
@@ -101,19 +108,12 @@ onBeforeUnmount(() => {
   outline: 2px solid var(--brand-ring, rgba(0,0,0,.2));
   outline-offset: 2px;
 }
-.menu-logo{
-  width: 22px; height: 22px; object-fit: contain; display: block;
-}
-.topbar-mobile .brand{
-  margin-left: .75rem; font-weight: 800; letter-spacing: .6px;
-}
+.menu-logo{ width: 22px; height: 22px; object-fit: contain; display: block; }
+.topbar-mobile .brand{ margin-left: .75rem; font-weight: 800; letter-spacing: .6px; }
 
-/* ====== Reglas móvil (≤900px) ====== */
+/* ====== Móvil (≤900px) ====== */
 @media (max-width: 900px){
-  .app-main{
-    margin-left: 0;    /* el contenido usa 100% del ancho */
-    padding: 1rem;
-  }
+  .app-main{ margin-left: 0; padding: 1rem; }
 
   .topbar-mobile{
     position: sticky; top: 0;
@@ -127,12 +127,7 @@ onBeforeUnmount(() => {
   .backdrop{
     position: fixed; inset: 0;
     background: rgba(0,0,0,.35);
-    opacity: 0; pointer-events: none;
-    transition: opacity .15s ease;
-    z-index: 39; /* el sidebar tiene z-index: 40 */
-  }
-  .is-mobile-open .backdrop{
-    opacity: 1; pointer-events: auto;
+    z-index: 39; /* el sidebar debe estar por encima (z-index: 40+) */
   }
 }
 </style>
