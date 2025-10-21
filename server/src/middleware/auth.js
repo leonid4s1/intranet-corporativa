@@ -91,3 +91,5 @@ export const validateLogin = [
     next();
   }
 ];
+
+export default authenticate;
