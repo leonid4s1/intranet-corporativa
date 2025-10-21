@@ -5,6 +5,10 @@ import '@/assets/styles/components/home.css'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth.store'
 
+// ⬇️ NUEVO: servicio y componente del carrusel
+import NewsCarousel from '@/components/ui/NewsCarousel.vue'
+import { getHomeNews, type NewsItem } from '@/services/news.service'
+
 defineOptions({ name: 'HomePage' })
 
 interface Task {
@@ -28,6 +32,9 @@ const tasks = ref<Task[]>([])
 const loading = ref(true)
 const error = ref('')
 
+// ⬇️ NUEVO: items del carrusel
+const newsItems = ref<NewsItem[]>([])
+
 const timeOfDay = computed(() => {
   const hour = new Date().getHours()
   if (hour < 12) return 'dias'
@@ -41,6 +48,7 @@ const pendingTasksCount = computed(() =>
 
 onMounted(async () => {
   try {
+    // Perfil (como ya lo hacías)
     const response = await api.get('/auth/profile')
     if (response?.data?.user?.name) {
       user.value = response.data.user
@@ -49,6 +57,13 @@ onMounted(async () => {
     error.value = 'No se pudo cargar la información del usuario'
   } finally {
     loading.value = false
+  }
+
+  // ⬇️ NUEVO: cargar noticias para el carrusel (no bloquea la cabecera)
+  try {
+    newsItems.value = await getHomeNews()
+  } catch {
+    newsItems.value = []
   }
 })
 
@@ -122,20 +137,10 @@ const navigateTo = (path: string) => {
       </div>
     </section>
 
-    <!-- Noticias -->
+    <!-- Noticias (ahora con carrusel) -->
     <section class="news-section">
       <h3>Noticias y Comunicados</h3>
-      <div class="news-list">
-        <div class="new-item">
-          <h4 class="new-title">Nueva política de vacaciones</h4>
-          <p class="new-excerpt">
-            Actualización importante sobre los días disponibles y el proceso de solicitudes
-          </p>
-          <div class="news-footer">
-            <span class="department">Recursos Humanos</span>
-          </div>
-        </div>
-      </div>
+      <NewsCarousel :items="newsItems" />
     </section>
 
     <!-- Resumen de tareas -->

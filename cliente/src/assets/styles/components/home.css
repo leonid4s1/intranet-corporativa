@@ -2,9 +2,9 @@
 /* TOKENS (marca Odes)  */
 /* ==================== */
 :root {
-  --primary-color: var(--brand-ink, #4b5055);     /* tinta corporativa */
-  --secondary-color: #2563eb;                     /* acento azul (en progreso, barras, etc.) */
-  --accent-color: #1f4cb8;                        /* azul un poco más oscuro para active */
+  --primary-color: var(--brand-ink, #4b5055);
+  --secondary-color: #2563eb;
+  --accent-color: #1f4cb8;
   --vacation-color: #27ae60;
 
   --text-color: var(--brand-ink, #4b5055);
@@ -16,7 +16,7 @@
   --border-radius: 12px;
   --box-shadow: 0 8px 24px rgba(15,23,42,.06);
 
-  --sidebar-width: 220px; /* la maneja el layout; aquí no se usa directamente */
+  --sidebar-width: 220px; /* layout */
   --card-bg: #fff;
 }
 
@@ -24,7 +24,6 @@
 /* CONTENEDOR HOME      */
 /* ==================== */
 .home {
-  /* Ya no usamos display:flex ni fondos aquí; el layout controla el fondo y el margen. */
   font-family: var(--font-brand, "Neue Haas Grotesk Display", system-ui, sans-serif);
   color: var(--text-color);
 }
@@ -92,7 +91,7 @@
 }
 
 /* ==================== */
-/* NEWS                 */
+/* NEWS (tarjeta + carrusel) */
 /* ==================== */
 .news-section {
   background: var(--card-bg);
@@ -103,21 +102,40 @@
   box-shadow: var(--box-shadow);
 }
 .news-section h3 {
-  font-size: 1.1rem; margin: 0 0 1rem; color: var(--primary-color); font-weight: 700;
+  font-size: 1.1rem; margin: 0 0 .75rem; color: var(--primary-color); font-weight: 700;
 }
 
-/* En tu template usas .new-item/.new-title/.new-excerpt */
-.new-item { padding: .9rem 0; border-bottom: 1px solid #eee; }
-.new-item:last-child { border-bottom: none; }
-.new-title { font-size: 1rem; color: var(--primary-color); margin: 0 0 .35rem; font-weight: 700; }
-.new-excerpt { color: var(--text-light); font-size: .9rem; margin: 0 0 .4rem; }
-
-/* footer noticia */
-.news-footer {
-  display: flex; justify-content: space-between; gap: .5rem;
-  font-size: .8rem; color: var(--text-light);
+/* Carrusel dentro de la tarjeta */
+.news-section :where(.news-carousel) {
+  width: 100%;
+  display: block;
+  margin-top: .25rem;
 }
-.department { font-style: italic; }
+.news-section :where(.news-carousel .carousel-viewport) {
+  width: 100%;
+  margin: 0;
+}
+.news-section :where(.news-carousel .card) {
+  padding: 16px 18px;
+  min-height: 108px;
+}
+.news-section :where(.news-carousel .card__title) {
+  font-family: var(--font-brand, "Neue Haas Grotesk Display", system-ui, sans-serif);
+  font-weight: 700;
+  color: var(--primary-color);
+}
+.news-section :where(.news-carousel .ctrl) {
+  background: #f3f4f6;
+  border: 1px solid var(--border);
+  box-shadow: var(--box-shadow);
+}
+.news-section :where(.news-carousel .dot.active) {
+  background: var(--text-light);
+}
+@media (max-width: 640px) {
+  .news-section :where(.news-carousel .card) { min-height: 120px; }
+  .news-section :where(.news-carousel .controls) { gap: 10px; }
+}
 
 /* ==================== */
 /* TASKS SUMMARY        */
