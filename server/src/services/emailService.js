@@ -207,3 +207,10 @@ Revisado por: ${approverName || 'Recursos Humanos'}`;
 
   await sendMailSafe({ to, subject, html, text });
 }
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Alias para compatibilidad con notificationService
+export const sendEmail = async (options) => {
+  return sendMailSafe(options)
+}
+
