@@ -6,10 +6,17 @@ const notificationService = require('../services/notificationService'); // ya ex
 const { startOfDay, addDays, isBefore, isAfter } = require('date-fns');
 
 function toISO(d) { return new Date(d).toISOString(); }
-function mmdd(date) {
-  const d = new Date(date);
-  return `${d.getMonth()+1}-${d.getDate()}`;
+
+// === TZ-aware (CDMX) ===
+const TZ = 'America/Mexico_City';
+function mmddTZ(date) {
+  // Devuelve "MM-DD" en la zona horaria de CDMX
+  const d = (typeof date === 'string' || typeof date === 'number') ? new Date(date) : date;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, month: '2-digit', day: '2-digit'
+  }).format(d); // p.ej. "10-21"
 }
+
 function nextOccurrence(holidayDate, isRecurring) {
   const base = new Date(holidayDate);
   const today = new Date();
@@ -26,6 +33,7 @@ exports.getHomeFeed = async (req, res, next) => {
   try {
     const user = req.user; // viene del auth middleware
     const today = startOfDay(new Date());
+    const todayMD = mmddTZ(today);
 
     // 1) Noticias estáticas publicadas
     const published = await News.find({ status: 'published' })
@@ -69,10 +77,9 @@ exports.getHomeFeed = async (req, res, next) => {
     if (user) {
       const me = await User.findById(user.id).lean();
       if (me?.birthDate) {
-        const todayMMDD = mmdd(today);
-        if (mmdd(me.birthDate) === todayMMDD) {
+        if (mmddTZ(me.birthDate) === todayMD) {
           items.unshift({
-            id: `birthday-self-${me._id}-${todayMMDD}`,
+            id: `birthday-self-${me._id}-${todayMD}`,
             type: 'birthday_self',
             title: `¡Feliz cumpleaños, ${me.name?.split(' ')[0] || 'colaborador'}!`,
             body: 'Te deseamos un día increíble. 🎉',
@@ -87,15 +94,14 @@ exports.getHomeFeed = async (req, res, next) => {
         birthDate: { $ne: null },
       }, { name: 1, email: 1, birthDate: 1 }).lean();
 
-      const todayMMDD = mmdd(today);
-      birthdayTodayUsers = birthdayTodayUsers.filter(u => mmdd(u.birthDate) === todayMMDD);
+      birthdayTodayUsers = birthdayTodayUsers.filter(u => mmddTZ(u.birthDate) === todayMD);
 
       if (birthdayTodayUsers.length > 0) {
         await notificationService.sendBirthdayEmailsIfNeeded(today, birthdayTodayUsers);
         // (opcional) añadir un ítem informativo para el carrusel
         const names = birthdayTodayUsers.map(u => u.name || u.email).join(', ');
         items.unshift({
-          id: `birthday-digest-${todayMMDD}`,
+          id: `birthday-digest-${todayMD}`,
           type: 'birthday_digest_info',
           title: 'Cumpleaños de hoy',
           body: `Hoy celebramos a: ${names}. ¡Felicítenl@s! 🎂`,

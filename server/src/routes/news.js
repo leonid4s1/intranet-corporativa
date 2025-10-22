@@ -1,7 +1,6 @@
 // server/src/routes/news.js
 import express from 'express'
 import { startOfDay, addDays, isBefore, isAfter } from 'date-fns'
-
 import News from '../models/News.js'
 import Holiday from '../models/Holiday.js'
 import User from '../models/User.js'
@@ -14,9 +13,11 @@ const router = express.Router()
  * Helpers
  * ========================= */
 const toISO = (d) => new Date(d).toISOString()
-const mmdd = (date) => {
-  const d = new Date(date)
-  return `${d.getMonth() + 1}-${d.getDate()}`
+const TZ = 'America/Mexico_City'
+const mmddTZ = (date) => {
+  const d = (typeof date === 'string' || typeof date === 'number') ? new Date(date) : date
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, month: '2-digit', day: '2-digit' })
+    .format(d) // "MM-DD"
 }
 const nextOccurrence = (holidayDate, isRecurring) => {
   const base = new Date(holidayDate)
@@ -80,10 +81,10 @@ router.get('/home', auth, async (req, res) => {
     // 3) Cumple del usuario (solo hoy)
     if (user?.id) {
       const me = await User.findById(user.id).lean()
-      if (me?.birthDate && mmdd(me.birthDate) === mmdd(today)) {
+      if (me?.birthDate && mmddTZ(me.birthDate) === mmddTZ(today)) {
         const firstName = (me.name || '').split(' ')[0] || 'colaborador'
         items.unshift({
-          id: `birthday-self-${me._id}-${mmdd(today)}`,
+          id: `birthday-self-${me._id}-${mmddTZ(today)}`,
           type: 'birthday_self',
           title: `¡Feliz cumpleaños, ${firstName}!`,
           body: 'Te deseamos un día increíble. 🎉',
@@ -99,14 +100,14 @@ router.get('/home', auth, async (req, res) => {
       { name: 1, email: 1, birthDate: 1 }
     ).lean()
 
-    birthdayTodayUsers = birthdayTodayUsers.filter((u) => mmdd(u.birthDate) === mmdd(today))
+    birthdayTodayUsers = birthdayTodayUsers.filter((u) => mmddTZ(u.birthDate) === mmddTZ(today))
 
     if (birthdayTodayUsers.length > 0) {
       await sendBirthdayEmailsIfNeeded(today, birthdayTodayUsers) // idempotente por día
 
       const names = birthdayTodayUsers.map((u) => u.name || u.email).join(', ')
       items.unshift({
-        id: `birthday-digest-${mmdd(today)}`,
+        id: `birthday-digest-${mmddTZ(today)}`,
         type: 'birthday_digest_info',
         title: 'Cumpleaños de hoy',
         body: `Hoy celebramos a: ${names}. ¡Felicítenl@s! 🎂`,

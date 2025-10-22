@@ -1,27 +1,46 @@
 <template>
-  <div class="news-carousel" role="region" aria-label="Noticias y comunicados">
-    <div class="carousel-viewport">
+  <div
+    class="news-carousel"
+    role="region"
+    aria-label="Noticias y comunicados"
+    @mouseenter="stopAuto"
+    @mouseleave="startAuto"
+  >
+    <div class="carousel-viewport" v-if="hasItems">
       <div class="track" :style="{ transform: `translateX(-${currentIndex * 100}%)` }">
         <article
-          v-for="(n,i) in items"
+          v-for="(n,i) in props.items"
           :key="i"
           class="card"
           :class="`card--${n.type}`"
+          tabindex="0"
         >
           <header class="card__head">
             <h3 class="card__title">{{ n.title }}</h3>
             <span v-if="badge(n.type)" class="badge">{{ badge(n.type) }}</span>
           </header>
-          <p class="card__body">{{ n.body }}</p>
+          <p class="card__body" v-if="n.body">{{ n.body }}</p>
         </article>
       </div>
     </div>
 
-    <div class="controls">
+    <!-- Fallback cuando no hay items -->
+    <div class="carousel-viewport" v-else>
+      <div class="track">
+        <article class="card">
+          <header class="card__head">
+            <h3 class="card__title">No hay comunicados por ahora</h3>
+          </header>
+          <p class="card__body">Vuelve más tarde para ver novedades.</p>
+        </article>
+      </div>
+    </div>
+
+    <div class="controls" v-if="props.items?.length > 1">
       <button class="ctrl" @click="prev" aria-label="Anterior">‹</button>
       <span class="dots" aria-hidden="true">
         <button
-          v-for="(n,i) in items"
+          v-for="(_,i) in props.items"
           :key="i"
           class="dot"
           :class="{ active: i === currentIndex }"
@@ -34,19 +53,24 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
-import type { NewsItem } from '@/services/news.service';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import type { HomeItem } from '@/services/news.service';
 
-const props = defineProps<{ items: NewsItem[] }>();
+const props = defineProps<{ items: HomeItem[] }>();
 
 const currentIndex = ref(0);
 let timer: number | undefined;
 
+const hasItems = computed(() => (props.items?.length ?? 0) > 0);
+
 function startAuto() {
   stopAuto();
-  timer = window.setInterval(() => {
-    next();
-  }, 6500);
+  // sólo auto‐avanza si hay 2 o más
+  if (props.items?.length && props.items.length > 1) {
+    timer = window.setInterval(() => {
+      next();
+    }, 6500);
+  }
 }
 function stopAuto() {
   if (timer) window.clearInterval(timer);
@@ -62,12 +86,14 @@ function prev() {
     (currentIndex.value - 1 + props.items.length) % props.items.length;
 }
 function go(i: number) {
+  if (!props.items?.length) return;
   currentIndex.value = i;
   startAuto();
 }
-function badge(t: NewsItem['type']) {
+function badge(t: HomeItem['type']) {
   if (t === 'holiday_notice') return 'Aviso';
   if (t === 'birthday_self') return '¡Feliz cumpleaños!';
+  if (t === 'birthday_digest_info') return 'Cumpleaños hoy';
   return '';
 }
 
@@ -96,7 +122,7 @@ watch(
   grid-auto-columns: 100%;
   transition: transform .45s ease;
 }
-.card { padding: 18px 22px; min-height: 120px; display:flex; flex-direction:column; gap:8px; }
+.card { padding: 18px 22px; min-height: 120px; display:flex; flex-direction:column; gap:8px; outline: none; }
 .card__head { display:flex; align-items:center; gap:8px; }
 .card__title { margin:0; font-size: 18px; line-height: 1.3; }
 .card__body { margin:0; color:#333; }
@@ -106,6 +132,8 @@ watch(
 }
 .card--holiday_notice .badge { background:#fff7ed; color:#9a3412; }
 .card--birthday_self .badge { background:#ecfeff; color:#155e75; }
+.card--birthday_digest_info .badge { background:#ecfeff; color:#0e7490; }
+
 .controls { display:flex; align-items:center; justify-content:center; gap:8px; padding:8px; }
 .ctrl {
   background:#f3f4f6; border:0; padding:6px 10px; border-radius:10px; cursor:pointer;
