@@ -19,6 +19,9 @@ const VacationsApprovedAdmin  = () => import('@/views/admin/VacationsApprovedAdm
 const UserDashboard           = () => import('@/views/user/Home.vue')
 const VacationCalendar        = () => import('@/views/user/VacationCalendar.vue')
 
+// 👇 NUEVO: vista de cambio de contraseña (usuario autenticado)
+const ChangePassword          = () => import('@/views/account/ChangePassword.vue')
+
 const ForbiddenView           = () => import('@/views/errors/ForbiddenView.vue')
 const NotFoundView            = () => import('@/views/errors/NotFoundView.vue')
 
@@ -69,7 +72,21 @@ const routes: Array<RouteRecordRaw> = [
         component: VacationCalendar,
         meta: { title: 'Calendario de Vacaciones' }
       },
-      // 👉 aquí puedes añadir más vistas de usuario (docs, formatos, tareas) y ya heredan el layout
+
+      // 👇 NUEVO: Cambiar contraseña
+      {
+        path: 'account/password',
+        name: 'change-password',
+        component: ChangePassword,
+        meta: { title: 'Cambiar contraseña' }
+      },
+      // (opcional) alias legible
+      {
+        path: 'settings/password',
+        redirect: { name: 'change-password' }
+      },
+
+      // 👉 aquí puedes añadir más vistas de usuario
       // { path: 'tareas', name: 'tareas', component: () => import('@/views/Tasks.vue'), meta: { title: 'Tareas' } },
       // { path: 'documentacion', name: 'docs', component: () => import('@/views/Docs.vue'), meta: { title: 'Documentación' } },
       // { path: 'formatos', name: 'formatos', component: () => import('@/views/Formats.vue'), meta: { title: 'Formatos' } },

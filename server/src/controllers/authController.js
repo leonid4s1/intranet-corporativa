@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import { sendVerificationEmail } from "../services/emailService.js";
+import bcrypt from "bcryptjs";
 
 dotenv.config();
 
@@ -613,5 +614,93 @@ export const getProfile = async (req, res) => {
   } catch (error) {
     console.error("Error obteniendo perfil:", error);
     res.status(500).json({ success: false, message: "Error al obtener perfil" });
+  }
+};
+
+/**
+ * ==========================
+ *  Cambiar contraseña (autenticado)
+ *  Body: { currentPassword, newPassword }
+ * ==========================
+ */
+export const changePassword = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const { currentPassword = "", newPassword = "" } = req.body || {};
+
+    // Validaciones básicas de presencia
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        errors: [
+          { msg: "Contraseña actual requerida", param: "currentPassword" },
+          { msg: "Nueva contraseña requerida", param: "newPassword" },
+        ],
+      });
+    }
+
+    // Mismas reglas que register()
+    if (newPassword.length < 8) {
+      return res
+        .status(400)
+        .json(formatError("La nueva contraseña debe tener al menos 8 caracteres", "newPassword"));
+    }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_])/.test(newPassword)) {
+      return res.status(400).json(
+        formatError(
+          "La nueva contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial",
+          "newPassword"
+        )
+      );
+    }
+
+    // Cargar usuario con password
+    const user = await User.findById(userId).select("+password");
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+    // Verificar actual
+    let isMatch = false;
+    try {
+      if (typeof user.comparePassword === "function") {
+        isMatch = await user.comparePassword(currentPassword);
+      } else {
+        isMatch = await bcrypt.compare(currentPassword, user.password || "");
+      }
+    } catch (err) {
+      console.error("[changePassword] compare error:", err);
+      isMatch = false;
+    }
+    if (!isMatch) {
+      return res.status(401).json(formatError("La contraseña actual no es correcta", "currentPassword"));
+    }
+
+    // Evitar que la nueva sea igual a la actual
+    const sameAsOld = await bcrypt.compare(newPassword, user.password || "");
+    if (sameAsOld) {
+      return res
+        .status(400)
+        .json(formatError("La nueva contraseña no puede ser igual a la anterior", "newPassword"));
+    }
+
+    // Guardar nueva contraseña (respetando hooks del modelo)
+    if (typeof user.setPassword === "function") {
+      await user.setPassword(newPassword); // por si tu modelo tiene método
+    } else {
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+    }
+
+    // (Opcional) invalidar refresh token actual
+    user.refreshToken = null;
+
+    normalizeVacForSave(user); // mantener consistencia con el resto del controlador
+    await user.save();
+
+    // Limpia cookie refresh si existe (para obligar re-login/refresh)
+    try { clearRefreshCookie(res); } catch (_) {}
+
+    return res.json({ ok: true, message: "Contraseña actualizada correctamente" });
+  } catch (error) {
+    console.error("[changePassword] Error:", error);
+    return res.status(500).json({ error: "No se pudo actualizar la contraseña" });
   }
 };

@@ -8,6 +8,8 @@ import {
   resendVerificationEmail,
   verifyEmail,
   getProfile,
+  // 👇 nuevo
+  changePassword,
 } from '../controllers/authController.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import {
@@ -17,6 +19,8 @@ import {
   validateResendVerification,
 } from '../middleware/validation.js';
 import mongoose from 'mongoose';
+// 👇 nuevo
+import { body } from 'express-validator';
 
 const router = express.Router();
 
@@ -56,6 +60,23 @@ router.post('/register', authenticate, authorize(['admin']), validateRegister, r
 // Perfil (y alias /me para compatibilidad con el cliente)
 router.get('/profile', authenticate, getProfile);
 router.get('/me', authenticate, getProfile);
+
+// 👇 NUEVO: Cambiar contraseña (usuario autenticado)
+router.post(
+  '/change-password',
+  authenticate,
+  [
+    body('currentPassword').isString().notEmpty().withMessage('Contraseña actual requerida'),
+    body('newPassword')
+      .isString()
+      .isLength({ min: 8 }).withMessage('Mínimo 8 caracteres')
+      .matches(/[A-Z]/).withMessage('Incluye al menos una mayúscula')
+      .matches(/[a-z]/).withMessage('Incluye al menos una minúscula')
+      .matches(/[0-9]/).withMessage('Incluye al menos un número')
+      .matches(/[\W_]/).withMessage('Incluye al menos un carácter especial'),
+  ],
+  changePassword
+);
 
 // Logout (protegido para limpiar refresh del usuario autenticado)
 router.post('/logout', authenticate, logout);

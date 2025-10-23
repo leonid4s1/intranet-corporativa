@@ -103,13 +103,16 @@ onBeforeUnmount(() => {
 const brandTitle = 'Ir a inicio';
 
 const items = computed(() => [
-  { to: '/home',          label: 'Inicio',             emoji: '🏠' },
-  { to: '/dashboard',     label: 'Dashboard',          emoji: '📊' },
-  { to: '/roles',         label: 'Roles y Funciones',  emoji: '👥' },
-  { to: '/documentacion', label: 'Documentación',      emoji: '📄' },
-  { to: '/formatos',      label: 'Formatos',           emoji: '🗂️' },
-  { to: '/vacaciones',    label: 'Vacaciones',         emoji: '📅' },
-  { to: '/tareas',        label: 'Tareas',             emoji: '✅', badge: () => '' },
+  { to: '/home',              label: 'Inicio',             emoji: '🏠' },
+  { to: '/dashboard',         label: 'Dashboard',          emoji: '📊' },
+  { to: '/roles',             label: 'Roles y Funciones',  emoji: '👥' },
+  { to: '/documentacion',     label: 'Documentación',      emoji: '📄' },
+  { to: '/formatos',          label: 'Formatos',           emoji: '🗂️' },
+  { to: '/vacaciones',        label: 'Vacaciones',         emoji: '📅' },
+  { to: '/tareas',            label: 'Tareas',             emoji: '✅', badge: () => '' },
+
+  // 👇 NUEVO: opción visible después del login
+  { to: '/account/password',  label: 'Cambiar contraseña', emoji: '🔒' },
 ]);
 </script>
 

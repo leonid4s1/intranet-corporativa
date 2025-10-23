@@ -268,6 +268,23 @@ export const AuthService = {
     }
   },
 
+    /* POST /api/auth/change-password */
+  async changePassword(payload: { currentPassword: string; newPassword: string }): Promise<{ success: boolean; message: string }> {
+    try {
+      const { data } = await api.post<{ ok?: boolean; message?: string; error?: string }>(
+        '/auth/change-password',
+        payload
+      );
+      return {
+        success: !!(data?.ok ?? true),
+        message: data?.message ?? 'Contraseña actualizada correctamente',
+      };
+    } catch (error: unknown) {
+      const { message } = handleApiError(error);
+      return { success: false, message };
+    }
+  },
+
   /* Opcionales (si los implementas en backend) */
   async forgotPassword(email: string): Promise<{ success: boolean; message?: string }> {
     try {
