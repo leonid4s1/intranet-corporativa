@@ -685,13 +685,15 @@ export const changePassword = async (req, res) => {
         .json(formatError("La nueva contraseña no puede ser igual a la anterior", "newPassword"));
     }
 
-    // Guardar nueva contraseña (respetando hooks del modelo)
-    if (typeof user.setPassword === "function") {
-      await user.setPassword(newPassword); // por si tu modelo tiene método
+    // Guardar nueva contraseña SIN hashear aquí.
+    
+    // Deja que el pre-save del modelo (o setPassword) haga el hash.
+    if (typeof user.setPassword === 'function') {
+      await user.setPassword(newPassword);
     } else {
-      const salt = await bcrypt.genSalt(10);
-      user.password = await bcrypt.hash(newPassword, salt);
+      user.password = newPassword;           // ← texto plano, el hook lo hashea
     }
+
 
     // (Opcional) invalidar refresh token actual
     user.refreshToken = null;
