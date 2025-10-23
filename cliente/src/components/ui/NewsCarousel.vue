@@ -1,3 +1,4 @@
+<!-- cliente/src/components/ui/NewsCarousel.vue -->
 <template>
   <div class="news-carousel" role="region" aria-label="Noticias y comunicados">
     <div class="carousel-viewport">
@@ -12,7 +13,7 @@
             <h3 class="card__title">{{ n.title }}</h3>
             <span v-if="badge(n.type)" class="badge">{{ badge(n.type) }}</span>
           </header>
-          <p class="card__body">{{ n.body }}</p>
+          <p class="card__body" v-if="bodyOf(n)">{{ bodyOf(n) }}</p>
         </article>
       </div>
     </div>
@@ -42,11 +43,17 @@ const props = defineProps<{ items: NewsItem[] }>();
 const currentIndex = ref(0);
 let timer: number | undefined;
 
+// Usa body si existe; en su defecto, excerpt; si no, vacío
+function bodyOf(n: NewsItem): string {
+  const anyN = n as Record<string, unknown>;
+  const body = typeof anyN['body'] === 'string' ? (anyN['body'] as string) : undefined;
+  const excerpt = typeof anyN['excerpt'] === 'string' ? (anyN['excerpt'] as string) : undefined;
+  return body ?? excerpt ?? '';
+}
+
 function startAuto() {
   stopAuto();
-  timer = window.setInterval(() => {
-    next();
-  }, 6500);
+  timer = window.setInterval(() => { next(); }, 6500);
 }
 function stopAuto() {
   if (timer) window.clearInterval(timer);
@@ -58,8 +65,7 @@ function next() {
 }
 function prev() {
   if (!props.items?.length) return;
-  currentIndex.value =
-    (currentIndex.value - 1 + props.items.length) % props.items.length;
+  currentIndex.value = (currentIndex.value - 1 + props.items.length) % props.items.length;
 }
 function go(i: number) {
   currentIndex.value = i;
@@ -68,6 +74,7 @@ function go(i: number) {
 function badge(t: NewsItem['type']) {
   if (t === 'holiday_notice') return 'Aviso';
   if (t === 'birthday_self') return '¡Feliz cumpleaños!';
+  if (t === 'birthday_digest_info') return 'Cumpleaños hoy';
   return '';
 }
 
@@ -75,10 +82,7 @@ onMounted(startAuto);
 onUnmounted(stopAuto);
 watch(
   () => props.items?.length,
-  () => {
-    currentIndex.value = 0;
-    startAuto();
-  }
+  () => { currentIndex.value = 0; startAuto(); }
 );
 </script>
 
@@ -107,9 +111,7 @@ watch(
 .card--holiday_notice .badge { background:#fff7ed; color:#9a3412; }
 .card--birthday_self .badge { background:#ecfeff; color:#155e75; }
 .controls { display:flex; align-items:center; justify-content:center; gap:8px; padding:8px; }
-.ctrl {
-  background:#f3f4f6; border:0; padding:6px 10px; border-radius:10px; cursor:pointer;
-}
+.ctrl { background:#f3f4f6; border:0; padding:6px 10px; border-radius:10px; cursor:pointer; }
 .dots { display:flex; gap:6px; }
 .dot { width:8px; height:8px; border-radius:999px; border:0; background:#d1d5db; cursor:pointer; }
 .dot.active { background:#6b7280; width:18px; border-radius:6px; }
