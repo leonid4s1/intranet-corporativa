@@ -447,18 +447,22 @@ export const login = async (req, res) => {
         .json(formatError("Tu cuenta está inactiva. Contacta al administrador."));
     }
 
-    // Comparación segura de contraseña
+    // Comparación segura de contraseña (con fallback a bcrypt)
     let isMatch = false;
     try {
-      if (typeof user.comparePassword === "function") {
+      if (typeof user.comparePassword === 'function') {
         isMatch = await user.comparePassword(password);
       } else {
-        console.warn("[auth] comparePassword no definido en User; tratando como invalido");
-        isMatch = false;
+        isMatch = await bcrypt.compare(password, user.password || '');
       }
     } catch (cmpErr) {
-      console.error("[auth] Error en comparePassword:", cmpErr);
-      isMatch = false;
+      console.error('[auth] Error en comparePassword, fallback bcrypt:', cmpErr);
+      try {
+        isMatch = await bcrypt.compare(password, user.password || '');
+      } catch (bErr) {
+        console.error('[auth] Fallback bcrypt falló:', bErr);
+        isMatch = false;
+      }
     }
 
     if (!isMatch) {
