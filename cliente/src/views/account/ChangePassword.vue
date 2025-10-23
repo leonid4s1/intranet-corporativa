@@ -21,9 +21,24 @@
               type="button"
               class="cp-eye"
               :aria-label="showCurrent ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              :title="showCurrent ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              :aria-pressed="showCurrent ? 'true' : 'false'"
               @click="showCurrent = !showCurrent"
             >
-              {{ showCurrent ? '🙈' : '👁️' }}
+              <!-- eye / eye-off -->
+              <svg v-if="!showCurrent" xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7"/>
+                <circle cx="12" cy="12" r="3"/>
+                <line x1="4" y1="20" x2="20" y2="4"></line>
+              </svg>
             </button>
           </div>
           <p v-if="errors.currentPassword" class="cp-error">{{ errors.currentPassword }}</p>
@@ -47,9 +62,23 @@
               type="button"
               class="cp-eye"
               :aria-label="showNew ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              :title="showNew ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              :aria-pressed="showNew ? 'true' : 'false'"
               @click="showNew = !showNew"
             >
-              {{ showNew ? '🙈' : '👁️' }}
+              <svg v-if="!showNew" xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7"/>
+                <circle cx="12" cy="12" r="3"/>
+                <line x1="4" y1="20" x2="20" y2="4"></line>
+              </svg>
             </button>
           </div>
 
@@ -83,9 +112,23 @@
               type="button"
               class="cp-eye"
               :aria-label="showConfirm ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              :title="showConfirm ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              :aria-pressed="showConfirm ? 'true' : 'false'"
               @click="showConfirm = !showConfirm"
             >
-              {{ showConfirm ? '🙈' : '👁️' }}
+              <svg v-if="!showConfirm" xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7"/>
+                <circle cx="12" cy="12" r="3"/>
+                <line x1="4" y1="20" x2="20" y2="4"></line>
+              </svg>
             </button>
           </div>
           <p v-if="confirm && confirm !== form.newPassword" class="cp-error">La confirmación no coincide</p>
@@ -161,7 +204,6 @@ function validateLocal(markErrors = true): boolean {
     e.newPassword = 'Debe cumplir los requisitos indicados'
   }
   if (confirm.value !== form.value.newPassword) e.confirm = 'La confirmación no coincide'
-
   if (markErrors) errors.value = e
   return Object.keys(e).length === 0
 }
@@ -189,12 +231,10 @@ async function onSubmit(): Promise<void> {
       currentPassword: form.value.currentPassword,
       newPassword: form.value.newPassword
     })
-
     if (!resp.success) {
       msg.value = { type: 'error', text: resp.message || 'No se pudo actualizar la contraseña' }
       return
     }
-
     msg.value = { type: 'ok', text: 'Contraseña actualizada ✔' }
     form.value = { currentPassword: '', newPassword: '' }
     confirm.value = ''
@@ -207,14 +247,13 @@ async function onSubmit(): Promise<void> {
   }
 }
 
-// inicializa estado de reglas
 calcStrength()
 </script>
 
 <style scoped>
 .cp-wrap{ display:grid; place-items:center; padding: 24px; }
 .cp-card{
-  width: 100%; max-width: 560px;
+  width: 100%; max-width: 640px;
   background: #fff; border-radius: 16px;
   box-shadow: 0 10px 30px rgba(0,0,0,.06);
   padding: 20px 22px;
@@ -228,25 +267,28 @@ calcStrength()
 .cp-input{
   width: 100%; border: 1px solid #E5E7EB; border-radius: 10px; padding: .6rem .75rem;
   font-size: .95rem; background: #fff; color:#111827;
-  padding-right: 2.25rem; /* espacio para el ojito */
+  padding-right: 2.75rem; /* espacio para el botón */
+  box-sizing: border-box;
 }
 .cp-input:focus{ outline: none; border-color:#4B5055; box-shadow: 0 0 0 3px rgba(75,80,85,.15); }
 
+/* Botón ojo dentro del input */
 .cp-eye{
   position: absolute;
   right: .5rem;
   top: 50%;
   transform: translateY(-50%);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  font-size: 1.05rem;
-  line-height: 1;
-  width: 2rem; height: 2rem;
+  width: 34px; height: 34px;
   display: grid; place-items: center;
-  color: #6B7280;
+  background: #fff;
+  border: 1px solid #E5E7EB;
+  border-radius: 9999px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.06);
+  color: #4B5563;
+  cursor: pointer;
 }
-.cp-eye:focus-visible{ outline: 2px solid rgba(75,80,85,.4); border-radius: 8px; }
+.cp-eye:hover{ background:#f9fafb; }
+.cp-eye:focus-visible{ outline: 2px solid rgba(75,80,85,.4); outline-offset: 2px; }
 
 .cp-help{ margin-top: 6px; color:#4B5563; font-size:.9rem; }
 .cp-rules{ margin: 6px 0 0; padding-left: 18px; font-size: .85rem; color:#6B7280; }
