@@ -7,31 +7,52 @@
         <!-- Actual -->
         <div class="cp-field">
           <label class="cp-label" for="current">Contraseña actual</label>
-          <input
-            id="current"
-            v-model.trim="form.currentPassword"
-            type="password"
-            class="cp-input"
-            required
-            autocomplete="current-password"
-            :aria-invalid="!!errors.currentPassword"
-          />
+          <div class="cp-input-wrap">
+            <input
+              id="current"
+              v-model.trim="form.currentPassword"
+              :type="showCurrent ? 'text' : 'password'"
+              class="cp-input"
+              required
+              autocomplete="current-password"
+              :aria-invalid="!!errors.currentPassword"
+            />
+            <button
+              type="button"
+              class="cp-eye"
+              :aria-label="showCurrent ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              @click="showCurrent = !showCurrent"
+            >
+              {{ showCurrent ? '🙈' : '👁️' }}
+            </button>
+          </div>
           <p v-if="errors.currentPassword" class="cp-error">{{ errors.currentPassword }}</p>
         </div>
 
         <!-- Nueva -->
         <div class="cp-field">
           <label class="cp-label" for="new">Nueva contraseña</label>
-          <input
-            id="new"
-            v-model.trim="form.newPassword"
-            type="password"
-            class="cp-input"
-            required
-            autocomplete="new-password"
-            @input="calcStrength"
-            :aria-invalid="!!errors.newPassword"
-          />
+          <div class="cp-input-wrap">
+            <input
+              id="new"
+              v-model.trim="form.newPassword"
+              :type="showNew ? 'text' : 'password'"
+              class="cp-input"
+              required
+              autocomplete="new-password"
+              @input="calcStrength"
+              :aria-invalid="!!errors.newPassword"
+            />
+            <button
+              type="button"
+              class="cp-eye"
+              :aria-label="showNew ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              @click="showNew = !showNew"
+            >
+              {{ showNew ? '🙈' : '👁️' }}
+            </button>
+          </div>
+
           <div class="cp-help">
             <span>Seguridad: <strong>{{ strengthLabel }}</strong></span>
           </div>
@@ -48,15 +69,25 @@
         <!-- Confirmación -->
         <div class="cp-field">
           <label class="cp-label" for="confirm">Confirmar nueva contraseña</label>
-          <input
-            id="confirm"
-            v-model.trim="confirm"
-            type="password"
-            class="cp-input"
-            required
-            autocomplete="new-password"
-            :aria-invalid="!!errors.confirm"
-          />
+          <div class="cp-input-wrap">
+            <input
+              id="confirm"
+              v-model.trim="confirm"
+              :type="showConfirm ? 'text' : 'password'"
+              class="cp-input"
+              required
+              autocomplete="new-password"
+              :aria-invalid="!!errors.confirm"
+            />
+            <button
+              type="button"
+              class="cp-eye"
+              :aria-label="showConfirm ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+              @click="showConfirm = !showConfirm"
+            >
+              {{ showConfirm ? '🙈' : '👁️' }}
+            </button>
+          </div>
           <p v-if="confirm && confirm !== form.newPassword" class="cp-error">La confirmación no coincide</p>
           <p v-if="errors.confirm" class="cp-error">{{ errors.confirm }}</p>
         </div>
@@ -88,6 +119,11 @@ const submitting = ref(false)
 const msg = ref<Msg | null>(null)
 
 const errors = ref<{ currentPassword?: string; newPassword?: string; confirm?: string }>({})
+
+/* 👁️ toggles */
+const showCurrent = ref(false)
+const showNew = ref(false)
+const showConfirm = ref(false)
 
 const canSubmit = computed(() =>
   !!form.value.currentPassword &&
@@ -135,7 +171,6 @@ function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
   if (typeof err === 'string') return err
   try {
-    // intenta leer mensaje común en respuestas JSON
     const maybe = err as { message?: unknown }
     if (maybe && typeof maybe.message === 'string') return maybe.message
   } catch { /* no-op */ }
@@ -164,6 +199,7 @@ async function onSubmit(): Promise<void> {
     form.value = { currentPassword: '', newPassword: '' }
     confirm.value = ''
     calcStrength()
+    showCurrent.value = showNew.value = showConfirm.value = false
   } catch (err: unknown) {
     msg.value = { type: 'error', text: getErrorMessage(err) }
   } finally {
@@ -184,13 +220,33 @@ calcStrength()
   padding: 20px 22px;
 }
 .cp-title{ font-size: 1.4rem; font-weight: 700; margin: 4px 0 14px; color:#111827; }
+
 .cp-field{ margin-bottom: 14px; }
 .cp-label{ display:block; font-weight: 600; margin-bottom: 6px; color:#374151; }
+
+.cp-input-wrap{ position: relative; }
 .cp-input{
   width: 100%; border: 1px solid #E5E7EB; border-radius: 10px; padding: .6rem .75rem;
   font-size: .95rem; background: #fff; color:#111827;
+  padding-right: 2.25rem; /* espacio para el ojito */
 }
 .cp-input:focus{ outline: none; border-color:#4B5055; box-shadow: 0 0 0 3px rgba(75,80,85,.15); }
+
+.cp-eye{
+  position: absolute;
+  right: .5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 1.05rem;
+  line-height: 1;
+  width: 2rem; height: 2rem;
+  display: grid; place-items: center;
+  color: #6B7280;
+}
+.cp-eye:focus-visible{ outline: 2px solid rgba(75,80,85,.4); border-radius: 8px; }
 
 .cp-help{ margin-top: 6px; color:#4B5563; font-size:.9rem; }
 .cp-rules{ margin: 6px 0 0; padding-left: 18px; font-size: .85rem; color:#6B7280; }
