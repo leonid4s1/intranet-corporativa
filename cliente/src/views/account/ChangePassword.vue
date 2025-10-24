@@ -263,7 +263,8 @@ calcStrength()
 .cp-field{ margin-bottom: 14px; }
 .cp-label{ display:block; font-weight: 600; margin-bottom: 6px; color:#374151; }
 
-.cp-input-wrap{ position: relative; }
+/* Asegura stacking y color consistente */
+.cp-input-wrap { position: relative; isolation: isolate; }
 .cp-input{
   width: 100%; border: 1px solid #E5E7EB; border-radius: 10px; padding: .6rem .75rem;
   font-size: .95rem; background: #fff; color:#111827;
@@ -279,30 +280,36 @@ calcStrength()
   top: 50%;
   transform: translateY(-50%);
   width: 34px; height: 34px;
-
-  /* centra perfecto el contenido */
   display: flex;
   align-items: center;
   justify-content: center;
-
-  line-height: 0;          /* evita desplazamiento por baseline */
+  line-height: 0;
   background: #fff;
   border: 1px solid #E5E7EB;
   border-radius: 9999px;
   box-shadow: 0 2px 6px rgba(0,0,0,.06);
-  color: #4B5563;
+  color: #4B5563;         /* color base */
+  z-index: 1;             /* que quede sobre el input */
   cursor: pointer;
-}
-
-/* el svg no debe dejar espacio extra */
-.cp-eye svg{
-  width: 18px;
-  height: 18px;
-  display: block;
 }
 
 .cp-eye:hover{ background:#f9fafb; }
 .cp-eye:focus-visible{ outline: 2px solid rgba(75,80,85,.4); outline-offset: 2px; }
+
+/* 🔧 Fuerza el color del trazo del ícono */
+.cp-eye svg{
+  width: 18px;
+  height: 18px;
+  display: block;
+  stroke: #4B5563 !important;  /* color siempre visible */
+  fill: none;                  /* por si algún reset pone fill */
+}
+
+
+/* (opcional) cambia el color al pasar el mouse */
+.cp-eye:hover svg{
+  stroke: #1f2937 !important;
+}
 
 .cp-help{ margin-top: 6px; color:#4B5563; font-size:.9rem; }
 .cp-rules{ margin: 6px 0 0; padding-left: 18px; font-size: .85rem; color:#6B7280; }
