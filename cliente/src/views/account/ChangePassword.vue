@@ -279,7 +279,13 @@ calcStrength()
   top: 50%;
   transform: translateY(-50%);
   width: 34px; height: 34px;
-  display: grid; place-items: center;
+
+  /* centra perfecto el contenido */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  line-height: 0;          /* evita desplazamiento por baseline */
   background: #fff;
   border: 1px solid #E5E7EB;
   border-radius: 9999px;
@@ -287,6 +293,14 @@ calcStrength()
   color: #4B5563;
   cursor: pointer;
 }
+
+/* el svg no debe dejar espacio extra */
+.cp-eye svg{
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
 .cp-eye:hover{ background:#f9fafb; }
 .cp-eye:focus-visible{ outline: 2px solid rgba(75,80,85,.4); outline-offset: 2px; }
 
