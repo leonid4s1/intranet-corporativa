@@ -197,3 +197,20 @@
   padding: 0.18rem 0.5rem;
   font-size: .7rem; font-weight: 700;
 }
+
+/* ===== Accesos deshabilitados ===== */
+.access-card.is-disabled{
+  opacity:.45;
+  pointer-events:none;
+  /* Compat: Safari iOS / Safari / Edge Legacy */
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select:none;
+  cursor:default;
+  filter:grayscale(20%);
+}
+
+/* (Opcional) ocultar por completo el resumen de tareas desde CSS */
+.tasks-summary {
+  display: none !important;
+}

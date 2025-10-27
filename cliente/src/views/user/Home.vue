@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { ref, computed, onMounted, defineOptions } from 'vue'
 import '@/assets/styles/components/home.css'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/auth.store'
 
-// ⬇️ NUEVO: servicio y componente del carrusel
+// Carrusel
 import NewsCarousel from '@/components/ui/NewsCarousel.vue'
 import { getHomeNews, type NewsItem } from '@/services/news.service'
 
@@ -16,7 +16,6 @@ interface Task {
   title: string
   status: 'completed' | 'in-progress' | 'pending'
 }
-
 interface User {
   name: string
   role?: string
@@ -25,15 +24,27 @@ interface User {
 }
 
 const router = useRouter()
-const route = useRoute()
 
 const user = ref<User>({ name: 'Usuario' })
 const tasks = ref<Task[]>([])
 const loading = ref(true)
 const error = ref('')
 
-// ⬇️ NUEVO: items del carrusel
+// Noticias
 const newsItems = ref<NewsItem[]>([])
+const carouselItems = computed<NewsItem[]>(() => {
+  if (newsItems.value.length) return newsItems.value
+  // Placeholder cuando no hay noticias
+  return [{
+    id: 'no-news',
+    type: 'static',
+    title: 'Sin noticias o comunicados',
+    excerpt: 'No hay Noticias o Comunicados por ahora.',
+    imageUrl: null,
+    ctaText: null,
+    ctaTo: null
+  }]
+})
 
 const timeOfDay = computed(() => {
   const hour = new Date().getHours()
@@ -48,18 +59,14 @@ const pendingTasksCount = computed(() =>
 
 onMounted(async () => {
   try {
-    // Perfil (como ya lo hacías)
     const response = await api.get('/auth/profile')
-    if (response?.data?.user?.name) {
-      user.value = response.data.user
-    }
+    if (response?.data?.user?.name) user.value = response.data.user
   } catch {
     error.value = 'No se pudo cargar la información del usuario'
   } finally {
     loading.value = false
   }
 
-  // ⬇️ NUEVO: cargar noticias para el carrusel (no bloquea la cabecera)
   try {
     newsItems.value = await getHomeNews()
   } catch {
@@ -69,20 +76,17 @@ onMounted(async () => {
 
 const auth = useAuthStore()
 const loggingOut = ref(false)
-
 const handleLogout = async () => {
   if (loggingOut.value) return
   loggingOut.value = true
   try {
-    await auth.logout() // el store hace router.replace('/login')
+    await auth.logout() // redirige a /login
   } finally {
     loggingOut.value = false
   }
 }
 
-const navigateTo = (path: string) => {
-  router.push(`/${path}`)
-}
+const navigateTo = (path: string) => router.push(`/${path}`)
 </script>
 
 <template>
@@ -108,25 +112,26 @@ const navigateTo = (path: string) => {
     <section class="quick-access">
       <h3>Acceso Rápido</h3>
       <div class="access-grid">
-        <div class="access-card" @click="navigateTo('documentacion')">
+        <!-- Deshabilitados -->
+        <div class="access-card is-disabled" aria-disabled="true" tabindex="-1">
           <i class="fas fa-file-alt"></i>
           <h4>Documentación</h4>
           <p>Acceso a manuales y reglamentos</p>
         </div>
-        <div class="access-card" @click="navigateTo('formatos')">
+
+        <div class="access-card is-disabled" aria-disabled="true" tabindex="-1">
           <h4>Formatos</h4>
           <p>Planillas y formatos corporativos</p>
         </div>
+
+        <!-- ÚNICO ACTIVO -->
         <div class="access-card vacation-card" @click="navigateTo('vacaciones')">
           <i class="fas fa-calendar-check"></i>
           <h4>Vacaciones</h4>
           <p>Administra tus dias libres</p>
         </div>
-        <div
-          class="access-card"
-          :class="{ active: route.path === '/tareas' }"
-          @click="navigateTo('tareas')"
-        >
+
+        <div class="access-card is-disabled" aria-disabled="true" tabindex="-1">
           <i class="fas fa-tasks"></i>
           <h4>Tareas</h4>
           <p>
@@ -137,38 +142,13 @@ const navigateTo = (path: string) => {
       </div>
     </section>
 
-    <!-- Noticias (ahora con carrusel) -->
+    <!-- Noticias (con placeholder si no hay items) -->
     <section class="news-section">
       <h3>Noticias y Comunicados</h3>
-      <NewsCarousel :items="newsItems" />
+      <NewsCarousel :items="carouselItems" />
     </section>
 
-    <!-- Resumen de tareas -->
-    <section class="tasks-summary">
-      <h3>Resumen de Tareas</h3>
-      <div class="progress-container">
-        <div class="progress-info">
-          <span>Progreso General</span>
-          <span>42%</span>
-        </div>
-        <div class="progress-bar">
-          <div class="progress-fill" style="width: 42%"></div>
-        </div>
-        <div class="tasks-stats">
-          <div class="stat">
-            <span class="value">5</span>
-            <span class="label">Completadas</span>
-          </div>
-          <div class="stat">
-            <span class="value">4</span>
-            <span class="label">En Progreso</span>
-          </div>
-          <div class="stat">
-            <span class="value">3</span>
-            <span class="label">Pendientes</span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- Resumen de tareas (OCULTO) -->
+    <!-- <section class="tasks-summary"> ... </section> -->
   </div>
 </template>

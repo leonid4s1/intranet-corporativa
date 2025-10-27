@@ -4,7 +4,7 @@
     <div class="carousel-viewport">
       <div class="track" :style="{ transform: `translateX(-${currentIndex * 100}%)` }">
         <article
-          v-for="(n,i) in items"
+          v-for="(n,i) in displayItems"
           :key="i"
           class="card"
           :class="`card--${n.type}`"
@@ -18,11 +18,11 @@
       </div>
     </div>
 
-    <div class="controls">
+    <div class="controls" v-if="displayItems.length > 1">
       <button class="ctrl" @click="prev" aria-label="Anterior">‹</button>
       <span class="dots" aria-hidden="true">
         <button
-          v-for="(n,i) in items"
+          v-for="(_,i) in displayItems"
           :key="i"
           class="dot"
           :class="{ active: i === currentIndex }"
@@ -35,55 +35,63 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
-import type { NewsItem } from '@/services/news.service';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import type { NewsItem } from '@/services/news.service'
+import { makeNoNewsItem } from '@/services/news.service'
 
-const props = defineProps<{ items: NewsItem[] }>();
+const props = defineProps<{ items?: NewsItem[] }>()
 
-const currentIndex = ref(0);
-let timer: number | undefined;
+const currentIndex = ref(0)
+let timer: number | undefined
+
+// Lista efectiva (con placeholder si no hay items)
+const displayItems = computed<NewsItem[]>(() => {
+  return props.items && props.items.length > 0 ? props.items : [makeNoNewsItem()]
+})
 
 // Usa body si existe; en su defecto, excerpt; si no, vacío
 function bodyOf(n: NewsItem): string {
-  const anyN = n as Record<string, unknown>;
-  const body = typeof anyN['body'] === 'string' ? (anyN['body'] as string) : undefined;
-  const excerpt = typeof anyN['excerpt'] === 'string' ? (anyN['excerpt'] as string) : undefined;
-  return body ?? excerpt ?? '';
+  const anyN = n as Record<string, unknown>
+  const body = typeof anyN['body'] === 'string' ? (anyN['body'] as string) : undefined
+  const excerpt = typeof anyN['excerpt'] === 'string' ? (anyN['excerpt'] as string) : undefined
+  return body ?? excerpt ?? ''
 }
 
 function startAuto() {
-  stopAuto();
-  timer = window.setInterval(() => { next(); }, 6500);
+  stopAuto()
+  if (displayItems.value.length > 1) {
+    timer = window.setInterval(() => { next() }, 6500)
+  }
 }
 function stopAuto() {
-  if (timer) window.clearInterval(timer);
-  timer = undefined;
+  if (timer) window.clearInterval(timer)
+  timer = undefined
 }
 function next() {
-  if (!props.items?.length) return;
-  currentIndex.value = (currentIndex.value + 1) % props.items.length;
+  if (!displayItems.value.length) return
+  currentIndex.value = (currentIndex.value + 1) % displayItems.value.length
 }
 function prev() {
-  if (!props.items?.length) return;
-  currentIndex.value = (currentIndex.value - 1 + props.items.length) % props.items.length;
+  if (!displayItems.value.length) return
+  currentIndex.value = (currentIndex.value - 1 + displayItems.value.length) % displayItems.value.length
 }
 function go(i: number) {
-  currentIndex.value = i;
-  startAuto();
+  currentIndex.value = i
+  startAuto()
 }
 function badge(t: NewsItem['type']) {
-  if (t === 'holiday_notice') return 'Aviso';
-  if (t === 'birthday_self') return '¡Feliz cumpleaños!';
-  if (t === 'birthday_digest_info') return 'Cumpleaños hoy';
-  return '';
+  if (t === 'holiday_notice') return 'Aviso'
+  if (t === 'birthday_self') return '¡Feliz cumpleaños!'
+  if (t === 'birthday_digest_info') return 'Cumpleaños hoy'
+  return ''
 }
 
-onMounted(startAuto);
-onUnmounted(stopAuto);
+onMounted(startAuto)
+onUnmounted(stopAuto)
 watch(
   () => props.items?.length,
-  () => { currentIndex.value = 0; startAuto(); }
-);
+  () => { currentIndex.value = 0; startAuto() }
+)
 </script>
 
 <style scoped>
@@ -110,6 +118,7 @@ watch(
 }
 .card--holiday_notice .badge { background:#fff7ed; color:#9a3412; }
 .card--birthday_self .badge { background:#ecfeff; color:#155e75; }
+
 .controls { display:flex; align-items:center; justify-content:center; gap:8px; padding:8px; }
 .ctrl { background:#f3f4f6; border:0; padding:6px 10px; border-radius:10px; cursor:pointer; }
 .dots { display:flex; gap:6px; }
