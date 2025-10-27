@@ -8,6 +8,8 @@ import router from './router';
 import '@/styles/theme.css';
 import './styles/brand.css';
 
+/* ⬇️ IMPORTA TUS FUENTES GLOBALES */
+import './assets/styles/fonts.css';
 
 import dayjs from 'dayjs';
 import 'dayjs/locale/es';
