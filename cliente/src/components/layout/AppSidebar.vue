@@ -3,10 +3,11 @@
   <aside
     id="app-sidebar"
     class="app-sidebar"
-    :class="{ 'is-collapsed': collapsed,
+    :class="{
+      'is-collapsed': collapsed,
       'is-mobile': isMobile,
       'is-open': isMobile && isMobileOpen
-     }"
+    }"
     :style="{ '--sidebar-width': collapsed ? '72px' : '220px' }"
     role="navigation"
     aria-label="Menú principal"
@@ -35,21 +36,37 @@
       </RouterLink>
     </div>
 
+    <!-- Menú: solo renderiza RouterLink si el item está enabled; si no, DIV deshabilitado -->
     <nav class="side-nav">
-      <RouterLink
-        v-for="item in items"
-        :key="item.to"
-        :to="item.to"
-        class="side-link"
-        :class="{ active: route.path === item.to }"
-        :title="collapsed ? item.label : ''"
-        @click="onNavClick"
-        :aria-current="route.path === item.to ? 'page' : undefined"
-      >
-        <span class="ico" aria-hidden="true">{{ item.emoji }}</span>
-        <span class="lbl" v-if="!collapsed">{{ item.label }}</span>
-        <span class="badge" v-if="item.badge && !collapsed">{{ item.badge() }}</span>
-      </RouterLink>
+      <template v-for="item in items" :key="item.to">
+        <!-- Activo (clicable) -->
+        <RouterLink
+          v-if="item.enabled"
+          :to="item.to"
+          class="side-link"
+          :class="{ active: route.path === item.to }"
+          :title="collapsed ? item.label : ''"
+          @click="onNavClick"
+          :aria-current="route.path === item.to ? 'page' : undefined"
+        >
+          <span class="ico" aria-hidden="true">{{ item.emoji }}</span>
+          <span class="lbl" v-if="!collapsed">{{ item.label }}</span>
+          <span class="badge" v-if="item.badge && !collapsed">{{ item.badge() }}</span>
+        </RouterLink>
+
+        <!-- Deshabilitado (visual y sin interacción) -->
+        <div
+          v-else
+          class="side-link is-disabled"
+          :title="item.label"
+          aria-disabled="true"
+          tabindex="-1"
+        >
+          <span class="ico" aria-hidden="true">{{ item.emoji }}</span>
+          <span class="lbl" v-if="!collapsed">{{ item.label }}</span>
+          <span class="badge" v-if="item.badge && !collapsed">{{ item.badge() }}</span>
+        </div>
+      </template>
     </nav>
   </aside>
 </template>
@@ -59,7 +76,7 @@ import { computed, onMounted, onBeforeUnmount, onBeforeMount, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useUiStore } from '@/stores/ui.store';
 import { storeToRefs } from 'pinia';
-import logoPng from '@/assets/odes-mark.png'; // ← usa el PNG corporativo
+import logoPng from '@/assets/odes-mark.png'; // ← PNG corporativo
 
 const route = useRoute();
 const ui = useUiStore();
@@ -102,18 +119,25 @@ onBeforeUnmount(() => {
 
 const brandTitle = 'Ir a inicio';
 
-const items = computed(() => [
-  { to: '/home',              label: 'Inicio',             emoji: '🏠' },
-  { to: '/dashboard',         label: 'Dashboard',          emoji: '📊' },
-  { to: '/roles',             label: 'Roles y Funciones',  emoji: '👥' },
-  { to: '/documentacion',     label: 'Documentación',      emoji: '📄' },
-  { to: '/formatos',          label: 'Formatos',           emoji: '🗂️' },
-  { to: '/vacaciones',        label: 'Vacaciones',         emoji: '📅' },
-  { to: '/tareas',            label: 'Tareas',             emoji: '✅', badge: () => '' },
+/**
+ * Solo habilitados: /home, /vacaciones, /account/password
+ */
+const items = computed(() => {
+  const enabledSet = new Set(['/home', '/vacaciones', '/account/password']);
 
-  // 👇 NUEVO: opción visible después del login
-  { to: '/account/password',  label: 'Cambiar contraseña', emoji: '🔒' },
-]);
+  const base = [
+    { to: '/home',              label: 'Inicio',             emoji: '🏠' },
+    { to: '/dashboard',         label: 'Dashboard',          emoji: '📊' },
+    { to: '/roles',             label: 'Roles y Funciones',  emoji: '👥' },
+    { to: '/documentacion',     label: 'Documentación',      emoji: '📄' },
+    { to: '/formatos',          label: 'Formatos',           emoji: '🗂️' },
+    { to: '/vacaciones',        label: 'Vacaciones',         emoji: '📅' },
+    { to: '/tareas',            label: 'Tareas',             emoji: '✅', badge: () => '' },
+    { to: '/account/password',  label: 'Cambiar contraseña', emoji: '🔒' },
+  ];
+
+  return base.map(it => ({ ...it, enabled: enabledSet.has(it.to) }));
+});
 </script>
 
 <style scoped>
@@ -314,4 +338,14 @@ const items = computed(() => [
   border-color: rgba(255,255,255,.22) !important;
 }
 
+/* ===== Estado deshabilitado ===== */
+.side-link.is-disabled {
+  opacity: .45;
+  pointer-events: none;   /* sin interacción */
+  filter: grayscale(.15);
+}
+.side-link.is-disabled.active {
+  background: transparent !important;
+  border-color: transparent !important;
+}
 </style>
