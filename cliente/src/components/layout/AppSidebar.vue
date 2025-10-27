@@ -294,4 +294,24 @@ const items = computed(() => [
     transition: none !important;
   }
 }
+
+/* ===== Forzar colores del menú ===== */
+.app-sidebar :is(.side-link, .side-link .lbl, .side-link .ico){
+  color: rgba(255,255,255,.92) !important;
+}
+
+.app-sidebar .side-link:hover,
+.app-sidebar .side-link:focus{
+  color: #fff !important;
+  background: rgba(255,255,255,.10) !important;
+}
+
+/* Ítem activo SIEMPRE con texto blanco y fondo sutil, no pastilla blanca */
+.app-sidebar .side-link.active,
+.app-sidebar .router-link-active.side-link{
+  background: rgba(255,255,255,.14) !important;
+  color: #fff !important;
+  border-color: rgba(255,255,255,.22) !important;
+}
+
 </style>
