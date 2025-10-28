@@ -5,7 +5,7 @@
       <img class="brand-hero__logo" :src="logoUrl" alt="Logo Odes Construction" />
       <div class="brand-hero__text">
         <div class="brand-hero__name">Odes Construction</div>
-        <div class="brand-hero__sub">Acceso a intranet</div>
+        <!-- subtítulo eliminado -->
       </div>
     </div>
 
@@ -74,7 +74,7 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
-import logoUrl from '@/assets/odes-mark.png'; // coloca aquí tu icono (svg o png)
+import logoUrl from '@/assets/odes-mark.png';
 
 const isLoading = ref(false);
 const email = ref('');
@@ -130,10 +130,9 @@ if (authStore.isAuthenticated) {
 </script>
 
 <style scoped>
-/* ===== Paleta sobria (negros y grises) y tokens de marca ===== */
 :root{
-  --ink: #0f172a;             /* texto principal */
-  --brand-ink: #4b5055;       /* “ink” corporativo */
+  --ink: #0f172a;
+  --brand-ink: #4b5055;
   --g-300: #cdcdcd;
   --g-100: #f0f0f0;
 
@@ -147,10 +146,9 @@ if (authStore.isAuthenticated) {
   --btn-text: #ffffff;
 }
 
-/* ===== Tipografía de marca (usa --font-brand definida globalmente) ===== */
+/* fuentes */
 .auth-container,
 .brand-hero__name,
-.brand-hero__sub,
 label,
 input,
 .toggle-btn,
@@ -162,7 +160,7 @@ input,
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ===== Contenedor ===== */
+/* Contenedor */
 .auth-container{
   max-width: 620px;
   margin: 3rem auto;
@@ -174,10 +172,10 @@ input,
   color: var(--ink);
 }
 
-/* ===== Lockup de marca (logo + textos centrados) ===== */
+/* Lockup de marca */
 .brand-hero{
   display:flex; align-items:center; justify-content:center;
-  gap:.9rem; margin-bottom:1rem; flex-wrap:wrap;
+  gap:.75rem; margin-bottom:.75rem; flex-wrap:wrap;
 }
 .brand-hero__logo{
   width:48px; height:48px; object-fit:contain; filter: grayscale(100%);
@@ -186,28 +184,21 @@ input,
 @media (max-width: 420px){ .brand-hero__logo{ width:42px; height:42px; } }
 
 .brand-hero__name{
-  font-weight: 900;           /* NHaas Bold/Black */
+  font-weight: 900;
   color:#111827;
   font-size: 1.35rem;
   letter-spacing:.2px;
 }
-.brand-hero__sub{
-  color:#6b7280;
-  font-size:.9rem;
-  font-weight: 500;           /* NHaas Medium */
-  letter-spacing:.1px;
-}
 
-/* ===== Form ===== */
+/* Form */
 .auth-form{ display:flex; flex-direction:column; gap: 1.2rem; }
 .form-group{ display:flex; flex-direction:column; gap:.55rem; }
 label{
-  font-weight: 800;           /* NHaas Bold */
+  font-weight: 800;
   color:#111827;
   letter-spacing:.15px;
 }
 
-/* Inputs con contraste alto */
 input{
   padding: .95rem 1rem;
   font-size: 1rem;
@@ -216,7 +207,7 @@ input{
   color: var(--ink);
   background: #fff;
   transition: border-color .15s, box-shadow .15s, background .15s;
-  font-weight: 500;           /* NHaas Medium */
+  font-weight: 500;
 }
 input::placeholder{ color:#4b5563; opacity:1; }
 input:hover{ border-color: var(--line-strong); }
@@ -243,21 +234,21 @@ input:focus{
 .toggle-btn:focus-visible{ outline:3px solid var(--ring); }
 .icon{ width:1.15rem; height:1.15rem; fill:#111827; }
 
-/* Mensajes de error */
+/* Error */
 .error-message{
   color:#b91c1c; background:#fef2f2; border:1px solid #fecaca;
   padding:.6rem .75rem; border-radius:12px; text-align:center;
   font-weight:700;
 }
 
-/* ===== Botón visible ===== */
+/* Botón */
 .auth-button{
   padding: 1rem;
   background: var(--btn-bg);
   color: var(--btn-text);
   border: 0;
   border-radius: 12px;
-  font-weight: 900;           /* NHaas Black */
+  font-weight: 900;
   letter-spacing:.2px;
   cursor:pointer;
   transition: transform .02s ease, filter .15s, box-shadow .15s;
