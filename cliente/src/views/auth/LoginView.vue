@@ -129,11 +129,11 @@ if (authStore.isAuthenticated) {
 :root{
   --ink:#0f172a;
   --brand-ink:#4b5055;
-  --g-300:#e5e7eb;
-  --g-200:#eef1f4;
+  --g-300:#cdcdcd;
   --g-100:#f7f8fa;
-  --line:#c7cdd6;
-  --line-strong:#98a2b3;
+
+  --line:#9ca3af;
+  --line-strong:#6b7280;
   --ring:rgba(75,80,85,.25);
 
   --card:#ffffff;
@@ -155,81 +155,72 @@ input,
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Card más compacta y centrada visualmente */
+/* Card estilo anterior */
 .auth-container{
-  max-width: 600px;
-  margin: 5vh auto; /* más respiración superior/inferior */
-  padding: 1.75rem 1.9rem;
+  max-width: 620px;
+  margin: 3rem auto;
+  padding: 2rem 2.25rem;
   border-radius: 18px;
   background: var(--card);
   border: 1px solid var(--g-300);
-  box-shadow: 0 20px 50px rgba(15,23,42,.10);
+  box-shadow: 0 22px 60px rgba(15,23,42,.12);
   color: var(--ink);
 }
 
-/* HERO con lockup */
+/* HERO pequeño y centrado (como antes) */
 .brand-hero{
   display:flex; align-items:center; justify-content:center;
-  margin-bottom: 1.1rem;
+  margin-bottom:.9rem;
 }
 .brand-lockup{
-  width: min(520px, 88%);
+  width: min(260px, 70vw);   /* 👈 más pequeño */
   height:auto;
-  image-rendering:-webkit-optimize-contrast;
-  /* leve nitidez */
-  filter: drop-shadow(0 1px 0 rgba(0,0,0,.05));
-}
-@media (max-width: 380px){
-  .brand-lockup{ width: min(320px, 92%); }
 }
 
-/* Form */
-.auth-form{ display:flex; flex-direction:column; gap: 1rem; }
-.form-group{ display:flex; flex-direction:column; gap:.5rem; }
+/* Form clásico */
+.auth-form{ display:flex; flex-direction:column; gap: 1.2rem; }
+.form-group{ display:flex; flex-direction:column; gap:.55rem; }
 label{
-  font-weight: 700;       /* menos pesado que 800 */
+  font-weight: 800;
   color:#111827;
-  letter-spacing:0;
-  font-size: .98rem;
+  letter-spacing:.15px;
 }
 
-/* Inputs */
+/* Inputs blancos con borde 2px */
 input{
-  padding: .9rem 1rem;
+  padding: .95rem 1rem;
   font-size: 1rem;
-  border: 1.5px solid var(--line);
+  border: 2px solid var(--line);
   border-radius: 12px;
   color: var(--ink);
-  background: var(--g-100);
-  transition: border-color .15s, box-shadow .15s, background .15s, transform .02s;
+  background: #fff;
+  transition: border-color .15s, box-shadow .15s, background .15s;
   font-weight: 500;
 }
-input::placeholder{ color:#6b7280; opacity:1; }
-input:hover{ background: var(--g-200); border-color: var(--line-strong); }
+input::placeholder{ color:#4b5563; opacity:1; }
+input:hover{ border-color: var(--line-strong); }
 input:focus{
   outline:0;
-  background:#fff;
   border-color: var(--brand-ink);
   box-shadow: 0 0 0 4px var(--ring);
 }
 
 /* Campo contraseña + ojito */
 .password-wrapper{ position:relative; display:flex; align-items:center; }
-.password-input{ width:100%; padding-right: 2.8rem; }
+.password-input{ width:100%; padding-right: 3rem; }
 .toggle-btn{
-  position:absolute; right:.45rem; top:50%; transform:translateY(-50%);
-  width: 2.1rem; height: 2.1rem;
+  position:absolute; right:.5rem; top:50%; transform:translateY(-50%);
+  width: 2.25rem; height: 2.25rem;
   display:inline-grid; place-items:center;
   border: 1px solid var(--g-300);
-  background: #fff;
-  border-radius: 10px;
+  background: var(--g-100);
+  border-radius: 8px;
   cursor:pointer;
-  transition: box-shadow .15s, border-color .15s, transform .02s;
+  font-weight: 600;
 }
-.toggle-btn:hover{ border-color: var(--line-strong); }
-.toggle-btn:active{ transform: translateY(1px); }
+.toggle-btn:hover{ background:#eef1f4; }
 .toggle-btn:focus-visible{ outline:3px solid var(--ring); }
-.icon{ width:1.1rem; height:1.1rem; fill:#111827; }
+.icon{ width:1.15rem; height:1.15rem; fill:#111827; }
 
 /* Error */
 .error-message{
@@ -238,10 +229,9 @@ input:focus{
   font-weight:700;
 }
 
-/* Botón */
+/* Botón clásico */
 .auth-button{
-  padding: 0.95rem;
-  width: 100%;
+  padding: 1rem;
   background: var(--btn-bg);
   color: var(--btn-text);
   border: 0;
@@ -249,8 +239,8 @@ input:focus{
   font-weight: 900;
   letter-spacing:.2px;
   cursor:pointer;
-  transition: transform .02s ease, filter .15s, box-shadow .15s, background .15s;
-  box-shadow: 0 12px 28px rgba(0,0,0,.18);
+  transition: transform .02s ease, filter .15s, box-shadow .15s;
+  box-shadow: 0 16px 36px rgba(0,0,0,.20);
 }
 .auth-button:hover{ background: var(--btn-bg-hover); }
 .auth-button:active{ transform: translateY(1px); }
