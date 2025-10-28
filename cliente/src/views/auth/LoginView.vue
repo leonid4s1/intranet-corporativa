@@ -1,12 +1,8 @@
 <template>
   <div class="auth-container">
-    <!-- HERO DE MARCA (reemplaza al H1) -->
+    <!-- HERO DE MARCA: lockup completo -->
     <div class="brand-hero" aria-label="Odes Construction">
-      <img class="brand-hero__logo" :src="logoUrl" alt="Logo Odes Construction" />
-      <div class="brand-hero__text">
-        <div class="brand-hero__name">Odes Construction</div>
-        <!-- subtítulo eliminado -->
-      </div>
+      <img class="brand-lockup" :src="lockupUrl" alt="Odes Construction" />
     </div>
 
     <form @submit.prevent="handleSubmit" class="auth-form">
@@ -74,7 +70,7 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
-import logoUrl from '@/assets/odes-mark.png';
+import lockupUrl from '@/assets/brand/odes-lockup.png';
 
 const isLoading = ref(false);
 const email = ref('');
@@ -148,7 +144,6 @@ if (authStore.isAuthenticated) {
 
 /* fuentes */
 .auth-container,
-.brand-hero__name,
 label,
 input,
 .toggle-btn,
@@ -172,22 +167,18 @@ input,
   color: var(--ink);
 }
 
-/* Lockup de marca */
+/* HERO con lockup */
 .brand-hero{
   display:flex; align-items:center; justify-content:center;
-  gap:.75rem; margin-bottom:.75rem; flex-wrap:wrap;
+  margin-bottom:.75rem;
 }
-.brand-hero__logo{
-  width:48px; height:48px; object-fit:contain; filter: grayscale(100%);
+.brand-lockup{
+  width: min(420px, 90vw);
+  height: auto;
+  image-rendering: -webkit-optimize-contrast;
 }
-.brand-hero__text{ display:flex; flex-direction:column; line-height:1.05; text-align:center; }
-@media (max-width: 420px){ .brand-hero__logo{ width:42px; height:42px; } }
-
-.brand-hero__name{
-  font-weight: 900;
-  color:#111827;
-  font-size: 1.35rem;
-  letter-spacing:.2px;
+@media (max-width: 360px){
+  .brand-lockup{ width: min(320px, 92vw); }
 }
 
 /* Form */
