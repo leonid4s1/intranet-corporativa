@@ -147,28 +147,71 @@
             <small v-if="createErrors.email" class="error-text">{{ createErrors.email }}</small>
           </div>
 
+          <!-- Contraseña (con ojito, medidor y reglas) -->
           <div class="form-group">
             <label>Contraseña</label>
-            <input
-              type="password"
-              v-model="createForm.password"
-              :class="{ 'input-error': createErrors.password }"
-              placeholder="Mínimo 8 caracteres con mayúscula, número y símbolo"
-              autocomplete="new-password"
-            />
+
+            <div class="cp-input-wrap">
+              <input
+                :type="showPwd ? 'text' : 'password'"
+                v-model="createForm.password"
+                :class="{ 'input-error': createErrors.password }"
+                placeholder="Mínimo 8 caracteres con mayúscula, número y símbolo"
+                autocomplete="new-password"
+                @input="touchedPwd = true"
+                aria-describedby="pwd-help"
+              />
+              <button
+                type="button"
+                class="cp-eye"
+                :aria-label="showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                @click="showPwd = !showPwd"
+              >
+                <EyeIcon />
+              </button>
+            </div>
+
+            <!-- Medidor de fuerza -->
+            <PasswordStrengthMeter :password="createForm.password" class="mt-2" />
+
+            <!-- Reglas en vivo -->
+            <ul class="pwd-rules" id="pwd-help" aria-live="polite">
+              <li :class="{ ok: pwdRules.min }">Mínimo 8 caracteres</li>
+              <li :class="{ ok: pwdRules.upper }">Al menos 1 mayúscula (A–Z)</li>
+              <li :class="{ ok: pwdRules.lower }">Al menos 1 minúscula (a–z)</li>
+              <li :class="{ ok: pwdRules.digit }">Al menos 1 número (0–9)</li>
+              <li :class="{ ok: pwdRules.special }">Al menos 1 símbolo (!@#$…)</li>
+              <li :class="{ ok: pwdRules.nospace }">Sin espacios</li>
+            </ul>
+
             <small v-if="createErrors.password" class="error-text">{{ createErrors.password }}</small>
           </div>
 
+          <!-- Confirmar contraseña (con ojito) -->
           <div class="form-group">
             <label>Confirmar contraseña</label>
-            <input
-              type="password"
+
+            <div class="cp-input-wrap">
+              <input
+              :type="showConfirm ? 'text' : 'password'"
               v-model="createForm.password_confirmation"
-              :class="{ 'input-error': createErrors.password_confirmation }"
+              :class="{ 'input-error': createErrors.password_confirmation || (touchedConfirm && !passwordsMatch) }"
               placeholder="Repite la contraseña"
               autocomplete="new-password"
+              @input="touchedConfirm = true"
             />
-            <small v-if="createErrors.password_confirmation" class="error-text">{{ createErrors.password_confirmation }}</small>
+              <button
+                type="button"
+                class="cp-eye"
+                :aria-label="showConfirm ? 'Ocultar confirmación' : 'Mostrar confirmación'"
+                @click="showConfirm = !showConfirm"
+              >
+                <EyeIcon />
+              </button>
+            </div>
+
+            <small v-if="touchedConfirm && !passwordsMatch" class="error-text">Las contraseñas no coinciden</small>
+            <small v-else-if="createErrors.password_confirmation" class="error-text">{{ createErrors.password_confirmation }}</small>
           </div>
 
           <div class="form-group">
@@ -475,6 +518,8 @@ import api from '@/services/api'
 import userService from '@/services/user.service'
 import vacationService, { type WindowsSummary, type VacationWindow, VacationService as VacSvcNS } from '@/services/vacation.service'
 import type { User as BaseUser, Role, VacationDays } from '@/services/user.service'
+import PasswordStrengthMeter from '@/components/auth/PasswordStrengthMeter.vue'
+import EyeIcon from '@/components/icons/EyeIcon.vue'
 
 /** Usuario con meta extendida para esta vista */
 type AdminUser = BaseUser & {
@@ -529,6 +574,27 @@ const error = ref<string | null>(null)
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const strongPassRe = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/
 const isoDayRe = /^\d{4}-\d{2}-\d{2}$/
+
+const showPwd = ref(false)
+const showConfirm = ref(false)
+const touchedPwd = ref(false)
+const touchedConfirm = ref(false)
+
+const pwdRules = computed(() => {
+  const p = createForm.value.password ?? ''
+  return {
+    min: p.length >= 8,
+    upper: /[A-Z]/.test(p),
+    lower: /[a-z]/.test(p),
+    digit: /\d/.test(p),
+    special: /[^A-Za-z0-9\s]/.test(p),
+    nospace: !/\s/.test(p),
+  }
+})
+const rulesPassed = computed(() => Object.values(pwdRules.value).filter(Boolean).length)
+const rulesAllOk = computed(() => rulesPassed.value === 6)
+const passwordsMatch = computed(() => createForm.value.password === createForm.value.password_confirmation)
+
 function dateOnly(v?: string | null): string | null {
   if (!v) return null
   if (isoDayRe.test(v)) return v
@@ -591,10 +657,10 @@ const isCreateValid = computed(() => {
   const f = createForm.value
   const nameOk = f.name.trim().length >= 3
   const emailOk = emailRe.test(f.email.trim())
-  const passOk = strongPassRe.test(f.password)
-  const confirmOk = f.password_confirmation.length > 0 && f.password_confirmation === f.password
+  const passOk = rulesAllOk.value
+  const confirmOk = passwordsMatch.value
 
-  // Fechas opcionales
+  // Fechas opcionales (tu misma lógica)
   let datesOk = true
   if (f.hireDate && (!isoDayRe.test(f.hireDate) || isFuture(f.hireDate))) datesOk = false
   if (f.birthDate && (!isoDayRe.test(f.birthDate) || isFuture(f.birthDate))) datesOk = false
@@ -1389,4 +1455,40 @@ function closeWindowsModal() {
   font-weight:700;
   color:#2d3748;
 }
+
+/* Ojitos dentro del input */
+.cp-input-wrap { position: relative; }
+.cp-eye{
+  position: absolute;
+  right: .5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.cp-eye svg { width: 20px; height: 20px; opacity: .85; }
+.cp-eye:hover svg { opacity: 1; }
+
+/* Reglas de contraseña en vivo */
+.pwd-rules{
+  list-style: none;
+  padding-left: 0;
+  margin: 8px 0 0;
+  font-size: .85rem;
+  color: #6b7280;
+}
+.pwd-rules li{
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: 2px 0;
+}
+.pwd-rules li::before{ content: "●"; font-size: .6rem; }
+.pwd-rules li.ok{ color:#065f46; }
+.pwd-rules li.ok::before{ content:"✔"; font-size:.8rem; }
+
 </style>
