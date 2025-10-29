@@ -1,7 +1,12 @@
-// cliente/src/services/news.service.ts
 import api from './api';
 
-export const allowedTypes = ['static', 'holiday_notice', 'birthday_self', 'birthday_digest_info'] as const;
+export const allowedTypes = [
+  'static',
+  'holiday_notice',
+  'birthday_self',
+  'birthday_digest_info',
+  'birthday_digest', // <-- agregado
+] as const;
 export type AllowedType = typeof allowedTypes[number];
 
 export type NewsItem = {
@@ -60,7 +65,10 @@ export function makeNoNewsItem(): NewsItem {
 
 /** Normaliza un item del servidor a NewsItem seguro */
 function normalize(raw: ServerNewsItem): NewsItem {
-  const safeType: AllowedType = isAllowedType(raw.type) ? raw.type as AllowedType : 'static';
+  const safeType: AllowedType = isAllowedType(raw.type) ? (raw.type as AllowedType) : 'static';
+  if (safeType === 'static' && raw.type && raw.type !== 'static') {
+    console.warn('[news.service] Tipo no permitido recibido:', raw.type);
+  }
   return {
     id: String(raw.id),
     type: safeType,
