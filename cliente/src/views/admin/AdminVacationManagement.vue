@@ -10,66 +10,7 @@
       </router-link>
     </div>
 
-    <!-- ========= DÍAS FESTIVOS ========= -->
-    <section class="card">
-      <div class="card-head">
-        <h2>Días Festivos</h2>
-
-        <div class="head-actions">
-          <button class="btn primary" @click="openHolidayModal()">Agregar Festivo</button>
-
-          <label class="year-filter">
-            Filtrar por año:
-            <select v-model="selectedYear" @change="loadHolidays">
-              <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>NOMBRE</th>
-              <th>FECHA</th>
-              <th>TIPO</th>
-              <th class="center">ACCIONES</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="loadingHolidays">
-              <td colspan="4" class="muted center">Cargando festivos…</td>
-            </tr>
-            <tr v-else-if="holidays.length === 0">
-              <td colspan="4" class="muted center">No hay festivos para {{ selectedYear }}</td>
-            </tr>
-            <tr v-else v-for="h in holidays" :key="h.id">
-              <td class="wrap">{{ h.name }}</td>
-              <td>{{ formatDate(h.date) }}</td>
-              <td>
-                <span class="badge" :class="{ recurrent: h.recurring }">
-                  {{ h.recurring ? 'Recurrente' : 'Único' }}
-                </span>
-              </td>
-              <td class="center">
-                <button class="btn warn sm" title="Editar" @click="openHolidayModal(h)">✎</button>
-                <button
-                  class="btn danger sm"
-                  title="Eliminar"
-                  :disabled="deletingHolidayKey === h.id"
-                  @click="deleteHoliday(h)"
-                >
-                  ✖
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- ========= SOLICITUDES PENDIENTES ========= -->
+    <!-- ========= SOLICITUDES PENDIENTES (AHORA ARRIBA) ========= -->
     <section class="card">
       <div class="card-head">
         <h2>Solicitudes Pendientes</h2>
@@ -124,6 +65,65 @@
                   @click="openRejectDialog(r.id)"
                 >
                   Rechazar
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========= DÍAS FESTIVOS (AHORA ABAJO) ========= -->
+    <section class="card">
+      <div class="card-head">
+        <h2>Días Festivos</h2>
+
+        <div class="head-actions">
+          <button class="btn primary" @click="openHolidayModal()">Agregar Festivo</button>
+
+          <label class="year-filter">
+            Filtrar por año:
+            <select v-model="selectedYear" @change="loadHolidays">
+              <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>NOMBRE</th>
+              <th>FECHA</th>
+              <th>TIPO</th>
+              <th class="center">ACCIONES</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="loadingHolidays">
+              <td colspan="4" class="muted center">Cargando festivos…</td>
+            </tr>
+            <tr v-else-if="holidays.length === 0">
+              <td colspan="4" class="muted center">No hay festivos para {{ selectedYear }}</td>
+            </tr>
+            <tr v-else v-for="h in holidays" :key="h.id">
+              <td class="wrap">{{ h.name }}</td>
+              <td>{{ formatDate(h.date) }}</td>
+              <td>
+                <span class="badge" :class="{ recurrent: h.recurring }">
+                  {{ h.recurring ? 'Recurrente' : 'Único' }}
+                </span>
+              </td>
+              <td class="center">
+                <button class="btn warn sm" title="Editar" @click="openHolidayModal(h)">✎</button>
+                <button
+                  class="btn danger sm"
+                  title="Eliminar"
+                  :disabled="deletingHolidayKey === h.id"
+                  @click="deleteHoliday(h)"
+                >
+                  ✖
                 </button>
               </td>
             </tr>
