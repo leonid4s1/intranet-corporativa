@@ -1,9 +1,9 @@
 // server/src/services/notificationService.js
 import User from '../models/User.js';
-import DailyLock from '../models/DailyLock.js'; // <-- usamos el lock diario
+import DailyLock from '../models/DailyLock.js';
 import { sendEmail } from './emailService.js';
 import { startOfDay } from 'date-fns';
-import { utcToZonedTime } from 'date-fns-tz';
+import { utcToZonedTime } from 'date-fns-tz'; // ✅ importa una sola vez
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -35,7 +35,6 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
   if (!Array.isArray(birthdayUsers) || birthdayUsers.length === 0) return false;
 
   // ===== Candado idempotente (atómico) =====
-  // Si ya existe un documento con (type='birthday_digest', dateKey=YYYY-MM-DD), NO enviamos.
   const existed = await DailyLock.findOneAndUpdate(
     { type: 'birthday_digest', dateKey: dayKey },
     { $setOnInsert: { createdAt: new Date() } },
@@ -47,8 +46,7 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
     return false;
   }
 
-  // ===== Construcción de destinatarios =====
-  // Filtramos usuarios con email definido (puedes añadir { isActive: true } si tu esquema lo tiene)
+  // ===== Destinatarios =====
   const allUsers = await User.find(
     { email: { $exists: true, $ne: null } },
     { email: 1 }
@@ -76,10 +74,9 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
   return true;
 };
 
-import { utcToZonedTime } from 'date-fns-tz';
-
+/** Obtiene los cumpleañeros de HOY (zona MX) */
 export async function getTodayBirthdayUsersMX() {
-  const mxNow = utcToZonedTime(new Date(), 'America/Mexico_City');
+  const mxNow = utcToZonedTime(new Date(), MX_TZ);
   const month = mxNow.getMonth(); // 0..11
   const day = mxNow.getDate();    // 1..31
 
@@ -93,4 +90,3 @@ export async function getTodayBirthdayUsersMX() {
     return dob.getUTCMonth() === month && dob.getUTCDate() === day;
   });
 }
-
