@@ -3,50 +3,41 @@ import User from '../models/User.js';
 import DailyLock from '../models/DailyLock.js';
 import { sendEmail } from './emailService.js';
 import { startOfDay } from 'date-fns';
-import { utcToZonedTime } from 'date-fns-tz'; // ✅ importa una sola vez
 
 const MX_TZ = 'America/Mexico_City';
 
-// === Helpers de zona MX ===
+// === Helpers de zona MX (sin date-fns-tz) ===
 function startOfDayInMX(date = new Date()) {
   const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
   return startOfDay(local);
 }
 function dayKeyMX(date = new Date()) {
-  // YYYY-MM-DD en zona MX (cero-relleno)
   const y = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, year: 'numeric' });
   const m = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
   const d = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
   return `${y}-${m}-${d}`;
 }
+function getMonthDayInMX(date = new Date()) {
+  const local = new Date(date.toLocaleString('en-US', { timeZone: MX_TZ }));
+  return { month: local.getMonth(), day: local.getDate() }; // 0..11, 1..31
+}
 
 /**
- * Envía un correo a TODOS los usuarios con el/los cumpleañeros del día (día MX).
- * Idempotencia por día MX usando DailyLock (índice único type+dateKey).
- *
- * @returns {Promise<boolean>} true si envió, false si se omitió (ya enviado o sin destinatarios/celebrantes)
+ * Envía el digest de cumpleaños una vez al día (MX) con DailyLock.
  */
 export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
-  // Normaliza a inicio de día MX e identifica el día con clave MX
   const day = startOfDayInMX(date);
   const dayKey = dayKeyMX(day);
 
-  // Si no hay cumpleañeros, no intentamos enviar ni tomar lock
   if (!Array.isArray(birthdayUsers) || birthdayUsers.length === 0) return false;
 
-  // ===== Candado idempotente (atómico) =====
   const existed = await DailyLock.findOneAndUpdate(
     { type: 'birthday_digest', dateKey: dayKey },
     { $setOnInsert: { createdAt: new Date() } },
-    { upsert: true, new: false } // si devuelve doc => ya existía
+    { upsert: true, new: false }
   ).lean();
+  if (existed) return false;
 
-  if (existed) {
-    // Ya se envió hoy (u otro proceso tomó el lock)
-    return false;
-  }
-
-  // ===== Destinatarios =====
   const allUsers = await User.find(
     { email: { $exists: true, $ne: null } },
     { email: 1 }
@@ -58,7 +49,6 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
     return false;
   }
 
-  // ===== Contenido del correo =====
   const names = birthdayUsers.map(u => u?.name || u?.email).filter(Boolean).join(', ');
   const subject = '🎂 Cumpleaños de hoy en la empresa';
   const html = `
@@ -67,18 +57,14 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
     <p>¡Envíales tus buenos deseos! 🎉</p>
   `;
 
-  // ===== Envío =====
   await sendEmail({ to: toList, subject, html });
-
   console.log(`📨 Digest de cumpleaños ENVIADO a ${toList.length} cuentas (dayKey=${dayKey})`);
   return true;
 };
 
-/** Obtiene los cumpleañeros de HOY (zona MX) */
+/** Cumpleañeros de HOY en zona MX (sin date-fns-tz) */
 export async function getTodayBirthdayUsersMX() {
-  const mxNow = utcToZonedTime(new Date(), MX_TZ);
-  const month = mxNow.getMonth(); // 0..11
-  const day = mxNow.getDate();    // 1..31
+  const { month, day } = getMonthDayInMX(new Date());
 
   const users = await User.find(
     { birthday: { $exists: true, $ne: null }, isActive: { $ne: false } },
@@ -86,7 +72,9 @@ export async function getTodayBirthdayUsersMX() {
   ).lean();
 
   return users.filter(u => {
-    const dob = new Date(u.birthday);
-    return dob.getUTCMonth() === month && dob.getUTCDate() === day;
+    if (!u.birthday) return false;
+    // Compara la fecha de nacimiento también “vista” en MX
+    const dobLocal = new Date(new Date(u.birthday).toLocaleString('en-US', { timeZone: MX_TZ }));
+    return dobLocal.getMonth() === month && dobLocal.getDate() === day;
   });
 }
