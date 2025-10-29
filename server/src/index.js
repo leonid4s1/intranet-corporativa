@@ -17,6 +17,8 @@ import cookieParser from 'cookie-parser'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { verifyEmailTransport } from './services/emailService.js'  // ⬅️ NUEVO
+import cron from 'node-cron';
+import { getTodayBirthdayUsersMX, sendBirthdayEmailsIfNeeded } from './services/notificationService.js';
 
 dotenv.config()
 
@@ -145,6 +147,25 @@ mongoose.connection.on('error', (err) => console.error('❌ Error MongoDB:', err
 
 /** Verificar transporte de email al arrancar (logs claros) */
 verifyEmailTransport().catch(() => {})               // ⬅️ NUEVO
+
+/** Cron: digest de cumpleaños diario (08:00 MX por defecto) */
+const CRON_ENABLED = process.env.CRON_ENABLED !== 'false';       // default: true
+const CRON_SPEC = process.env.CRON_BDAY_SPEC || '0 8 * * *';     // 08:00 todos los días
+const CRON_TZ = 'America/Mexico_City';
+
+if (CRON_ENABLED) {
+  cron.schedule(CRON_SPEC, async () => {
+    try {
+      console.log('[cron] Ejecutando digest de cumpleaños…');
+      const todays = await getTodayBirthdayUsersMX();
+      await sendBirthdayEmailsIfNeeded(new Date(), todays);
+    } catch (err) {
+      console.error('[cron] Error en digest de cumpleaños:', err);
+    }
+  }, { timezone: CRON_TZ });
+
+  console.log(`[cron] Programado digest de cumpleaños: "${CRON_SPEC}" TZ=${CRON_TZ}`);
+}
 
 /** Rutas API */
 app.use('/api/auth', authRoutes)
