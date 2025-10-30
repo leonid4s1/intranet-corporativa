@@ -2,7 +2,7 @@
 import User from '../models/User.js';
 import DailyLock from '../models/DailyLock.js';
 import { sendEmail } from './emailService.js';
-import { startOfDay, subDays } from 'date-fns';
+import { startOfDay, subDays, addDays } from 'date-fns';
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -26,24 +26,6 @@ function prettyDateMX(d) {
     timeZone: MX_TZ,
     weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
   });
-}
-
-/** Calcula el inicio de ventana de aviso para un festivo según reglas:
- *  - Por defecto: 2 días antes
- *  - Si cae en lunes: desde el viernes anterior (lunes - 3 días)
- */
-function getHolidayNoticeWindowStartMX(holidayDate) {
-  const hDayStart = startOfDayInMX(holidayDate);
-  const weekdayShort = new Date(holidayDate)
-    .toLocaleString('en-CA', { timeZone: MX_TZ, weekday: 'short' })
-    .toLowerCase(); // mon, tue, ...
-  // Normal: 2 días antes
-  let windowStart = subDays(hDayStart, 2);
-  // Si es lunes => viernes anterior (lunes - 3)
-  if (weekdayShort === 'mon') {
-    windowStart = subDays(hDayStart, 3);
-  }
-  return windowStart;
 }
 
 /**
@@ -97,40 +79,39 @@ export async function getTodayBirthdayUsersMX() {
 
   return users.filter(u => {
     if (!u.birthday) return false;
-    // Compara la fecha de nacimiento también “vista” en MX
     const dobLocal = new Date(new Date(u.birthday).toLocaleString('en-US', { timeZone: MX_TZ }));
     return dobLocal.getMonth() === month && dobLocal.getDate() === day;
   });
 }
 
 /**
- * ENVÍO ÚNICO de aviso de festivo para TODOS los usuarios, SOLO el PRIMER día que el aviso aparece.
- * Reglas:
- *  - Mostrar 2 días antes; si es lunes, desde viernes anterior.
- *  - El email se envía SOLAMENTE el primer día visible (windowStart).
+ * AVISO DE FESTIVO (REGLA NUEVA):
+ *  - Ventana: [–7 días, día siguiente al festivo)
+ *  - Enviar correo ÚNICO la PRIMERA VEZ que detectamos que hoy está dentro de esa ventana.
+ *    (Si el día -7 se pasó o el server estuvo caído, igual se envía la primera vez que entre a la ventana)
  *
- * @param {{ _id:any, name:string, date:Date }} holiday
- * @returns {Promise<boolean>} true si se envió, false si no correspondía o ya estaba enviado.
+ * @param {{ _id:any, name:string, date:Date }} holiday  // holiday.date debe ser la ocurrencia del año actual
+ * @returns {Promise<boolean>} true si envió, false si ya estaba enviado o fuera de ventana.
  */
-export async function sendUpcomingHolidayEmailIfFirstDay(holiday) {
+export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   if (!holiday?.date || !holiday?.name || !holiday?._id) return false;
 
   const todayMX = startOfDayInMX(new Date());
   const holidayDateStart = startOfDayInMX(holiday.date);
-  const windowStart = getHolidayNoticeWindowStartMX(holidayDateStart);
+  const windowStart = subDays(holidayDateStart, 7);
+  const windowEndExclusive = addDays(holidayDateStart, 1);
 
-  // Solo el primer día visible
-  if (todayMX.getTime() !== windowStart.getTime()) return false;
+  // Solo si HOY está dentro de la ventana 7d
+  if (todayMX < windowStart || todayMX >= windowEndExclusive) return false;
 
-  // Lock: por festivo y por día de inicio de ventana
+  // Lock por (type, dateKey=-7 del festivo, holidayId)
   const dateKey = dayKeyMX(windowStart);
   const existed = await DailyLock.findOneAndUpdate(
-    { type: 'holiday_upcoming', dateKey, holidayId: String(holiday._id) },
+    { type: 'holiday_upcoming_7d', dateKey, holidayId: String(holiday._id) },
     { $setOnInsert: { createdAt: new Date() } },
     { upsert: true, new: false }
   ).lean();
-
-  if (existed) return false; // ya se envió
+  if (existed) return false;
 
   const recipients = await User.find(
     { email: { $exists: true, $ne: null }, isActive: { $ne: false } },
@@ -139,18 +120,18 @@ export async function sendUpcomingHolidayEmailIfFirstDay(holiday) {
 
   const toList = recipients.map(u => u.email).filter(Boolean);
   if (toList.length === 0) {
-    console.warn('⚠ No hay destinatarios para el aviso de festivo');
+    console.warn('⚠ No hay destinatarios para el aviso de festivo (7d)');
     return false;
   }
 
-  const subject = `Aviso: próximo día festivo – ${holiday.name} (${prettyDateMX(holiday.date)})`;
+  const subject = `Recordatorio: falta 1 semana para ${holiday.name} (${prettyDateMX(holiday.date)})`;
   const html = `
-    <h2>🎉 Próximo día festivo</h2>
-    <p><strong>${holiday.name}</strong> será el <strong>${prettyDateMX(holiday.date)}</strong>.</p>
+    <h2>⏳ Falta 1 semana</h2>
+    <p>Se acerca <strong>${holiday.name}</strong> el <strong>${prettyDateMX(holiday.date)}</strong>.</p>
     <p>Considera este descanso en tu planificación.</p>
   `;
 
   await sendEmail({ to: toList, subject, html });
-  console.log(`📨 Aviso de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`);
+  console.log(`📨 Aviso 7d de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`);
   return true;
 }
