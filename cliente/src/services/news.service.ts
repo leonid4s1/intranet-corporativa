@@ -5,7 +5,7 @@ export const allowedTypes = [
   'holiday_notice',
   'birthday_self',
   'birthday_digest_info',
-  'birthday_digest', // <-- agregado
+  'birthday_digest', // compat: por si el server envía este
 ] as const;
 export type AllowedType = typeof allowedTypes[number];
 
@@ -89,9 +89,25 @@ export async function getHomeNews(): Promise<NewsItem[]> {
     const items = data?.items ?? [];
     const now = new Date();
 
-    return items
+    const normalized = items
       .map(normalize)
       .filter((it) => isWithinWindow(now, it.visibleFrom, it.visibleUntil));
+
+    // Si existe 'birthday_self', oculta cualquier digest (info/legacy)
+    const hasSelf = normalized.some((it) => it.type === 'birthday_self');
+    const withoutDigestIfSelf = hasSelf
+      ? normalized.filter(
+          (it) => it.type !== 'birthday_digest_info' && it.type !== 'birthday_digest'
+        )
+      : normalized;
+
+    // Deduplicación defensiva por id
+    const seen = new Set<string>();
+    return withoutDigestIfSelf.filter((it) => {
+      if (seen.has(it.id)) return false;
+      seen.add(it.id);
+      return true;
+    });
   } catch (err) {
     console.error('[news.service] Error obteniendo /news/home', err);
     // El carrusel mostrará el placeholder si esto devuelve []

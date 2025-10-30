@@ -152,4 +152,71 @@ watch(() => props.items?.length, () => { currentIndex.value = 0; startAuto() })
 .dots { display:flex; gap:6px; }
 .dot { width:8px; height:8px; border-radius:999px; border:0; background:#d1d5db; cursor:pointer; transition: all .2s ease; }
 .dot.active { background:#6b7280; width:18px; border-radius:6px; }
+
+/* ===== Birthday look & feel (sin tocar template) ===== */
+
+/* base polishing */
+.card{
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+}
+
+/* Cumpleañero (solo el usuario) */
+.card--birthday_self{
+  background:
+    linear-gradient(180deg, rgba(99,102,241,.08), transparent 60%) #fff; /* morado suave */
+  border-color: rgba(99,102,241,.28);
+}
+/* Digest (visibles para los demás) */
+.card--birthday_digest_info{
+  background:
+    linear-gradient(180deg, rgba(16,185,129,.10), transparent 60%) #fff; /* verde suave */
+  border-color: rgba(16,185,129,.28);
+}
+/* Holiday */
+.card--holiday_notice{
+  background:
+    linear-gradient(180deg, rgba(251,146,60,.10), transparent 60%) #fff; /* naranja suave */
+  border-color: rgba(251,146,60,.30);
+}
+
+/* Badge por tipo */
+.card--birthday_self .badge{
+  background: rgba(99,102,241,.16);
+  color: #4f46e5;
+}
+.card--birthday_digest_info .badge{
+  background: rgba(16,185,129,.18);
+  color: #059669;
+}
+.card--holiday_notice .badge{
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+/* Watermark con emoji sin tocar el template */
+.card--birthday_self::before,
+.card--birthday_digest_info::before{
+  content: "🎂";
+  position: absolute;
+  left: 14px;
+  top: 16px;
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
+  opacity: .95;
+}
+/* empuja un poco el título para no chocar con el ícono */
+.card__head{ padding-left: 30px; }
+.card__body{ padding-left: 30px; }
+
+/* Ajustes responsive */
+@media (max-width: 640px){
+  .card{ min-height: 130px; }
+  .card__title{ font-size: 17px; }
+  .card__body{ font-size: .95rem; }
+}
+
 </style>

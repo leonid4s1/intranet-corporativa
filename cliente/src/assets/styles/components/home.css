@@ -214,3 +214,85 @@
 .tasks-summary {
   display: none !important;
 }
+
+/* ==================== */
+/* NEWS: Birthday cards */
+/* ==================== */
+
+/* tokens de acento para cumpleaños */
+:root {
+  --bday-self-bg: linear-gradient(180deg, rgba(99,102,241,.08), transparent 60%) #fff;   /* morado suave */
+  --bday-self-border: rgba(99,102,241,.28);
+  --bday-self-badge-bg: rgba(99,102,241,.16);
+  --bday-self-badge-fg: #4f46e5;
+
+  --bday-digest-bg: linear-gradient(180deg, rgba(16,185,129,.10), transparent 60%) #fff; /* verde suave */
+  --bday-digest-border: rgba(16,185,129,.28);
+  --bday-digest-badge-bg: rgba(16,185,129,.18);
+  --bday-digest-badge-fg: #059669;
+}
+
+/* contenedor visual del comunicado (independiente del carrusel) */
+.news-card{
+  position: relative;
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 18px 20px;
+  background: var(--card-bg);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--box-shadow);
+  min-height: 108px;
+}
+
+/* icono principal (emoji o svg) */
+.news-card__icon{
+  font-size: 28px; line-height: 1; margin-top: 2px;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
+}
+
+/* cuerpo */
+.news-card__body{ flex: 1; }
+.news-card__title{
+  margin: 0 0 6px; font-weight: 800; font-size: 1.1rem; color: var(--primary-color);
+  letter-spacing: .1px;
+}
+.news-card__excerpt{
+  margin: 0; color: var(--text-light); line-height: 1.5; font-size: .95rem;
+}
+
+/* badge */
+.news-card__badge{
+  position: absolute; top: 12px; right: 12px;
+  padding: 6px 10px; border-radius: 999px; font-size: .75rem; font-weight: 800;
+}
+
+/* variantes por tipo */
+.news-card--birthday_self{
+  background: var(--bday-self-bg);
+  border-color: var(--bday-self-border);
+}
+.news-card--birthday_self .news-card__badge{
+  background: var(--bday-self-badge-bg);
+  color: var(--bday-self-badge-fg);
+}
+.news-card--birthday_digest_info{
+  background: var(--bday-digest-bg);
+  border-color: var(--bday-digest-border);
+}
+.news-card--birthday_digest_info .news-card__badge{
+  background: var(--bday-digest-badge-bg);
+  color: var(--bday-digest-badge-fg);
+}
+
+/* integración suave dentro del carrusel existente */
+.news-section :where(.news-carousel .card.news-card){
+  padding: 18px 20px !important;
+  min-height: 120px;
+}
+
+/* accesibilidad mínima */
+.news-card:focus-within{
+  outline: 3px solid rgba(37,99,235,.25);
+  outline-offset: 2px;
+  border-color: var(--secondary-color);
+}

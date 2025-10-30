@@ -5,16 +5,18 @@ const User = require('../models/User');
 const notificationService = require('../services/notificationService');
 const { startOfDay, addDays, isBefore, isAfter } = require('date-fns');
 
-// === TZ MX helpers ===
+/* =========================
+ *        TZ MX helpers
+ * ========================= */
 const MX_TZ = 'America/Mexico_City';
 
-// "Hoy" a las 00:00 en MX (tipo Date)
+// "Hoy" a las 00:00 en MX (Date)
 function startOfDayInMX(date = new Date()) {
   const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
   return startOfDay(local);
 }
 
-// mm-dd de una fecha en zona MX (para "hoy")
+// mm-dd de una fecha en zona MX (para “hoy”)
 function mmddMX(date) {
   const d = new Date(date);
   const mm = d.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
@@ -22,7 +24,7 @@ function mmddMX(date) {
   return `${mm}-${dd}`;
 }
 
-// ⚠️ NUEVO: mm-dd del birthDate en UTC (no se debe desplazar por zona)
+// mm-dd del birthDate en UTC (no desplazamos por zona)
 function mmddUTC(date) {
   const d = new Date(date);
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -30,31 +32,46 @@ function mmddUTC(date) {
   return `${mm}-${dd}`;
 }
 
-function toISO(d) { return new Date(d).toISOString(); }
+function toISO(d) {
+  return new Date(d).toISOString();
+}
 
+// Próxima ocurrencia de un feriado (respeta recurrency; compara en MX)
 function nextOccurrence(holidayDate, isRecurring) {
   const base = new Date(holidayDate);
   const todayLocal = startOfDayInMX(); // usa MX
-  let occurrence = new Date(todayLocal.getFullYear(), base.getMonth(), base.getDate());
+  let occurrence = new Date(
+    todayLocal.getFullYear(),
+    base.getMonth(),
+    base.getDate()
+  );
   if (!isRecurring) return occurrence;
   if (isAfter(startOfDay(todayLocal), startOfDay(occurrence))) {
-    occurrence = new Date(todayLocal.getFullYear() + 1, base.getMonth(), base.getDate());
+    occurrence = new Date(
+      todayLocal.getFullYear() + 1,
+      base.getMonth(),
+      base.getDate()
+    );
   }
   return occurrence;
 }
 
+/* =========================
+ *        Controller
+ * ========================= */
 exports.getHomeFeed = async (req, res, next) => {
   try {
     const user = req.user;
-    const today = startOfDayInMX(); // MX day start
+    const today = startOfDayInMX(); // inicio de día en MX
+    const todayMMDD = mmddMX(today);
 
-    // 1) Noticias publicadas
+    /* 1) Noticias publicadas */
     const published = await News.find({ status: 'published' })
       .sort({ createdAt: -1 })
       .limit(10)
       .lean();
 
-    const items = (published || []).map(n => ({
+    const items = (published || []).map((n) => ({
       id: String(n._id),
       type: 'static',
       title: n.title,
@@ -63,7 +80,7 @@ exports.getHomeFeed = async (req, res, next) => {
       visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined,
     }));
 
-    // 2) Aviso de feriado (ventana 2 días antes; oculta el mismo día)
+    /* 2) Avisos de feriado (ventana: 2 días antes; oculta el mismo día) */
     const holidays = await Holiday.find({}).lean();
     for (const h of holidays) {
       const isRecurring = h.recurring === true || h.type === 'recurring';
@@ -83,35 +100,54 @@ exports.getHomeFeed = async (req, res, next) => {
       }
     }
 
-    // 3) Cumpleaños (self) y 4) Digest (TZ MX para "hoy"; birthDate en UTC)
+    /* 3) Cumpleaños: mostrar SOLO un comunicado por usuario
+          - Si el usuario autenticado cumple hoy -> SOLO 'birthday_self'
+          - Si NO cumple, pero hay cumpleañeros -> SOLO 'birthday_digest_info'
+          - El correo digest se envía si hay cumpleañeros (independiente de UI) */
     if (user) {
-      const me = await User.findById(user.id).lean();
-      const todayMMDD = mmddMX(today); // hoy en MX
-
-      // Self (comparar birthDate en UTC)
-      if (me?.birthDate && mmddUTC(me.birthDate) === todayMMDD) {
-        items.unshift({
-          id: `birthday-self-${me._id}-${todayMMDD}`,
-          type: 'birthday_self',
-          title: `¡Feliz cumpleaños, ${me.name?.split(' ')[0] || 'colaborador'}!`,
-          body: 'Te deseamos un día increíble. 🎉',
-          visibleFrom: toISO(today),
-          visibleUntil: toISO(addDays(today, 1)),
-        });
-      }
-
-      // Digest (para todos)
+      // Trae todos los cumpleañeros de hoy (comparando birthDate en UTC)
       const all = await User.find(
         { birthDate: { $ne: null } },
         { name: 1, email: 1, birthDate: 1 }
       ).lean();
+      const birthdayTodayUsers = all.filter(
+        (u) => mmddUTC(u.birthDate) === todayMMDD
+      );
 
-      // ⚠️ usar mmddUTC para cada birthDate
-      const birthdayTodayUsers = all.filter(u => mmddUTC(u.birthDate) === todayMMDD);
-
+      // Enviar correo digest si hay cumpleañeros (idempotencia la maneja DailyLock)
       if (birthdayTodayUsers.length > 0) {
-        const names = birthdayTodayUsers.map(u => u.name || u.email).join(', ');
-        // Inserta SIEMPRE el digest
+        try {
+          await notificationService.sendBirthdayEmailsIfNeeded(
+            today,
+            birthdayTodayUsers
+          );
+        } catch (errMail) {
+          console.error(
+            '[birthdays] error enviando correos:',
+            errMail?.message || errMail
+          );
+        }
+      }
+
+      // ¿El usuario autenticado cumple hoy?
+      const me = await User.findById(user.id).lean();
+      const isMyBirthday =
+        !!me?.birthDate && mmddUTC(me.birthDate) === todayMMDD;
+
+      if (isMyBirthday) {
+        const first = (me?.name || 'colaborador').split(' ')[0];
+        items.unshift({
+          id: `birthday-self-${me._id}-${todayMMDD}`,
+          type: 'birthday_self',
+          title: `¡Feliz cumpleaños, ${first}!`,
+          body: 'Te deseamos un día increíble. 🎉',
+          visibleFrom: toISO(today),
+          visibleUntil: toISO(addDays(today, 1)),
+        });
+      } else if (birthdayTodayUsers.length > 0) {
+        const names = birthdayTodayUsers
+          .map((u) => u.name || u.email)
+          .join(', ');
         items.unshift({
           id: `birthday-digest-${todayMMDD}`,
           type: 'birthday_digest_info',
@@ -120,17 +156,10 @@ exports.getHomeFeed = async (req, res, next) => {
           visibleFrom: toISO(today),
           visibleUntil: toISO(addDays(today, 1)),
         });
-
-        // Email sin bloquear
-        try {
-          await notificationService.sendBirthdayEmailsIfNeeded(today, birthdayTodayUsers);
-        } catch (errMail) {
-          console.error('[birthdays] error enviando correos:', errMail?.message || errMail);
-        }
       }
     }
 
-    res.json({ items });
+    return res.json({ items });
   } catch (err) {
     next(err);
   }
