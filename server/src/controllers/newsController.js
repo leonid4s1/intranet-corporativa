@@ -107,10 +107,11 @@ exports.getHomeFeed = async (req, res, next) => {
     if (user) {
       // Trae todos los cumpleañeros de hoy (comparando birthDate en UTC)
       const all = await User.find(
-        { birthday: { $ne: null } },
-        { name: 1, email: 1, birthday: 1 }
+        { birthDate: { $ne: null } },
+        { name: 1, email: 1, birthDate: 1 }
       ).lean();
-      const birthdayTodayUsers = all.filter((u) => u.birthday && mmddUTC(u.birthday) === todayMMDD);
+
+      const birthdayTodayUsers = all.filter((u) => u.birthDate && mmddUTC(u.birthDate) === todayMMDD);
 
       // Enviar correo digest si hay cumpleañeros (idempotencia la maneja DailyLock)
       if (birthdayTodayUsers.length > 0) {
@@ -129,8 +130,8 @@ exports.getHomeFeed = async (req, res, next) => {
 
       // ¿El usuario autenticado cumple hoy?
       const me = await User.findById(user.id).lean();
-      const isMyBirthday =
-       !!me?.birthday && mmddUTC(me.birthday) === todayMMDD;
+      
+      const isMyBirthday = !!me?.birthDate && mmddUTC(me.birthDate) === todayMMDD;
 
       if (isMyBirthday) {
         const first = (me?.name || 'colaborador').split(' ')[0];
