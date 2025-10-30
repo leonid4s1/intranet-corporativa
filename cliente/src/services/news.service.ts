@@ -1,3 +1,4 @@
+// cliente/src/services/news.service.ts
 import api from './api';
 
 export const allowedTypes = [
@@ -5,7 +6,7 @@ export const allowedTypes = [
   'holiday_notice',
   'birthday_self',
   'birthday_digest_info',
-  'birthday_digest', // compat: por si el server envía este
+  'birthday_digest', // compat: legacy
 ] as const;
 export type AllowedType = typeof allowedTypes[number];
 
@@ -69,17 +70,38 @@ function normalize(raw: ServerNewsItem): NewsItem {
   if (safeType === 'static' && raw.type && raw.type !== 'static') {
     console.warn('[news.service] Tipo no permitido recibido:', raw.type);
   }
+
+  // Fallbacks amigables
+  const title = raw.title ?? 'Aviso';
+  const baseExcerpt = raw.excerpt ?? raw.body ?? '';
+
+  const excerpt =
+    baseExcerpt ||
+    (safeType === 'holiday_notice' ? `Próximo día festivo: ${title}` : '');
+
   return {
     id: String(raw.id),
     type: safeType,
-    title: raw.title ?? 'Aviso',
-    excerpt: raw.excerpt ?? raw.body ?? '',
+    title,
+    excerpt,
     imageUrl: raw.imageUrl ?? null,
     ctaText: raw.ctaText ?? null,
     ctaTo: raw.ctaTo ?? null,
     visibleFrom: raw.visibleFrom,
     visibleUntil: raw.visibleUntil,
   };
+}
+
+/** Puntaje de prioridad para ordenar en el carrusel */
+function priorityScore(it: NewsItem): number {
+  switch (it.type) {
+    case 'birthday_self': return 100;
+    case 'holiday_notice': return 90;
+    case 'birthday_digest_info':
+    case 'birthday_digest': return 80;
+    case 'static':
+    default: return 50;
+  }
 }
 
 /** Obtiene y filtra las noticias para el home */
@@ -95,7 +117,7 @@ export async function getHomeNews(): Promise<NewsItem[]> {
 
     // Si existe 'birthday_self', oculta cualquier digest (info/legacy)
     const hasSelf = normalized.some((it) => it.type === 'birthday_self');
-    const withoutDigestIfSelf = hasSelf
+    const filtered = hasSelf
       ? normalized.filter(
           (it) => it.type !== 'birthday_digest_info' && it.type !== 'birthday_digest'
         )
@@ -103,10 +125,21 @@ export async function getHomeNews(): Promise<NewsItem[]> {
 
     // Deduplicación defensiva por id
     const seen = new Set<string>();
-    return withoutDigestIfSelf.filter((it) => {
+    const deduped = filtered.filter((it) => {
       if (seen.has(it.id)) return false;
       seen.add(it.id);
       return true;
+    });
+
+    // Orden: prioridad desc y luego por visibleFrom (más reciente primero)
+    return deduped.sort((a, b) => {
+      const pa = priorityScore(a);
+      const pb = priorityScore(b);
+      if (pb !== pa) return pb - pa;
+
+      const ta = a.visibleFrom ? new Date(a.visibleFrom).getTime() : 0;
+      const tb = b.visibleFrom ? new Date(b.visibleFrom).getTime() : 0;
+      return tb - ta;
     });
   } catch (err) {
     console.error('[news.service] Error obteniendo /news/home', err);

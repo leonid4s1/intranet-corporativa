@@ -3,7 +3,7 @@ const News = require('../models/News');
 const Holiday = require('../models/Holiday');
 const User = require('../models/User');
 const notificationService = require('../services/notificationService');
-const { startOfDay, addDays, isBefore, isAfter } = require('date-fns');
+const { startOfDay, addDays, subDays, isBefore, isAfter } = require('date-fns');
 
 /* =========================
  *        TZ MX helpers
@@ -56,6 +56,23 @@ function nextOccurrence(holidayDate, isRecurring) {
   return occurrence;
 }
 
+/** Inicio de ventana de aviso:
+ *  - Normal: 2 días antes
+ *  - Si el festivo es lunes: desde viernes anterior (3 días antes)
+ */
+function calcWindowStartMX(occDate) {
+  const occStart = startOfDayInMX(occDate);
+  const weekdayShort = new Date(occDate)
+    .toLocaleString('en-CA', { timeZone: MX_TZ, weekday: 'short' })
+    .toLowerCase(); // mon, tue, ...
+  // por defecto 2 días antes
+  let windowStart = subDays(occStart, 2);
+  if (weekdayShort === 'mon') {
+    windowStart = subDays(occStart, 3); // viernes anterior
+  }
+  return windowStart;
+}
+
 /* =========================
  *        Controller
  * ========================= */
@@ -80,23 +97,40 @@ exports.getHomeFeed = async (req, res, next) => {
       visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined,
     }));
 
-    /* 2) Avisos de feriado (ventana: 2 días antes; oculta el mismo día) */
+    /* 2) Avisos de feriado (reglas: 2 días antes; si es lunes, desde viernes; desaparece al día siguiente) */
     const holidays = await Holiday.find({}).lean();
     for (const h of holidays) {
       const isRecurring = h.recurring === true || h.type === 'recurring';
-      const occ = nextOccurrence(h.date, isRecurring);
-      const startShow = addDays(occ, -2);
-      const endHide = startOfDay(occ);
+      const occ = nextOccurrence(h.date, isRecurring);                 // ocurrencia (año vigente)
+      const windowStart = calcWindowStartMX(occ);                      // inicio de ventana MX
+      const windowEndExclusive = addDays(startOfDayInMX(occ), 1);      // desaparece al día siguiente
 
-      if (isAfter(today, startOfDay(startShow)) && isBefore(today, endHide)) {
+      // Mostrar si today ∈ [windowStart, windowEndExclusive)
+      const inWindow =
+        (today.getTime() >= windowStart.getTime()) &&
+        (today.getTime() < windowEndExclusive.getTime());
+
+      if (inWindow) {
+        // Item para el feed (id con año para evitar choques entre años)
         items.unshift({
-          id: `holiday-${h._id}`,
+          id: `holiday-${h._id}-${occ.getFullYear()}`,
           type: 'holiday_notice',
-          title: `Se acerca el feriado "${h.name}"`,
-          body: `Será el ${occ.toLocaleDateString('es-MX')}. Planifica tus solicitudes con anticipación.`,
-          visibleFrom: toISO(startShow),
-          visibleUntil: toISO(endHide),
+          title: `Próximo día festivo: ${h.name}`,
+          body: `Se celebra el ${new Date(occ).toLocaleDateString('es-MX', { timeZone: MX_TZ, weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}.`,
+          visibleFrom: toISO(windowStart),
+          visibleUntil: toISO(windowEndExclusive),
         });
+
+        // Dispara correo SOLO el primer día (la función ya valida y usa DailyLock).
+        try {
+          // Pasamos la ocurrencia en el campo date para que el correo tenga la fecha correcta del año actual
+          await notificationService.sendUpcomingHolidayEmailIfFirstDay({
+            ...h,
+            date: occ
+          });
+        } catch (errMail) {
+          console.error('[holiday_notice] error enviando correo masivo:', errMail?.message || errMail);
+        }
       }
     }
 
@@ -130,7 +164,6 @@ exports.getHomeFeed = async (req, res, next) => {
 
       // ¿El usuario autenticado cumple hoy?
       const me = await User.findById(user.id).lean();
-      
       const isMyBirthday = !!me?.birthDate && mmddUTC(me.birthDate) === todayMMDD;
 
       if (isMyBirthday) {
