@@ -6,7 +6,9 @@ import { startOfDay, subDays, addDays } from 'date-fns';
 
 const MX_TZ = 'America/Mexico_City';
 
-// === Helpers de zona MX (sin date-fns-tz) ===
+/* ===============================
+ *   Helpers de zona horaria MX
+ * =============================== */
 function startOfDayInMX(date = new Date()) {
   const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
   return startOfDay(local);
@@ -17,26 +19,32 @@ function dayKeyMX(date = new Date()) {
   const d = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
   return `${y}-${m}-${d}`;
 }
-function getMonthDayInMX(date = new Date()) {
-  const local = new Date(date.toLocaleString('en-US', { timeZone: MX_TZ }));
-  return { month: local.getMonth(), day: local.getDate() }; // 0..11, 1..31
-}
 function prettyDateMX(d) {
   return new Date(d).toLocaleDateString('es-MX', {
     timeZone: MX_TZ,
-    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
   });
 }
+function mmddUTC(date) {
+  const d = new Date(date);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${mm}-${dd}`;
+}
 
-/**
- * Envía el digest de cumpleaños una vez al día (MX) con DailyLock.
- */
+/* ==========================================
+ *  DIGEST DE CUMPLEAÑOS (1 vez al día MX)
+ * ========================================== */
 export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
   const day = startOfDayInMX(date);
   const dayKey = dayKeyMX(day);
 
   if (!Array.isArray(birthdayUsers) || birthdayUsers.length === 0) return false;
 
+  // Evita enviar dos veces en el mismo día
   const existed = await DailyLock.findOneAndUpdate(
     { type: 'birthday_digest', dateKey: dayKey },
     { $setOnInsert: { createdAt: new Date() } },
@@ -49,13 +57,13 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
     { email: 1 }
   ).lean();
 
-  const toList = allUsers.map(u => u.email).filter(Boolean);
+  const toList = allUsers.map((u) => u.email).filter(Boolean);
   if (toList.length === 0) {
     console.warn('⚠ No hay destinatarios para el digest de cumpleaños');
     return false;
   }
 
-  const names = birthdayUsers.map(u => u?.name || u?.email).filter(Boolean).join(', ');
+  const names = birthdayUsers.map((u) => u?.name || u?.email).join(', ');
   const subject = '🎂 Cumpleaños de hoy en la empresa';
   const html = `
     <h2>🎂 Cumpleaños de hoy en la empresa</h2>
@@ -68,31 +76,23 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
   return true;
 };
 
-/** Cumpleañeros de HOY en zona MX (sin date-fns-tz) */
+/* =======================================
+ *   CUMPLEAÑEROS HOY (campo birthDate)
+ * ======================================= */
 export async function getTodayBirthdayUsersMX() {
-  const { month, day } = getMonthDayInMX(new Date());
+  const todayMMDD = mmddUTC(new Date());
 
   const users = await User.find(
-    { birthday: { $exists: true, $ne: null }, isActive: { $ne: false } },
-    { name: 1, email: 1, birthday: 1 }
+    { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false } },
+    { name: 1, email: 1, birthDate: 1 }
   ).lean();
 
-  return users.filter(u => {
-    if (!u.birthday) return false;
-    const dobLocal = new Date(new Date(u.birthday).toLocaleString('en-US', { timeZone: MX_TZ }));
-    return dobLocal.getMonth() === month && dobLocal.getDate() === day;
-  });
+  return users.filter((u) => u.birthDate && mmddUTC(u.birthDate) === todayMMDD);
 }
 
-/**
- * AVISO DE FESTIVO (REGLA NUEVA):
- *  - Ventana: [–7 días, día siguiente al festivo)
- *  - Enviar correo ÚNICO la PRIMERA VEZ que detectamos que hoy está dentro de esa ventana.
- *    (Si el día -7 se pasó o el server estuvo caído, igual se envía la primera vez que entre a la ventana)
- *
- * @param {{ _id:any, name:string, date:Date }} holiday  // holiday.date debe ser la ocurrencia del año actual
- * @returns {Promise<boolean>} true si envió, false si ya estaba enviado o fuera de ventana.
- */
+/* ====================================================
+ *   AVISO DE FESTIVO (7 días antes, con DailyLock)
+ * ==================================================== */
 export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   if (!holiday?.date || !holiday?.name || !holiday?._id) return false;
 
@@ -101,10 +101,10 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   const windowStart = subDays(holidayDateStart, 7);
   const windowEndExclusive = addDays(holidayDateStart, 1);
 
-  // Solo si HOY está dentro de la ventana 7d
+  // Solo si HOY está dentro de la ventana [–7, +1)
   if (todayMX < windowStart || todayMX >= windowEndExclusive) return false;
 
-  // Lock por (type, dateKey=-7 del festivo, holidayId)
+  // Candado único por festivo
   const dateKey = dayKeyMX(windowStart);
   const existed = await DailyLock.findOneAndUpdate(
     { type: 'holiday_upcoming_7d', dateKey, holidayId: String(holiday._id) },
@@ -118,7 +118,7 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
     { email: 1 }
   ).lean();
 
-  const toList = recipients.map(u => u.email).filter(Boolean);
+  const toList = recipients.map((u) => u.email).filter(Boolean);
   if (toList.length === 0) {
     console.warn('⚠ No hay destinatarios para el aviso de festivo (7d)');
     return false;
@@ -132,6 +132,8 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   `;
 
   await sendEmail({ to: toList, subject, html });
-  console.log(`📨 Aviso 7d de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`);
+  console.log(
+    `📨 Aviso 7d de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`
+  );
   return true;
 }

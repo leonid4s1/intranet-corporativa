@@ -1,30 +1,18 @@
-// server/src/controllers/newsController.js
-const News = require('../models/News');
-const Holiday = require('../models/Holiday');
-const User = require('../models/User');
-const notificationService = require('../services/notificationService');
-const { startOfDay, addDays, isAfter } = require('date-fns');
+// server/src/controllers/newsController.js (ESM)
+import News from '../models/News.js';
+import Holiday from '../models/Holiday.js';
+import User from '../models/User.js';
+import { startOfDay, addDays, isAfter } from 'date-fns';
 
-/* =========================
- *        TZ MX helpers
- * ========================= */
 const MX_TZ = 'America/Mexico_City';
 
-// "Hoy" a las 00:00 en MX (Date)
+// "Hoy" a las 00:00 en MX
 function startOfDayInMX(date = new Date()) {
   const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
   return startOfDay(local);
 }
 
-// mm-dd de una fecha en zona MX (para “hoy”)
-function mmddMX(date) {
-  const d = new Date(date);
-  const mm = d.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
-  const dd = d.toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
-  return `${mm}-${dd}`;
-}
-
-// mm-dd del birthDate en UTC (no desplazamos por zona)
+// mm-dd en UTC (para cumpleaños)
 function mmddUTC(date) {
   const d = new Date(date);
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -36,10 +24,10 @@ function toISO(d) {
   return new Date(d).toISOString();
 }
 
-// Próxima ocurrencia de un feriado (respeta recurrency; compara en MX)
+// Próxima ocurrencia de feriado (respeta recurrencia, compara en MX)
 function nextOccurrence(holidayDate, isRecurring) {
   const base = new Date(holidayDate);
-  const todayLocal = startOfDayInMX(); // usa MX
+  const todayLocal = startOfDayInMX();
   let occurrence = new Date(
     todayLocal.getFullYear(),
     base.getMonth(),
@@ -56,16 +44,13 @@ function nextOccurrence(holidayDate, isRecurring) {
   return occurrence;
 }
 
-/* =========================
- *        Controller
- * ========================= */
-exports.getHomeFeed = async (req, res, next) => {
+export const getHomeFeed = async (req, res, next) => {
   try {
     const user = req.user;
-    const today = startOfDayInMX(); // inicio de día en MX
-    const todayMMDD = mmddMX(today);
+    const today = startOfDayInMX();
+    const todayMMDD = mmddUTC(today);
 
-    /* 1) Noticias publicadas */
+    // 1) Noticias publicadas
     const published = await News.find({ status: 'published' })
       .sort({ createdAt: -1 })
       .limit(10)
@@ -80,24 +65,23 @@ exports.getHomeFeed = async (req, res, next) => {
       visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined,
     }));
 
-    /* 2) Avisos de feriado (NUEVA regla):
-          - Mostrar desde 7 días antes del festivo
-          - Mantener visible hasta que pase (desaparece al día siguiente)
-          - Enviar correo ÚNICO justo a -7 días */
+    // 2) Avisos de feriado (ventana 7d) + correo único
     const holidays = await Holiday.find({}).lean();
     for (const h of holidays) {
       const isRecurring = h.recurring === true || h.type === 'recurring';
-      const occ = nextOccurrence(h.date, isRecurring);      // ocurrencia (año vigente)
+      const occ = nextOccurrence(h.date, isRecurring);
       const occStart = startOfDayInMX(occ);
 
-      const windowStart = addDays(occStart, -7);            // 7 días antes
-      const windowEndExclusive = addDays(occStart, 1);      // desaparece al día siguiente
+      const windowStart = addDays(occStart, -7);
+      const windowEndExclusive = addDays(occStart, 1);
 
       const inWindow =
         (today.getTime() >= windowStart.getTime()) &&
         (today.getTime() < windowEndExclusive.getTime());
 
       if (inWindow) {
+        console.log('[feed] holiday in window:', h.name, 'occ=', occ.toISOString());
+
         items.unshift({
           id: `holiday-${h._id}-${occ.getFullYear()}`,
           type: 'holiday_notice',
@@ -110,11 +94,12 @@ exports.getHomeFeed = async (req, res, next) => {
           visibleUntil: toISO(windowEndExclusive),
         });
 
-        // Correo ÚNICO a -7 días (la función hace el candado con DailyLock)
         try {
-          await notificationService.sendUpcomingHolidayEmailIfSevenDaysBefore({
+          // mantiene import dinámico para evaluar envío de correo
+          const svc = await import('../services/notificationService.js');
+          await svc.sendUpcomingHolidayEmailIfSevenDaysBefore({
             ...h,
-            date: occ, // usar la ocurrencia actual
+            date: occ,
           });
         } catch (errMail) {
           console.error('[holiday_notice 7d] error enviando correo:', errMail?.message || errMail);
@@ -122,35 +107,25 @@ exports.getHomeFeed = async (req, res, next) => {
       }
     }
 
-    /* 3) Cumpleaños: mostrar SOLO un comunicado por usuario
-          - Si el usuario autenticado cumple hoy -> SOLO 'birthday_self'
-          - Si NO cumple, pero hay cumpleañeros -> SOLO 'birthday_digest_info'
-          - El correo digest se envía si hay cumpleañeros (independiente de UI) */
+    // 3) Cumpleaños (usar birthDate de forma consistente)
     if (user) {
-      // Trae todos los cumpleañeros de hoy (comparando birthDate en UTC)
       const all = await User.find(
         { birthDate: { $ne: null } },
         { name: 1, email: 1, birthDate: 1 }
       ).lean();
 
       const birthdayTodayUsers = all.filter((u) => u.birthDate && mmddUTC(u.birthDate) === todayMMDD);
+      console.log('[feed] birthdays today:', birthdayTodayUsers.map(u => u.name || u.email));
 
-      // Enviar correo digest si hay cumpleañeros (idempotencia la maneja DailyLock)
       if (birthdayTodayUsers.length > 0) {
         try {
-          await notificationService.sendBirthdayEmailsIfNeeded(
-            today,
-            birthdayTodayUsers
-          );
+          const svc = await import('../services/notificationService.js');
+          await svc.sendBirthdayEmailsIfNeeded(today, birthdayTodayUsers);
         } catch (errMail) {
-          console.error(
-            '[birthdays] error enviando correos:',
-            errMail?.message || errMail
-          );
+          console.error('[birthdays] error enviando correos:', errMail?.message || errMail);
         }
       }
 
-      // ¿El usuario autenticado cumple hoy?
       const me = await User.findById(user.id).lean();
       const isMyBirthday = !!me?.birthDate && mmddUTC(me.birthDate) === todayMMDD;
 
@@ -165,9 +140,7 @@ exports.getHomeFeed = async (req, res, next) => {
           visibleUntil: toISO(addDays(today, 1)),
         });
       } else if (birthdayTodayUsers.length > 0) {
-        const names = birthdayTodayUsers
-          .map((u) => u.name || u.email)
-          .join(', ');
+        const names = birthdayTodayUsers.map((u) => u.name || u.email).join(', ');
         items.unshift({
           id: `birthday-digest-${todayMMDD}`,
           type: 'birthday_digest_info',
