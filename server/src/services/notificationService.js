@@ -35,6 +35,40 @@ function mmddUTC(date) {
   return `${mm}-${dd}`;
 }
 
+/* ===============================
+ *   Helpers de envío de correo
+ * =============================== */
+const SIMPLE_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+async function collectRecipientEmails() {
+  const users = await User.find(
+    { isActive: { $ne: false }, email: { $exists: true, $ne: null } },
+    { email: 1 }
+  ).lean();
+
+  // dedup + validación simple
+  const set = new Set(
+    (users || [])
+      .map(u => (u?.email || '').trim())
+      .filter(e => e && SIMPLE_EMAIL_RE.test(e))
+  );
+  return Array.from(set);
+}
+
+async function safeSendEmail({ to, subject, html }) {
+  if (!Array.isArray(to) || to.length === 0) {
+    console.warn('⚠ safeSendEmail: lista de destinatarios vacía');
+    return false;
+  }
+  try {
+    await sendEmail({ to, subject, html });
+    return true;
+  } catch (err) {
+    console.error('✉️  Error enviando correo:', err?.message || err);
+    return false;
+  }
+}
+
 /* ==========================================
  *  DIGEST DE CUMPLEAÑOS (1 vez al día MX)
  * ========================================== */
@@ -52,18 +86,13 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
   ).lean();
   if (existed) return false;
 
-  const allUsers = await User.find(
-    { email: { $exists: true, $ne: null } },
-    { email: 1 }
-  ).lean();
-
-  const toList = allUsers.map((u) => u.email).filter(Boolean);
+  const toList = await collectRecipientEmails();
   if (toList.length === 0) {
     console.warn('⚠ No hay destinatarios para el digest de cumpleaños');
     return false;
   }
 
-  const names = birthdayUsers.map((u) => u?.name || u?.email).join(', ');
+  const names = birthdayUsers.map(u => u?.name || u?.email).join(', ');
   const subject = '🎂 Cumpleaños de hoy en la empresa';
   const html = `
     <h2>🎂 Cumpleaños de hoy en la empresa</h2>
@@ -71,15 +100,20 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
     <p>¡Envíales tus buenos deseos! 🎉</p>
   `;
 
-  await sendEmail({ to: toList, subject, html });
-  console.log(`📨 Digest de cumpleaños ENVIADO a ${toList.length} cuentas (dayKey=${dayKey})`);
-  return true;
+  const ok = await safeSendEmail({ to: toList, subject, html });
+  if (ok) {
+    console.log(`📨 Digest de cumpleaños ENVIADO a ${toList.length} cuentas (dayKey=${dayKey})`);
+  } else {
+    console.warn(`⚠ Digest de cumpleaños NO enviado (dayKey=${dayKey})`);
+  }
+  return ok;
 };
 
 /* =======================================
  *   CUMPLEAÑEROS HOY (campo birthDate)
  * ======================================= */
 export async function getTodayBirthdayUsersMX() {
+  // Comparación UTC vs UTC (evita desfaces por TZ)
   const todayMMDD = mmddUTC(new Date());
 
   const users = await User.find(
@@ -87,7 +121,7 @@ export async function getTodayBirthdayUsersMX() {
     { name: 1, email: 1, birthDate: 1 }
   ).lean();
 
-  return users.filter((u) => u.birthDate && mmddUTC(u.birthDate) === todayMMDD);
+  return users.filter(u => u.birthDate && mmddUTC(u.birthDate) === todayMMDD);
 }
 
 /* ====================================================
@@ -104,7 +138,7 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   // Solo si HOY está dentro de la ventana [–7, +1)
   if (todayMX < windowStart || todayMX >= windowEndExclusive) return false;
 
-  // Candado único por festivo
+  // Candado único por festivo y por inicio de ventana
   const dateKey = dayKeyMX(windowStart);
   const existed = await DailyLock.findOneAndUpdate(
     { type: 'holiday_upcoming_7d', dateKey, holidayId: String(holiday._id) },
@@ -113,12 +147,7 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   ).lean();
   if (existed) return false;
 
-  const recipients = await User.find(
-    { email: { $exists: true, $ne: null }, isActive: { $ne: false } },
-    { email: 1 }
-  ).lean();
-
-  const toList = recipients.map((u) => u.email).filter(Boolean);
+  const toList = await collectRecipientEmails();
   if (toList.length === 0) {
     console.warn('⚠ No hay destinatarios para el aviso de festivo (7d)');
     return false;
@@ -131,9 +160,11 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
     <p>Considera este descanso en tu planificación.</p>
   `;
 
-  await sendEmail({ to: toList, subject, html });
-  console.log(
-    `📨 Aviso 7d de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`
-  );
-  return true;
+  const ok = await safeSendEmail({ to: toList, subject, html });
+  if (ok) {
+    console.log(`📨 Aviso 7d de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`);
+  } else {
+    console.warn(`⚠ Aviso 7d de festivo NO enviado (holidayId=${holiday._id}, dateKey=${dateKey})`);
+  }
+  return ok;
 }

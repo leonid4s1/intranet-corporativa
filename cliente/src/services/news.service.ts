@@ -1,4 +1,3 @@
-// cliente/src/services/news.service.ts
 import api from './api';
 
 export const allowedTypes = [
@@ -22,10 +21,9 @@ export type NewsItem = {
   visibleUntil?: string;  // ISO (exclusive)
 };
 
-// Estructura que devuelve el server (sin any)
 type ServerNewsItem = {
   id: string | number;
-  type: string;                 // puede venir cualquier string
+  type: string;
   title?: string;
   body?: string;
   excerpt?: string;
@@ -71,9 +69,8 @@ function normalize(raw: ServerNewsItem): NewsItem {
     console.warn('[news.service] Tipo no permitido recibido:', raw.type);
   }
 
-  // Fallbacks amigables
-  const title = raw.title ?? 'Aviso';
-  const baseExcerpt = raw.excerpt ?? raw.body ?? '';
+  const title = (raw.title ?? 'Aviso').toString().trim();
+  const baseExcerpt = (raw.excerpt ?? raw.body ?? '').toString().trim();
 
   const excerpt =
     baseExcerpt ||
@@ -131,19 +128,25 @@ export async function getHomeNews(): Promise<NewsItem[]> {
       return true;
     });
 
-    // Orden: prioridad desc y luego por visibleFrom (más reciente primero)
+    // Orden: prioridad desc; para holiday_notice, el más próximo primero (visibleUntil asc);
+    // luego fallback por visibleFrom desc para resto.
     return deduped.sort((a, b) => {
       const pa = priorityScore(a);
       const pb = priorityScore(b);
       if (pb !== pa) return pb - pa;
 
+      if (a.type === 'holiday_notice' && b.type === 'holiday_notice') {
+        const ua = a.visibleUntil ? new Date(a.visibleUntil).getTime() : Infinity;
+        const ub = b.visibleUntil ? new Date(b.visibleUntil).getTime() : Infinity;
+        if (ua !== ub) return ua - ub; // más próximo primero
+      }
+
       const ta = a.visibleFrom ? new Date(a.visibleFrom).getTime() : 0;
       const tb = b.visibleFrom ? new Date(b.visibleFrom).getTime() : 0;
-      return tb - ta;
+      return tb - ta; // más reciente primero
     });
   } catch (err) {
     console.error('[news.service] Error obteniendo /news/home', err);
-    // El carrusel mostrará el placeholder si esto devuelve []
     return [];
   }
 }
