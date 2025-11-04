@@ -31,29 +31,38 @@ function toDate(value) {
   return new Date(value);
 }
 
+// Ancla una fecha (Y-M-D en UTC) al MEDIODÍA UTC y la lleva a 00:00 MX del mismo día.
+function mxMidnightOfUTCDate(d) {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const atNoonUTC = new Date(Date.UTC(y, m, day, 12)); // mediodía UTC evita corrimientos
+  return startOfDayInMX(atNoonUTC); // -> 00:00 MX del mismo Y-M-D
+}
+
 /**
  * Próxima ocurrencia del festivo a las 00:00 MX.
- * - Si NO es recurrente, respeta el año guardado y normaliza a 00:00 MX.
- * - Si es recurrente, toma misma mm-dd en el año actual (o el siguiente si ya pasó),
- *   **construyendo en UTC** y luego normalizando a MX para evitar corrimientos.
+ * - NO recurrente: respeta el año guardado (Y-M-D) y “pega” a 00:00 MX (anclando a 12:00 UTC).
+ * - Recurrente: misma mm-dd en el año actual (o siguiente si ya pasó), robusto a TZ.
  */
 function nextOccurrenceMX(holidayDate, isRecurring) {
-  const base = toDate(holidayDate);       // fecha guardada en BD
-  const todayMX = startOfDayInMX();       // hoy 00:00 en MX
+  const base = toDate(holidayDate);   // fecha guardada en BD (típicamente 00:00Z)
+  const todayMX = startOfDayInMX();   // hoy 00:00 en MX
 
   if (!isRecurring) {
-    // único: usamos la fecha tal cual, normalizada a 00:00 MX
-    return startOfDayInMX(base);
+    return mxMidnightOfUTCDate(base);
   }
 
-  // recurrente: construir en UTC y luego aterrizar a MX
-  const occUTC = new Date(Date.UTC(todayMX.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
-  let occMX = startOfDayInMX(occUTC);
+  // Recurrente: construir en UTC y aterrizar a MX
+  const mm = base.getUTCMonth();
+  const dd = base.getUTCDate();
 
-  // si hoy MX ya es después de la ocurrencia MX de este año, usar el siguiente
+  const occThisUTCNoon = new Date(Date.UTC(todayMX.getUTCFullYear(), mm, dd, 12));
+  let occMX = startOfDayInMX(occThisUTCNoon);
+
   if (isAfter(todayMX, occMX)) {
-    const nextUTC = new Date(Date.UTC(todayMX.getUTCFullYear() + 1, base.getUTCMonth(), base.getUTCDate()));
-    occMX = startOfDayInMX(nextUTC);
+    const occNextUTCNoon = new Date(Date.UTC(todayMX.getUTCFullYear() + 1, mm, dd, 12));
+    occMX = startOfDayInMX(occNextUTCNoon);
   }
   return occMX;
 }
@@ -117,7 +126,7 @@ export const getHomeFeed = async (req, res, next) => {
             timeZone: MX_TZ,
             weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
           })}.`,
-          visibleFrom: toISO(windowStart),       // occ - 7 días (MX)
+          visibleFrom: toISO(windowStart),        // occ - 7 días (MX)
           visibleUntil: toISO(windowEndExclusive) // occ + 1 día (MX)
         });
 
