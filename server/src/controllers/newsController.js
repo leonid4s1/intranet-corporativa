@@ -2,7 +2,7 @@
 import News from '../models/News.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
-import { startOfDay, addDays, isAfter, isBefore } from 'date-fns';
+import { startOfDay, addDays, isAfter } from 'date-fns';
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -31,28 +31,31 @@ function toDate(value) {
   return new Date(value);
 }
 
-// Próxima ocurrencia de feriado (MX). Para NO recurrentes, usa la fecha guardada.
-function nextOccurrence(holidayDate, isRecurring) {
-  const base = toDate(holidayDate); // fecha guardada
+/**
+ * Próxima ocurrencia del festivo a las 00:00 MX.
+ * - Si NO es recurrente, respeta el año guardado y normaliza a 00:00 MX.
+ * - Si es recurrente, toma misma mm-dd en el año actual (o el siguiente si ya pasó),
+ *   **construyendo en UTC** y luego normalizando a MX para evitar corrimientos.
+ */
+function nextOccurrenceMX(holidayDate, isRecurring) {
+  const base = toDate(holidayDate);       // fecha guardada en BD
+  const todayMX = startOfDayInMX();       // hoy 00:00 en MX
+
   if (!isRecurring) {
-    // Usar exactamente la fecha guardada (y no mover de año).
-    return base;
+    // único: usamos la fecha tal cual, normalizada a 00:00 MX
+    return startOfDayInMX(base);
   }
-  // Recurrente: misma MM/DD este año o el siguiente si ya pasó en MX
-  const todayLocal = startOfDayInMX();
-  let occurrence = new Date(
-    todayLocal.getFullYear(),
-    base.getMonth(),
-    base.getDate()
-  );
-  if (isAfter(startOfDay(todayLocal), startOfDay(occurrence))) {
-    occurrence = new Date(
-      todayLocal.getFullYear() + 1,
-      base.getMonth(),
-      base.getDate()
-    );
+
+  // recurrente: construir en UTC y luego aterrizar a MX
+  const occUTC = new Date(Date.UTC(todayMX.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()));
+  let occMX = startOfDayInMX(occUTC);
+
+  // si hoy MX ya es después de la ocurrencia MX de este año, usar el siguiente
+  if (isAfter(todayMX, occMX)) {
+    const nextUTC = new Date(Date.UTC(todayMX.getUTCFullYear() + 1, base.getUTCMonth(), base.getUTCDate()));
+    occMX = startOfDayInMX(nextUTC);
   }
-  return occurrence;
+  return occMX;
 }
 
 export const getHomeFeed = async (req, res, next) => {
@@ -89,19 +92,23 @@ export const getHomeFeed = async (req, res, next) => {
       if (!h?.date || !h?.name) continue;
 
       const isRecurring = h.recurring === true || h.type === 'recurring';
-      const occ = nextOccurrence(h.date, isRecurring);
-
-      // Normalizar ocurrencia a 00:00 MX antes de ventana
-      const occStart = startOfDayInMX(occ);
+      const occStart = nextOccurrenceMX(h.date, isRecurring); // <-- FIX TZ MX
       const windowStart = addDays(occStart, -7);
       const windowEndExclusive = addDays(occStart, 1);
 
-      const inWindow = (isAfter(today, addDays(windowStart, -1)) && isBefore(today, windowEndExclusive));
-      // equivalentes a: today >= windowStart && today < windowEndExclusive (con date-fns)
+      // Log de diagnóstico (temporal): confirma la ventana en MX
+      const inWindow = today >= windowStart && today < windowEndExclusive;
+      console.log('[feed][holiday]', {
+        name: h.name,
+        isRecurring,
+        occStart: occStart.toISOString(),
+        windowStart: windowStart.toISOString(),
+        windowEndExclusive: windowEndExclusive.toISOString(),
+        today: today.toISOString(),
+        inWindow,
+      });
 
       if (inWindow) {
-        console.log('[feed] holiday in window:', h.name, 'occ=', occStart.toISOString());
-
         items.unshift({
           id: `holiday-${String(h._id)}-${occStart.getFullYear()}`, // id estable por ocurrencia
           type: 'holiday_notice',
@@ -110,8 +117,8 @@ export const getHomeFeed = async (req, res, next) => {
             timeZone: MX_TZ,
             weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
           })}.`,
-          visibleFrom: toISO(windowStart),
-          visibleUntil: toISO(windowEndExclusive),
+          visibleFrom: toISO(windowStart),       // occ - 7 días (MX)
+          visibleUntil: toISO(windowEndExclusive) // occ + 1 día (MX)
         });
 
         // Envío de correo (único al entrar a la ventana 7d).
@@ -121,7 +128,7 @@ export const getHomeFeed = async (req, res, next) => {
           if (typeof fn === 'function') {
             await fn({
               ...h,
-              date: occStart, // pasar la ocurrencia normalizada
+              date: occStart, // pasar la ocurrencia normalizada a MX
             });
           } else {
             console.warn('[holiday_notice] sendUpcomingHolidayEmailIfSevenDaysBefore no está exportada.');
