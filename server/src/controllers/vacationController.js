@@ -26,6 +26,9 @@ import {
 
 import { getUsedDaysInCurrentCycle } from '../services/vacationService.js';
 
+// ⬇️ Nuevo: notificación a administradores cuando se crea una solicitud
+import { notifyAdminsAboutNewRequest } from '../services/notificationService.js';
+
 /* ===========================
    Helpers de fechas (UTC)
 =========================== */
@@ -559,6 +562,22 @@ export const requestVacation = async (req, res, next) => {
     await session.commitTransaction(); session.endSession();
 
     const v = reqDoc[0];
+
+    // 📣 Dispara correo a administradores en segundo plano (no bloquea la respuesta HTTP)
+    process.nextTick(async () => {
+      try {
+        // Asegura name/email del solicitante (por si req.user viene parcial)
+        const me = (req.user?.email)
+          ? { name: req.user?.name, email: req.user?.email }
+          : await User.findById(req.user.id).select('name email').lean();
+
+        await notifyAdminsAboutNewRequest(v, me);
+        console.log('[vacations] notifyAdminsAboutNewRequest enviado para', me?.email || req.user?.id);
+      } catch (err) {
+        console.error('[vacations] notifyAdminsAboutNewRequest error:', err?.message || err);
+      }
+    });
+
     return res.status(201).json({
       success: true,
       data: {

@@ -2,7 +2,7 @@
 import News from '../models/News.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
-import { startOfDay, addDays, isAfter } from 'date-fns';
+import { startOfDay, addDays, isAfter, isBefore } from 'date-fns';
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -24,16 +24,27 @@ function toISO(d) {
   return new Date(d).toISOString();
 }
 
-// Próxima ocurrencia de feriado (respeta recurrencia, compara en MX)
+// Parse robusto de Holiday.date -> Date
+function toDate(value) {
+  if (value instanceof Date) return value;
+  // Acepta ISO o "MM/DD/YYYY" (admin)
+  return new Date(value);
+}
+
+// Próxima ocurrencia de feriado (MX). Para NO recurrentes, usa la fecha guardada.
 function nextOccurrence(holidayDate, isRecurring) {
-  const base = new Date(holidayDate);
+  const base = toDate(holidayDate); // fecha guardada
+  if (!isRecurring) {
+    // Usar exactamente la fecha guardada (y no mover de año).
+    return base;
+  }
+  // Recurrente: misma MM/DD este año o el siguiente si ya pasó en MX
   const todayLocal = startOfDayInMX();
   let occurrence = new Date(
     todayLocal.getFullYear(),
     base.getMonth(),
     base.getDate()
   );
-  if (!isRecurring) return occurrence;
   if (isAfter(startOfDay(todayLocal), startOfDay(occurrence))) {
     occurrence = new Date(
       todayLocal.getFullYear() + 1,
@@ -48,7 +59,7 @@ export const getHomeFeed = async (req, res, next) => {
   try {
     const user = req.user;
     const today = startOfDayInMX();
-    const todayMMDD = mmddUTC(today); // ✅ cumpleaños: UTC vs UTC
+    const todayMMDD = mmddUTC(today); // cumpleaños: UTC vs UTC
 
     // 1) Noticias publicadas (proyección mínima)
     const published = await News.find(
@@ -79,21 +90,23 @@ export const getHomeFeed = async (req, res, next) => {
 
       const isRecurring = h.recurring === true || h.type === 'recurring';
       const occ = nextOccurrence(h.date, isRecurring);
-      const occStart = startOfDayInMX(occ);
 
+      // Normalizar ocurrencia a 00:00 MX antes de ventana
+      const occStart = startOfDayInMX(occ);
       const windowStart = addDays(occStart, -7);
       const windowEndExclusive = addDays(occStart, 1);
 
-      const inWindow = today >= windowStart && today < windowEndExclusive;
+      const inWindow = (isAfter(today, addDays(windowStart, -1)) && isBefore(today, windowEndExclusive));
+      // equivalentes a: today >= windowStart && today < windowEndExclusive (con date-fns)
 
       if (inWindow) {
-        console.log('[feed] holiday in window:', h.name, 'occ=', occ.toISOString());
+        console.log('[feed] holiday in window:', h.name, 'occ=', occStart.toISOString());
 
         items.unshift({
-          id: `holiday-${String(h._id)}-${occ.getFullYear()}`,
+          id: `holiday-${String(h._id)}-${occStart.getFullYear()}`, // id estable por ocurrencia
           type: 'holiday_notice',
           title: `Próximo día festivo: ${h.name}`,
-          body: `Se celebra el ${new Date(occ).toLocaleDateString('es-MX', {
+          body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
             timeZone: MX_TZ,
             weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
           })}.`,
@@ -101,13 +114,18 @@ export const getHomeFeed = async (req, res, next) => {
           visibleUntil: toISO(windowEndExclusive),
         });
 
-        // Envío de correo (único al entrar a ventana 7d)
+        // Envío de correo (único al entrar a la ventana 7d).
         try {
           const svc = await import('../services/notificationService.js');
-          await svc.sendUpcomingHolidayEmailIfSevenDaysBefore({
-            ...h,
-            date: occ, // usar ocurrencia actual
-          });
+          const fn = svc?.sendUpcomingHolidayEmailIfSevenDaysBefore;
+          if (typeof fn === 'function') {
+            await fn({
+              ...h,
+              date: occStart, // pasar la ocurrencia normalizada
+            });
+          } else {
+            console.warn('[holiday_notice] sendUpcomingHolidayEmailIfSevenDaysBefore no está exportada.');
+          }
         } catch (errMail) {
           console.error('[holiday_notice 7d] error enviando correo:', errMail?.message || errMail);
         }
@@ -127,11 +145,16 @@ export const getHomeFeed = async (req, res, next) => {
 
       console.log('[feed] birthdays today:', birthdayTodayUsers.map(u => u.name || u.email));
 
-      // Enviar digest si hay cumpleañeros (idempotencia: DailyLock)
+      // Enviar digest si hay cumpleañeros (idempotencia en servicio: DailyLock)
       if (birthdayTodayUsers.length > 0) {
         try {
           const svc = await import('../services/notificationService.js');
-          await svc.sendBirthdayEmailsIfNeeded(today, birthdayTodayUsers);
+          const fn = svc?.sendBirthdayEmailsIfNeeded;
+          if (typeof fn === 'function') {
+            await fn(today, birthdayTodayUsers);
+          } else {
+            console.warn('[birthdays] sendBirthdayEmailsIfNeeded no está exportada.');
+          }
         } catch (errMail) {
           console.error('[birthdays] error enviando correos:', errMail?.message || errMail);
         }

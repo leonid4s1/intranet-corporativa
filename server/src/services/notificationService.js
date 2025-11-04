@@ -2,7 +2,12 @@
 import User from '../models/User.js';
 import DailyLock from '../models/DailyLock.js';
 import { sendEmail } from './emailService.js';
-import { startOfDay, subDays, addDays } from 'date-fns';
+import {
+  startOfDay,
+  subDays,
+  addDays,
+  differenceInCalendarDays
+} from 'date-fns';
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -64,7 +69,7 @@ async function safeSendEmail({ to, subject, html }) {
     await sendEmail({ to, subject, html });
     return true;
   } catch (err) {
-    console.error('✉️  Error enviando correo:', err?.message || err);
+    console.error('✉️  Error enviando correo:', err?.response?.body || err?.message || err);
     return false;
   }
 }
@@ -153,9 +158,12 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
     return false;
   }
 
-  const subject = `Recordatorio: falta 1 semana para ${holiday.name} (${prettyDateMX(holiday.date)})`;
+  // Días restantes (solo informativo en el copy)
+  const daysLeft = Math.max(0, differenceInCalendarDays(holidayDateStart, todayMX));
+
+  const subject = `Recordatorio: faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para ${holiday.name} (${prettyDateMX(holiday.date)})`;
   const html = `
-    <h2>⏳ Falta 1 semana</h2>
+    <h2>⏳ Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}</h2>
     <p>Se acerca <strong>${holiday.name}</strong> el <strong>${prettyDateMX(holiday.date)}</strong>.</p>
     <p>Considera este descanso en tu planificación.</p>
   `;
@@ -165,6 +173,50 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
     console.log(`📨 Aviso 7d de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`);
   } else {
     console.warn(`⚠ Aviso 7d de festivo NO enviado (holidayId=${holiday._id}, dateKey=${dateKey})`);
+  }
+  return ok;
+}
+
+/* ===========================================================
+ *   CORREO A ADMINs: nueva solicitud de vacaciones (inmediato)
+ * =========================================================== */
+export async function notifyAdminsAboutNewRequest(vacationRequest, user) {
+  // 1) Obtener admins activos con email válido
+  const admins = await User.find(
+    { role: 'admin', isActive: { $ne: false }, email: { $exists: true, $ne: null } },
+    { email: 1, name: 1 }
+  ).lean();
+
+  const to = (admins || [])
+    .map(a => (a?.email || '').trim())
+    .filter(e => e && SIMPLE_EMAIL_RE.test(e));
+
+  if (to.length === 0) {
+    console.warn('⚠ notifyAdminsAboutNewRequest: no hay admins con email válido');
+    return false;
+  }
+
+  // 2) Armar contenido
+  const employee = user?.name || user?.email || 'Empleado';
+  const start = prettyDateMX(vacationRequest?.startDate);
+  const end   = prettyDateMX(vacationRequest?.endDate || vacationRequest?.startDate);
+  const days  = vacationRequest?.days ?? vacationRequest?.totalDays ?? 1;
+
+  const subject = `📅 Nueva solicitud de vacaciones: ${employee} (${start} – ${end})`;
+  const html = `
+    <h2>📅 Nueva solicitud de vacaciones</h2>
+    <p><strong>Empleado:</strong> ${employee}</p>
+    <p><strong>Período:</strong> ${start} – ${end}</p>
+    <p><strong>Días solicitados:</strong> ${days}</p>
+    ${vacationRequest?.reason ? `<p><strong>Motivo:</strong> ${vacationRequest.reason}</p>` : ''}
+  `;
+
+  // 3) Enviar
+  const ok = await safeSendEmail({ to, subject, html });
+  if (ok) {
+    console.log(`📨 notifyAdminsAboutNewRequest: ENVIADO a ${to.length} admins`);
+  } else {
+    console.warn('⚠ notifyAdminsAboutNewRequest: NO enviado');
   }
   return ok;
 }
