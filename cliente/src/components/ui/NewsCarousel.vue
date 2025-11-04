@@ -4,11 +4,12 @@
     <div class="carousel-viewport">
       <div class="track" :style="{ transform: `translateX(-${currentIndex * 100}%)` }">
         <article
-          v-for="(n,i) in displayItems"
-          :key="i"
+          v-for="n in displayItems"
+          :key="n.id"
           class="card"
           :class="[`card--${n.type}`, { 'card--empty': n.id === 'no-news' }]"
         >
+
           <template v-if="n.id === 'no-news'">
             <div class="empty-state">
               <div class="empty-icon">📰</div>

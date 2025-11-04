@@ -92,8 +92,8 @@ function normalize(raw: ServerNewsItem): NewsItem {
 /** Puntaje de prioridad para ordenar en el carrusel */
 function priorityScore(it: NewsItem): number {
   switch (it.type) {
+    case 'holiday_notice': return 120;       // ⬅️ ahora es el más alto
     case 'birthday_self': return 100;
-    case 'holiday_notice': return 90;
     case 'birthday_digest_info':
     case 'birthday_digest': return 80;
     case 'static':
