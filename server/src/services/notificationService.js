@@ -2,6 +2,7 @@
 import User from '../models/User.js';
 import Holiday from '../models/Holiday.js';
 import DailyLock from '../models/DailyLock.js';
+import News from '../models/News.js';
 import { sendEmail } from './emailService.js';
 import {
   startOfDay,
@@ -72,6 +73,53 @@ async function safeSendEmail({ to, subject, html }) {
   } catch (err) {
     console.error('✉️  Error enviando correo:', err?.response?.body || err?.message || err);
     return false;
+  }
+}
+
+/* ========================================
+ *   CREAR NOTIFICACIÓN EN LA INTRANET
+ * ======================================== */
+async function createHolidayNotification(holiday, daysLeft) {
+  try {
+    const notificationTitle = `Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para ${holiday.name}`;
+    const notificationBody = `Se acerca ${holiday.name} el ${prettyDateMX(holiday.date)}. Considera este descanso en tu planificación.`;
+
+    // Verificar si ya existe una notificación similar para evitar duplicados
+    const existingNotification = await News.findOne({
+      title: notificationTitle,
+      type: 'holiday_notification'
+    });
+
+    if (existingNotification) {
+      console.log(`📢 Notificación ya existe en intranet: ${notificationTitle}`);
+      return existingNotification;
+    }
+
+    // Calcular fechas de visibilidad
+    const today = new Date();
+    const visibleUntil = new Date(holiday.date);
+    visibleUntil.setDate(visibleUntil.getDate() + 1); // Visible hasta el día después del festivo
+
+    // Crear notificación en la base de datos - COMPATIBLE CON getHomeFeed
+    const newsItem = await News.create({
+      title: notificationTitle,
+      body: notificationBody, // ⬅️ USA 'body' en lugar de 'content'
+      excerpt: `Recordatorio: ${holiday.name} está próximo`,
+      date: today,
+      department: 'General',
+      status: 'published', // ⬅️ IMPORTANTE: para que getHomeFeed la muestre
+      visibleFrom: today,
+      visibleUntil: visibleUntil,
+      type: 'holiday_notification',
+      isActive: true,
+      priority: daysLeft <= 3 ? 'high' : 'medium'
+    });
+
+    console.log(`📢 Notificación creada en intranet: ${notificationTitle}`);
+    return newsItem;
+  } catch (error) {
+    console.error('❌ Error creando notificación en intranet:', error);
+    return null;
   }
 }
 
@@ -169,9 +217,15 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
     <p>Considera este descanso en tu planificación.</p>
   `;
 
+  // ⬇️ Crear notificación en la intranet ANTES de enviar el correo
+  const notificationCreated = await createHolidayNotification(holiday, daysLeft);
+
   const ok = await safeSendEmail({ to: toList, subject, html });
   if (ok) {
     console.log(`📨 Aviso 7d de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`);
+    if (notificationCreated) {
+      console.log(`📢 Notificación interna creada para: ${holiday.name}`);
+    }
   } else {
     console.warn(`⚠ Aviso 7d de festivo NO enviado (holidayId=${holiday._id}, dateKey=${dateKey})`);
   }
