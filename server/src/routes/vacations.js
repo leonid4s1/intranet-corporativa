@@ -138,6 +138,14 @@ router.get(
   holidayController.getHolidays
 );
 
+// ⬇️ NUEVO: Festivos próximos (próximos 7 días)
+router.get(
+  '/holidays/upcoming',
+  authenticate,
+  noStore,
+  holidayController.getUpcomingHolidays
+);
+
 router.get('/calendar/user-vacations',
   authenticate,
   noStore,
@@ -181,6 +189,14 @@ router.delete(
   authorize('admin'),
   validateId('id'),
   holidayController.deleteHoliday
+);
+
+// ⬇️ NUEVO: Testing de notificaciones (solo admin)
+router.get(
+  '/holidays/test-notifications',
+  authenticate,
+  authorize(['admin']),
+  holidayController.testHolidayNotifications
 );
 
 /* --------------------------------- Admin ---------------------------------- */

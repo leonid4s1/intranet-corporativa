@@ -5,7 +5,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import helmet from 'helmet'
 import morgan from 'morgan'
-import compression from 'compression'            // ⬅️ NUEVO
+import compression from 'compression'
 import { connectDB } from './config/db.js'
 import errorHandler from './middleware/errorHandler.js'
 import authRoutes from './routes/auth.js'
@@ -16,9 +16,11 @@ import vacationRoutes from './routes/vacations.js'
 import cookieParser from 'cookie-parser'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { verifyEmailTransport } from './services/emailService.js'  // ⬅️ NUEVO
+import { verifyEmailTransport } from './services/emailService.js'
 import cron from 'node-cron';
 import { getTodayBirthdayUsersMX, sendBirthdayEmailsIfNeeded } from './services/notificationService.js';
+import schedule from 'node-schedule'; // ⬅️ NUEVO: Para el job de festivos
+import { checkAllUpcomingHolidays } from './services/notificationService.js'; // ⬅️ NUEVO
 
 dotenv.config()
 
@@ -124,10 +126,10 @@ app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'))
 
 // Body parsers
 app.use(express.json({ limit: '10kb' }))
-app.use(express.urlencoded({ extended: false }))   // ⬅️ NUEVO
+app.use(express.urlencoded({ extended: false }))
 
 // Compresión HTTP
-app.use(compression())                              // ⬅️ NUEVO
+app.use(compression())
 
 /** Health */
 app.get('/api/health', async (_req, res) => {
@@ -146,7 +148,9 @@ mongoose.connection.on('connected', () => console.log('✅ Conectado a MongoDB')
 mongoose.connection.on('error', (err) => console.error('❌ Error MongoDB:', err))
 
 /** Verificar transporte de email al arrancar (logs claros) */
-verifyEmailTransport().catch(() => {})               // ⬅️ NUEVO
+verifyEmailTransport().catch(() => {})
+
+/** ==================== JOBS PROGRAMADOS ==================== */
 
 /** Cron: digest de cumpleaños diario (08:00 MX por defecto) */
 const CRON_ENABLED = process.env.CRON_ENABLED !== 'false';       // default: true
@@ -166,6 +170,42 @@ if (CRON_ENABLED) {
 
   console.log(`[cron] Programado digest de cumpleaños: "${CRON_SPEC}" TZ=${CRON_TZ}`);
 }
+
+/** Job: Verificación de festivos próximos (09:00 MX por defecto) */
+const HOLIDAY_JOB_ENABLED = process.env.HOLIDAY_JOB_ENABLED !== 'false'; // default: true
+const HOLIDAY_JOB_SPEC = process.env.HOLIDAY_JOB_SPEC || '0 9 * * *';    // 09:00 todos los días
+
+const startHolidayNotificationJob = () => {
+  if (HOLIDAY_JOB_ENABLED) {
+    // Job programado diario
+    schedule.scheduleJob(HOLIDAY_JOB_SPEC, async () => {
+      try {
+        console.log('🕘 [job] Ejecutando verificación diaria de festivos...');
+        const notificationsSent = await checkAllUpcomingHolidays();
+        console.log(`📨 [job] Verificación completada. Notificaciones enviadas: ${notificationsSent}`);
+      } catch (error) {
+        console.error('❌ [job] Error en verificación de festivos:', error);
+      }
+    });
+
+    // Ejecutar inmediatamente al iniciar (para testing/detección inmediata)
+    setTimeout(async () => {
+      try {
+        console.log('🚀 [job] Verificación inicial de festivos al iniciar...');
+        const notificationsSent = await checkAllUpcomingHolidays();
+        console.log(`📨 [job] Verificación inicial completada. Notificaciones enviadas: ${notificationsSent}`);
+      } catch (error) {
+        console.error('❌ [job] Error en verificación inicial de festivos:', error);
+      }
+    }, 10000); // 10 segundos después de iniciar
+
+    console.log(`[job] Programada verificación de festivos: "${HOLIDAY_JOB_SPEC}"`);
+  } else {
+    console.log('[job] Verificación de festivos deshabilitada (HOLIDAY_JOB_ENABLED=false)');
+  }
+};
+
+/** ==================== FIN JOBS PROGRAMADOS ==================== */
 
 /** Rutas API */
 app.use('/api/auth', authRoutes)
@@ -206,6 +246,9 @@ const server = app.listen(port, () => {
       originRegex ? originRegex.source : 'N/A'
     }`
   )
+  
+  // Iniciar jobs después de que el servidor esté listo
+  startHolidayNotificationJob();
 })
 
 process.on('unhandledRejection', (err) => {

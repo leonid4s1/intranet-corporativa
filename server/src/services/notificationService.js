@@ -1,5 +1,6 @@
 // server/src/services/notificationService.js
 import User from '../models/User.js';
+import Holiday from '../models/Holiday.js';
 import DailyLock from '../models/DailyLock.js';
 import { sendEmail } from './emailService.js';
 import {
@@ -175,6 +176,55 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
     console.warn(`⚠ Aviso 7d de festivo NO enviado (holidayId=${holiday._id}, dateKey=${dateKey})`);
   }
   return ok;
+}
+
+/* ========================================
+ *   JOB PROGRAMADO: Verificar festivos
+ * ======================================== */
+export async function checkAllUpcomingHolidays() {
+  try {
+    console.log('🔍 Buscando festivos próximos para notificación...');
+    
+    const today = new Date();
+    const futureDate = new Date(today);
+    futureDate.setDate(today.getDate() + 30); // Buscar en los próximos 30 días
+    
+    const upcomingHolidays = await Holiday.find({
+      date: {
+        $gte: today,
+        $lte: futureDate
+      }
+    }).lean();
+
+    console.log(`📅 Festivos encontrados en los próximos 30 días: ${upcomingHolidays.length}`);
+    
+    let notificationsSent = 0;
+    for (const holiday of upcomingHolidays) {
+      const sent = await sendUpcomingHolidayEmailIfSevenDaysBefore(holiday);
+      if (sent) notificationsSent++;
+    }
+    
+    console.log(`📨 Notificaciones de festivos enviadas: ${notificationsSent}`);
+    return notificationsSent;
+  } catch (error) {
+    console.error('❌ Error en checkAllUpcomingHolidays:', error);
+    return 0;
+  }
+}
+
+/* ========================================
+ *   FUNCIÓN PARA TESTING MANUAL
+ * ======================================== */
+export async function testHolidayNotifications() {
+  try {
+    console.log('🧪 Iniciando prueba manual de notificaciones de festivos...');
+    const result = await checkAllUpcomingHolidays();
+    console.log(`✅ Prueba completada. Notificaciones enviadas: ${result}`);
+    return result;
+  } catch (error) {
+    console.error('❌ Error en prueba manual:', error);
+    throw error;
+  }
 }
 
 /* ===========================================================

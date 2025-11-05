@@ -124,6 +124,40 @@ export const getHolidays = async (req, res) => {
   }
 };
 
+// ===================== GET UPCOMING HOLIDAYS =====================
+export const getUpcomingHolidays = async (req, res) => {
+  try {
+    const today = new Date();
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+    
+    // Buscar festivos en los próximos 7 días
+    const upcomingHolidays = await Holiday.find({
+      date: {
+        $gte: today,
+        $lte: nextWeek
+      }
+    }).sort({ date: 1 }).lean();
+
+    return res.json({
+      success: true,
+      data: upcomingHolidays.map((h) => ({
+        id: String(h._id),
+        name: h.name,
+        date: toYMD(h.date),
+        recurring: !!h.recurring,
+        description: h.description || undefined,
+      })),
+    });
+  } catch (error) {
+    console.error('Error al obtener festivos próximos:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Error interno del servidor' 
+    });
+  }
+};
+
 // ===================== UPDATE =====================
 export const updateHoliday = async (req, res) => {
   try {
@@ -218,6 +252,23 @@ export const deleteHoliday = async (req, res) => {
       success: false,
       error: 'Error interno del servidor',
       systemError: process.env.NODE_ENV === 'development' ? error.stack || error.message : undefined,
+    });
+  }
+};
+
+// ===================== TEST NOTIFICATIONS =====================
+export const testHolidayNotifications = async (req, res) => {
+  try {
+    const { testHolidayNotifications } = await import('../services/notificationService.js');
+    const result = await testHolidayNotifications();
+    return res.json({
+      success: true,
+      message: `Prueba completada. Notificaciones enviadas: ${result}`,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
     });
   }
 };
