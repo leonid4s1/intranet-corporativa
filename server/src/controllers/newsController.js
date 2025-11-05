@@ -69,6 +69,15 @@ export const getHomeFeed = async (req, res, next) => {
   try {
     const user = req.user;
     const today = startOfDayInMX();
+
+    // 🔒 Anti-cache para evitar 304 y forzar que se ejecute el handler
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+    // ETag que cambia cada día (en MX) para que el cliente no reutilice respuesta vieja
+    res.set('ETag', `homefeed-${today.toISOString().slice(0,10)}`);
+    
     const todayMMDD = mmddUTC(today); // cumpleaños: UTC vs UTC
 
     // 1) Noticias publicadas
