@@ -42,12 +42,12 @@ function mxMidnightOfUTCDate(d) {
 
 /**
  * Próxima ocurrencia del festivo a las 00:00 MX.
- * - NO recurrente: respeta el año guardado y “pega” a 00:00 MX (anclando a 12:00 UTC).
+ * - NO recurrente: respeta el año guardado (Y-M-D) y “pega” a 00:00 MX (anclando a 12:00 UTC).
  * - Recurrente: misma mm-dd en el año actual (o siguiente si ya pasó), robusto a TZ.
  */
 function nextOccurrenceMX(holidayDate, isRecurring) {
-  const base = toDate(holidayDate);
-  const todayMX = startOfDayInMX();
+  const base = toDate(holidayDate);   // fecha guardada en BD (típicamente 00:00Z)
+  const todayMX = startOfDayInMX();   // hoy 00:00 en MX
 
   if (!isRecurring) {
     return mxMidnightOfUTCDate(base);
@@ -101,17 +101,11 @@ export const getHomeFeed = async (req, res, next) => {
       if (!h?.date || !h?.name) continue;
 
       const isRecurring = h.recurring === true || h.type === 'recurring';
-      const occStart = nextOccurrenceMX(h.date, isRecurring); // 00:00 MX del festivo
+      const occStart = nextOccurrenceMX(h.date, isRecurring); // <-- TZ MX fijo
       const windowStart = addDays(occStart, -7);
       const windowEndExclusive = addDays(occStart, 1);
 
-      // Comparación robusta en milisegundos (evita cualquier rareza de TZ)
-      const t  = today.getTime();
-      const ws = windowStart.getTime();
-      const we = windowEndExclusive.getTime();
-      const inWindow = (t >= ws && t < we);
-
-      // Log de diagnóstico
+      const inWindow = today >= windowStart && today < windowEndExclusive;
       console.log('[feed][holiday]', {
         name: h.name,
         isRecurring,
@@ -124,15 +118,15 @@ export const getHomeFeed = async (req, res, next) => {
 
       if (inWindow) {
         items.unshift({
-          id: `holiday-${String(h._id)}-${occStart.getFullYear()}`, // id estable por ocurrencia
+          id: `holiday-${String(h._id)}-${occStart.getFullYear()}`,
           type: 'holiday_notice',
           title: `Próximo día festivo: ${h.name}`,
           body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
             timeZone: MX_TZ,
             weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
           })}.`,
-          visibleFrom: toISO(windowStart),        // occ - 7 días (MX)
-          visibleUntil: toISO(windowEndExclusive) // occ + 1 día (MX)
+          visibleFrom: toISO(windowStart),         // occ - 7 días (MX)
+          visibleUntil: toISO(windowEndExclusive), // occ + 1 día (MX)
         });
 
         // Envío de correo (único al entrar a la ventana 7d).
@@ -166,7 +160,7 @@ export const getHomeFeed = async (req, res, next) => {
 
       console.log('[feed] birthdays today:', birthdayTodayUsers.map(u => u.name || u.email));
 
-      // Enviar digest si hay cumpleañeros (idempotencia en servicio: DailyLock)
+      // Enviar digest si hay cumpleañeros (idempotencia: DailyLock)
       if (birthdayTodayUsers.length > 0) {
         try {
           const svc = await import('../services/notificationService.js');
@@ -207,6 +201,12 @@ export const getHomeFeed = async (req, res, next) => {
         });
       }
     }
+
+    // === No-cache para evitar 304/response vieja en el cliente ===
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
 
     return res.json({ items });
   } catch (err) {
