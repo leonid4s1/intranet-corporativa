@@ -2,11 +2,11 @@
 import News from '../models/News.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
-import { startOfDay, addDays, isAfter } from 'date-fns';
+import { startOfDay, addDays, isAfter, differenceInCalendarDays } from 'date-fns';
 
 const MX_TZ = 'America/Mexico_City';
 
-// "Hoy" a las 00:00 en MX (método estable usado en todo el controller)
+// "Hoy" a las 00:00 en MX
 function startOfDayInMX(date = new Date()) {
   const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
   return startOfDay(local);
@@ -24,13 +24,13 @@ function toISO(d) {
   return new Date(d).toISOString();
 }
 
-// Parse robusto
+// Parse robusto de Holiday.date -> Date
 function toDate(value) {
   if (value instanceof Date) return value;
   return new Date(value);
 }
 
-// Ancla una Y-M-D (UTC) a 12:00 UTC y la aterriza a 00:00 MX de ese día
+// Ancla Y-M-D (UTC) al mediodía UTC y lo lleva a 00:00 MX del mismo día
 function mxMidnightOfUTCDate(d) {
   const y = d.getUTCFullYear();
   const m = d.getUTCMonth();
@@ -39,10 +39,17 @@ function mxMidnightOfUTCDate(d) {
   return startOfDayInMX(atNoonUTC);
 }
 
+// Detecta si es recurrente: true | "recurring" | "recurrente" | "recurrencia" | etc.
+function isRecurringFlag(h) {
+  if (h?.recurring === true) return true;
+  const t = String(h?.type || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+  return t === 'recurring' || t === 'recurrente' || t === 'recurrent' || t === 'recurrencia';
+}
+
 /**
- * Próxima ocurrencia del festivo a las 00:00 MX.
- * - NO recurrente: respeta el año guardado y normaliza a 00:00 MX.
- * - Recurrente: misma mm-dd en el año actual (o el siguiente si ya pasó).
+ * Próxima ocurrencia (00:00 MX):
+ * - Único: respeta el año guardado
+ * - Recurrente: misma mm-dd este año o siguiente si ya pasó (robusto a TZ)
  */
 function nextOccurrenceMX(holidayDate, isRecurring) {
   const base = toDate(holidayDate);
@@ -70,24 +77,20 @@ export const getHomeFeed = async (req, res, next) => {
     const user = req.user;
     const today = startOfDayInMX();
 
-    // 🔒 Anti-cache para evitar 304 y forzar que se ejecute el handler
+    // 🔒 Anti-cache: forzar 200 y ejecutar handler
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
     res.set('Surrogate-Control', 'no-store');
-    // ETag que cambia cada día (en MX) para que el cliente no reutilice respuesta vieja
     res.set('ETag', `homefeed-${today.toISOString().slice(0,10)}`);
-    
-    const todayMMDD = mmddUTC(today); // cumpleaños: UTC vs UTC
 
-    // 1) Noticias publicadas
+    const todayMMDD = mmddUTC(today);
+
+    // 1) Noticias publicadas (mínimo)
     const published = await News.find(
       { status: 'published' },
       { title: 1, body: 1, visibleFrom: 1, visibleUntil: 1, createdAt: 1 }
-    )
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .lean();
+    ).sort({ createdAt: -1 }).limit(10).lean();
 
     const items = (published || []).map((n) => ({
       id: String(n._id),
@@ -98,35 +101,34 @@ export const getHomeFeed = async (req, res, next) => {
       visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined,
     }));
 
-    // 2) Festivos (ventana 7d) + correo único al abrir ventana
+    // 2) Días festivos: ventana 7d + fallback por proximidad
     const holidays = await Holiday.find({}, { name: 1, date: 1, recurring: 1, type: 1 }).lean();
 
     for (const h of holidays) {
       if (!h?.date || !h?.name) continue;
 
-      const isRecurring = h.recurring === true || h.type === 'recurring';
-      const occStart = nextOccurrenceMX(h.date, isRecurring); // 00:00 MX de la ocurrencia
+      const recurring = isRecurringFlag(h);
+      const occStart = nextOccurrenceMX(h.date, recurring); // 00:00 MX del día de la ocurrencia
       const windowStart = addDays(occStart, -7);
       const windowEndExclusive = addDays(occStart, 1);
 
-      // Chequeo principal
       const inWindow = today >= windowStart && today < windowEndExclusive;
 
-      // Fallback defensivo por si algún corrimiento de TZ deja fuera por unas horas:
-      // si la ocurrencia está entre hoy y 7 días (inclusive), lo mostramos.
-      const msPerDay = 24 * 60 * 60 * 1000;
-      const diffDays = Math.floor((occStart.getTime() - today.getTime()) / msPerDay);
-      const fallbackHit = !inWindow && diffDays >= 0 && diffDays <= 7;
+      // Fallback: si faltan de 0 a 7 días, mostrarlo igual (cubrir edge TZ)
+      const diff = differenceInCalendarDays(occStart, today); // MX vs MX
+      const fallbackHit = !inWindow && diff >= 0 && diff <= 7;
 
-      console.log('[feed][holiday]', {
+      console.log('[feed][holiday-check]', {
         name: h.name,
-        isRecurring,
+        type: h.type ?? null,
+        recurring,
+        dateRaw: h.date,
         occStart: occStart.toISOString(),
         windowStart: windowStart.toISOString(),
         windowEndExclusive: windowEndExclusive.toISOString(),
         today: today.toISOString(),
         inWindow,
-        diffDays,
+        diffDays: diff,
         fallbackHit,
       });
 
@@ -137,16 +139,13 @@ export const getHomeFeed = async (req, res, next) => {
           title: `Próximo día festivo: ${h.name}`,
           body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
             timeZone: MX_TZ,
-            weekday: 'long',
-            day: '2-digit',
-            month: 'long',
-            year: 'numeric',
+            weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
           })}.`,
           visibleFrom: toISO(windowStart),
           visibleUntil: toISO(windowEndExclusive),
         });
 
-        // Correo (una sola vez al abrir la ventana de 7d)
+        // Email único al entrar a la ventana de 7 días
         try {
           const svc = await import('../services/notificationService.js');
           const fn = svc?.sendUpcomingHolidayEmailIfSevenDaysBefore;
@@ -168,8 +167,9 @@ export const getHomeFeed = async (req, res, next) => {
         { name: 1, email: 1, birthDate: 1 }
       ).lean();
 
-      const birthdayTodayUsers = all.filter((u) => u.birthDate && mmddUTC(u.birthDate) === todayMMDD);
-      console.log('[feed] birthdays today:', birthdayTodayUsers.map((u) => u.name || u.email));
+      const birthdayTodayUsers = all.filter(
+        (u) => u.birthDate && mmddUTC(u.birthDate) === todayMMDD
+      );
 
       if (birthdayTodayUsers.length > 0) {
         try {
@@ -211,6 +211,7 @@ export const getHomeFeed = async (req, res, next) => {
       }
     }
 
+    console.log('[feed] items generados:', items.map(i => i.type + ':' + i.title));
     return res.json({ items });
   } catch (err) {
     next(err);
