@@ -4,12 +4,7 @@ import Holiday from '../models/Holiday.js';
 import DailyLock from '../models/DailyLock.js';
 import News from '../models/News.js';
 import { sendEmail } from './emailService.js';
-import {
-  startOfDay,
-  subDays,
-  addDays,
-  differenceInCalendarDays
-} from 'date-fns';
+import { startOfDay, subDays, addDays, differenceInCalendarDays } from 'date-fns';
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -20,11 +15,20 @@ function startOfDayInMX(date = new Date()) {
   const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
   return startOfDay(local);
 }
+function nowInMX(d = new Date()) {
+  return new Date(new Date(d).toLocaleString('en-US', { timeZone: MX_TZ }));
+}
 function dayKeyMX(date = new Date()) {
   const y = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, year: 'numeric' });
   const m = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
   const d = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
   return `${y}-${m}-${d}`;
+}
+function yyyymmddMX(date = new Date()) {
+  const y = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, year: 'numeric' });
+  const m = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
+  const d = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
+  return `${y}${m}${d}`;
 }
 function prettyDateMX(d) {
   return new Date(d).toLocaleDateString('es-MX', {
@@ -35,6 +39,14 @@ function prettyDateMX(d) {
     year: 'numeric',
   });
 }
+// Día/mes en MX (para cumpleaños)
+function mmddMX(date = new Date()) {
+  const n = nowInMX(date);
+  const mm = n.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
+  const dd = n.toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
+  return `${mm}-${dd}`;
+}
+// (Aún se usa en funciones legadas)
 function mmddUTC(date) {
   const d = new Date(date);
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -100,14 +112,14 @@ async function createHolidayNotification(holiday, daysLeft) {
     const visibleUntil = new Date(holiday.date);
     visibleUntil.setDate(visibleUntil.getDate() + 1); // Visible hasta el día después del festivo
 
-    // Crear notificación en la base de datos - COMPATIBLE CON getHomeFeed
+    // Crear notificación
     const newsItem = await News.create({
       title: notificationTitle,
-      body: notificationBody, // ⬅️ USA 'body' en lugar de 'content'
+      body: notificationBody,
       excerpt: `Recordatorio: ${holiday.name} está próximo`,
       date: today,
       department: 'General',
-      status: 'published', // ⬅️ IMPORTANTE: para que getHomeFeed la muestre
+      status: 'published',
       visibleFrom: today,
       visibleUntil: visibleUntil,
       type: 'holiday_notification',
@@ -124,7 +136,8 @@ async function createHolidayNotification(holiday, daysLeft) {
 }
 
 /* ==========================================
- *  DIGEST DE CUMPLEAÑOS (1 vez al día MX)
+ *  DIGEST DE CUMPLEAÑOS (legacy por parámetros)
+ *  -> útil si llamas manualmente desde el controller
  * ========================================== */
 export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
   const day = startOfDayInMX(date);
@@ -163,19 +176,94 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
   return ok;
 };
 
-/* =======================================
- *   CUMPLEAÑEROS HOY (campo birthDate)
- * ======================================= */
-export async function getTodayBirthdayUsersMX() {
-  // Comparación UTC vs UTC (evita desfaces por TZ)
-  const todayMMDD = mmddUTC(new Date());
+/* =========================================================
+ *  CUMPLEAÑOS: CORREO PERSONAL 08:00 MX (idempotente)
+ *  -> un correo por cumpleañero (no a toda la empresa)
+ * ========================================================= */
+export async function sendBirthdayEmailsIfDue() {
+  const lockKey = `bday_emails_${yyyymmddMX()}`;
+  const existed = await DailyLock.findOne({ key: lockKey });
+  if (existed) return { sent: false, reason: 'already-sent' };
 
+  // Cumpleañeros HOY en MX
+  const all = await User.find(
+    { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false }, email: { $exists: true, $ne: null } },
+    { name: 1, email: 1, birthDate: 1 }
+  ).lean();
+
+  const tagToday = mmddMX();
+  const birthdayUsers = all.filter(u => u.birthDate && mmddMX(u.birthDate) === tagToday);
+
+  if (!birthdayUsers.length) {
+    await DailyLock.create({ key: lockKey, at: new Date(), type: 'bday_personal' });
+    return { sent: false, reason: 'no-birthdays' };
+  }
+
+  await Promise.all(birthdayUsers.map(u => {
+    const html = `
+      <h2>🎂 ¡Feliz cumpleaños, ${u.name || 'colaborador/a'}!</h2>
+      <p>Te deseamos un gran día de parte de todo el equipo.</p>
+    `;
+    return sendEmail({ to: u.email, subject: '🎉 ¡Feliz cumpleaños!', html });
+  }));
+
+  await DailyLock.create({ key: lockKey, at: new Date(), type: 'bday_personal' });
+  return { sent: true, count: birthdayUsers.length };
+}
+
+/* =========================================================
+ *  CUMPLEAÑOS: DIGEST A TODA LA EMPRESA 08:00 MX (idempotente)
+ *  -> correo grupal con la lista del día
+ * ========================================================= */
+export async function sendBirthdayDigestToAllIfDue() {
+  const dayKey = dayKeyMX(startOfDayInMX(new Date()));
+  const existed = await DailyLock.findOneAndUpdate(
+    { type: 'birthday_digest', dateKey: dayKey },
+    { $setOnInsert: { createdAt: new Date() } },
+    { upsert: true, new: false }
+  ).lean();
+  if (existed) return { sent: false, reason: 'already-sent' };
+
+  // Cumpleañeros hoy (en MX)
+  const tagToday = mmddMX(new Date());
   const users = await User.find(
     { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false } },
     { name: 1, email: 1, birthDate: 1 }
   ).lean();
+  const birthdayUsers = users.filter(u => u.birthDate && mmddMX(u.birthDate) === tagToday);
 
-  return users.filter(u => u.birthDate && mmddUTC(u.birthDate) === todayMMDD);
+  if (!birthdayUsers.length) {
+    await DailyLock.create({ type: 'birthday_digest', dateKey: dayKey, at: new Date() });
+    return { sent: false, reason: 'no-birthdays' };
+  }
+
+  const toList = await collectRecipientEmails();
+  if (!toList.length) return { sent: false, reason: 'no-recipients' };
+
+  const names = birthdayUsers.map(u => u?.name || u?.email).join(', ');
+  const subject = '🎂 Cumpleaños de hoy en la empresa';
+  const html = `
+    <h2>🎂 Cumpleaños de hoy en la empresa</h2>
+    <p>Hoy celebramos a: <strong>${names}</strong>.</p>
+    <p>¡Envíales tus buenos deseos! 🎉</p>
+  `;
+
+  await safeSendEmail({ to: toList, subject, html });
+  await DailyLock.create({ type: 'birthday_digest', dateKey: dayKey, at: new Date() });
+  return { sent: true, count: toList.length };
+}
+
+/* =======================================
+ *   CUMPLEAÑEROS HOY (campo birthDate)
+ *   -> ahora por día MX (no UTC)
+ * ======================================= */
+export async function getTodayBirthdayUsersMX() {
+  const tagToday = mmddMX(new Date());
+  const users = await User.find(
+    { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false } },
+    { name: 1, email: 1, birthDate: 1 }
+  ).lean();
+  return users.filter(u => u.birthDate && mmddMX(u.birthDate) === tagToday);
 }
 
 /* ====================================================
@@ -244,10 +332,7 @@ export async function checkAllUpcomingHolidays() {
     futureDate.setDate(today.getDate() + 30); // Buscar en los próximos 30 días
     
     const upcomingHolidays = await Holiday.find({
-      date: {
-        $gte: today,
-        $lte: futureDate
-      }
+      date: { $gte: today, $lte: futureDate }
     }).lean();
 
     console.log(`📅 Festivos encontrados en los próximos 30 días: ${upcomingHolidays.length}`);
