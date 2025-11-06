@@ -1,7 +1,6 @@
-// server/src/routes/news.js
+// server/src/routes/news.js - VERSIÓN ACTUALIZADA
 import express from 'express'
 import { startOfDay, addDays, isBefore, isAfter } from 'date-fns'
-
 import News from '../models/News.js'
 import Holiday from '../models/Holiday.js'
 import User from '../models/User.js'
@@ -32,32 +31,36 @@ const nextOccurrence = (holidayDate, isRecurring) => {
 
 /* =========================
  * GET /news/home  (feed Home)
- * - Noticias publicadas
- * - Aviso de feriados (T-2 a T-1, desaparece el día T)
- * - Felicitación de cumpleaños (solo hoy para el usuario)
- * - Digest de cumpleañeros + envío de correo (una vez por día)
  * ========================= */
 router.get('/home', auth, async (req, res) => {
   try {
     const user = req.user
     const today = startOfDay(new Date())
 
-    // 1) Noticias publicadas (estáticas)
-    const published = await News.find({ status: 'published' })
+    // 1) Noticias publicadas (estáticas) + NOTIFICACIONES DE FESTIVOS
+    const published = await News.find({ 
+      $or: [
+        { status: 'published' },
+        { type: 'holiday_notification', isActive: true } // ⬅️ INCLUIR NOTIFICACIONES DE FESTIVOS
+      ]
+    })
       .sort({ createdAt: -1 })
       .limit(10)
       .lean()
 
     const items = (published || []).map((n) => ({
       id: String(n._id),
-      type: 'static',
+      type: n.type || 'static', // ⬅️ RESPETAR EL TIPO
       title: n.title,
       body: n.body || '',
+      excerpt: n.excerpt || '', // ⬅️ AGREGAR EXCERPT
       visibleFrom: n.visibleFrom ? toISO(n.visibleFrom) : undefined,
       visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined
     }))
 
-    // 2) Aviso de feriado (T-2 a T-1; el día T no se muestra)
+    console.log('[routes/news] Noticias desde BD:', items.map(i => ({ type: i.type, title: i.title })))
+
+    // 2) Aviso de feriado (T-2 a T-1; el día T no se muestra) - SOLO SI NO EXISTE NOTIFICACIÓN
     const holidays = await Holiday.find({}).lean()
     for (const h of holidays) {
       const isRecurring = h.recurring === true || h.type === 'recurring'
@@ -65,12 +68,18 @@ router.get('/home', auth, async (req, res) => {
       const startShow = addDays(occ, -2)
       const endHide = startOfDay(occ)
 
-      if (isAfter(today, startOfDay(startShow)) && isBefore(today, endHide)) {
+      // Verificar si ya existe una notificación para este festivo
+      const existingHolidayNotification = items.find(item => 
+        item.type === 'holiday_notice' || 
+        (item.type === 'holiday_notification' && item.title.includes(h.name))
+      )
+
+      if (!existingHolidayNotification && isAfter(today, startOfDay(startShow)) && isBefore(today, endHide)) {
         items.unshift({
           id: `holiday-${h._id}`,
           type: 'holiday_notice',
-          title: 'Nueva política de vacaciones',
-          body: `Se acerca el feriado "${h.name}" el ${occ.toLocaleDateString()}. Planifica tus solicitudes con anticipación.`,
+          title: `Próximo día festivo: ${h.name}`, // ⬅️ TÍTULO MÁS DESCRIPTIVO
+          body: `Se acerca ${h.name} el ${occ.toLocaleDateString('es-MX')}. Considera este descanso en tu planificación.`,
           visibleFrom: toISO(startShow),
           visibleUntil: toISO(endHide)
         })
@@ -102,7 +111,7 @@ router.get('/home', auth, async (req, res) => {
     birthdayTodayUsers = birthdayTodayUsers.filter((u) => mmdd(u.birthDate) === mmdd(today))
 
     if (birthdayTodayUsers.length > 0) {
-      await sendBirthdayEmailsIfNeeded(today, birthdayTodayUsers) // idempotente por día
+      await sendBirthdayEmailsIfNeeded(today, birthdayTodayUsers)
 
       const names = birthdayTodayUsers.map((u) => u.name || u.email).join(', ')
       items.unshift({
@@ -115,6 +124,7 @@ router.get('/home', auth, async (req, res) => {
       })
     }
 
+    console.log('[routes/news] Items finales:', items.length)
     res.json({ items })
   } catch (err) {
     console.error('Error en /news/home:', err)
@@ -137,7 +147,7 @@ router.get('/', async (req, res) => {
   }
 })
 
-// Crear noticia nueva (opcional)
+// Crear noticia nueva
 router.post('/', async (req, res) => {
   try {
     const newNews = new News(req.body)

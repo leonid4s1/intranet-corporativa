@@ -72,7 +72,8 @@ function nextOccurrenceMX(holidayDate, isRecurring) {
   return occMX;
 }
 
-export const getHomeFeed = async (req, res, next) => {
+// ⬇️ CAMBIO PRINCIPAL: Renombrar getHomeFeed a getHomeNews
+export const getHomeNews = async (req, res, next) => {
   try {
     const user = req.user;
     const today = startOfDayInMX();
@@ -86,20 +87,28 @@ export const getHomeFeed = async (req, res, next) => {
 
     const todayMMDD = mmddUTC(today);
 
-    // 1) Noticias publicadas (mínimo)
+    // 1) Noticias publicadas (mínimo) - INCLUYENDO holiday_notification
     const published = await News.find(
-      { status: 'published' },
-      { title: 1, body: 1, visibleFrom: 1, visibleUntil: 1, createdAt: 1 }
+      { 
+        $or: [
+          { status: 'published' },
+          { type: 'holiday_notification', isActive: true } // ⬅️ INCLUIR NOTIFICACIONES DE FESTIVOS
+        ]
+      },
+      { title: 1, body: 1, excerpt: 1, visibleFrom: 1, visibleUntil: 1, createdAt: 1, type: 1 }
     ).sort({ createdAt: -1 }).limit(10).lean();
 
     const items = (published || []).map((n) => ({
       id: String(n._id),
-      type: 'static',
+      type: n.type || 'static', // ⬅️ RESPETAR EL TYPE DE LA NOTIFICACIÓN
       title: n.title || 'Aviso',
       body: n.body || '',
+      excerpt: n.excerpt || '',
       visibleFrom: n.visibleFrom ? toISO(n.visibleFrom) : undefined,
       visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined,
     }));
+
+    console.log('[feed] Noticias desde BD:', items.map(i => ({ type: i.type, title: i.title })));
 
     // 2) Días festivos: ventana 7d + fallback por proximidad
     const holidays = await Holiday.find({}, { name: 1, date: 1, recurring: 1, type: 1 }).lean();
@@ -133,29 +142,36 @@ export const getHomeFeed = async (req, res, next) => {
       });
 
       if (inWindow || fallbackHit) {
-        items.unshift({
-          id: `holiday-${String(h._id)}-${occStart.getFullYear()}`,
-          type: 'holiday_notice',
-          title: `Próximo día festivo: ${h.name}`,
-          body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
-            timeZone: MX_TZ,
-            weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
-          })}.`,
-          visibleFrom: toISO(windowStart),
-          visibleUntil: toISO(windowEndExclusive),
-        });
+        // ⬇️ VERIFICAR SI YA EXISTE UNA NOTIFICACIÓN PARA ESTE FESTIVO
+        const existingHolidayNotification = items.find(item => 
+          item.type === 'holiday_notice' && item.title.includes(h.name)
+        );
 
-        // Email único al entrar a la ventana de 7 días
-        try {
-          const svc = await import('../services/notificationService.js');
-          const fn = svc?.sendUpcomingHolidayEmailIfSevenDaysBefore;
-          if (typeof fn === 'function') {
-            await fn({ ...h, date: occStart });
-          } else {
-            console.warn('[holiday_notice] sendUpcomingHolidayEmailIfSevenDaysBefore no está exportada.');
+        if (!existingHolidayNotification) {
+          items.unshift({
+            id: `holiday-${String(h._id)}-${occStart.getFullYear()}`,
+            type: 'holiday_notice',
+            title: `Próximo día festivo: ${h.name}`,
+            body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
+              timeZone: MX_TZ,
+              weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
+            })}.`,
+            visibleFrom: toISO(windowStart),
+            visibleUntil: toISO(windowEndExclusive),
+          });
+
+          // Email único al entrar a la ventana de 7 días
+          try {
+            const svc = await import('../services/notificationService.js');
+            const fn = svc?.sendUpcomingHolidayEmailIfSevenDaysBefore;
+            if (typeof fn === 'function') {
+              await fn({ ...h, date: occStart });
+            } else {
+              console.warn('[holiday_notice] sendUpcomingHolidayEmailIfSevenDaysBefore no está exportada.');
+            }
+          } catch (errMail) {
+            console.error('[holiday_notice 7d] error enviando correo:', errMail?.message || errMail);
           }
-        } catch (errMail) {
-          console.error('[holiday_notice 7d] error enviando correo:', errMail?.message || errMail);
         }
       }
     }
@@ -211,9 +227,12 @@ export const getHomeFeed = async (req, res, next) => {
       }
     }
 
-    console.log('[feed] items generados:', items.map(i => i.type + ':' + i.title));
+    console.log('[feed] items finales generados:', items.map(i => i.type + ':' + i.title));
     return res.json({ items });
   } catch (err) {
     next(err);
   }
 };
+
+// ⬇️ MANTENER getHomeFeed COMO ALIAS PARA COMPATIBILIDAD
+export const getHomeFeed = getHomeNews;
