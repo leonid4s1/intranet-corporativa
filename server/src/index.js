@@ -32,6 +32,10 @@ dotenv.config()
 
 const app = express()
 
+// === util de ruta absoluta para este archivo ===
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
 /** Detrás de proxies (Render/Vercel) para que cookies `secure` funcionen */
 app.set('trust proxy', 1)
 app.disable('x-powered-by')
@@ -137,6 +141,10 @@ app.use(express.urlencoded({ extended: false }))
 // Compresión HTTP
 app.use(compression())
 
+// === NUEVO: estático /uploads (para imágenes subidas de comunicados) ===
+// Carpeta física: server/uploads  (nota: desde src -> ../uploads)
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
+
 /** Health */
 app.get('/api/health', async (_req, res) => {
   const status = {
@@ -238,13 +246,13 @@ app.use('/api/*', (_req, res) => {
  * Carpeta: `cliente/dist`
  */
 if (process.env.SERVE_STATIC === 'true') {
-  const __filename = fileURLToPath(import.meta.url)
-  const __dirname = path.dirname(__filename)
   app.use(express.static(path.join(__dirname, '../../cliente/dist')))
   app.get('*', (_req, res) => {
     res.sendFile(path.join(__dirname, '../../cliente/dist/index.html'))
   })
 }
+
+app.use('/uploads', express.static('server/uploads'));
 
 /** Errores (al final) */
 app.use(errorHandler)

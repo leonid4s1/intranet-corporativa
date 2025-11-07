@@ -5,7 +5,8 @@
     "tailwindcss": "^4.1.11"
   },
   "dependencies": {
-    "date-fns": "^3.6.0"
+    "date-fns": "^3.6.0",
+    "multer": "^2.0.2"
   },
   "engines": {
     "node": "20.x"

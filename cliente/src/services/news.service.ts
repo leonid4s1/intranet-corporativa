@@ -1,14 +1,22 @@
+// cliente/src/services/news.service.ts
 import api from './api';
 
+/* ======================
+ * Tipos permitidos
+ * ====================== */
 export const allowedTypes = [
   'static',
   'holiday_notice',
   'birthday_self',
   'birthday_digest_info',
   'birthday_digest', // compat: legacy
+  'announcement',    // ⬅️ NUEVO: comunicados
 ] as const;
 export type AllowedType = typeof allowedTypes[number];
 
+/* ======================
+ * Modelos
+ * ====================== */
 export type NewsItem = {
   id: string;
   type: AllowedType;
@@ -35,6 +43,10 @@ type ServerNewsItem = {
 };
 
 type HomeFeedResponse = { items: ServerNewsItem[] };
+
+/* ======================
+ * Helpers
+ * ====================== */
 
 /** Type guard: restringe a AllowedType de forma segura */
 function isAllowedType(t: string): t is AllowedType {
@@ -92,16 +104,19 @@ function normalize(raw: ServerNewsItem): NewsItem {
 /** Puntaje de prioridad para ordenar en el carrusel */
 function priorityScore(it: NewsItem): number {
   switch (it.type) {
-    case 'holiday_notice': return 120;       // ⬅️ ahora es el más alto
+    case 'holiday_notice': return 120;       // el más alto
     case 'birthday_self': return 100;
     case 'birthday_digest_info':
     case 'birthday_digest': return 80;
+    case 'announcement': return 70;          // ⬅️ prioridad alta pero debajo de cumpleaños
     case 'static':
     default: return 50;
   }
 }
 
-/** Obtiene y filtra las noticias para el home */
+/* ======================
+ * API: Home feed
+ * ====================== */
 export async function getHomeNews(): Promise<NewsItem[]> {
   try {
     const { data } = await api.get<HomeFeedResponse>('/news/home');
@@ -128,8 +143,8 @@ export async function getHomeNews(): Promise<NewsItem[]> {
       return true;
     });
 
-    // Orden: prioridad desc; para holiday_notice, el más próximo primero (visibleUntil asc);
-    // luego fallback por visibleFrom desc para resto.
+    // Orden: prioridad desc; si ambos son holiday_notice -> más próximo primero (visibleUntil asc);
+    // luego fallback por visibleFrom desc para el resto.
     return deduped.sort((a, b) => {
       const pa = priorityScore(a);
       const pb = priorityScore(b);
@@ -149,4 +164,38 @@ export async function getHomeNews(): Promise<NewsItem[]> {
     console.error('[news.service] Error obteniendo /news/home', err);
     return [];
   }
+}
+
+/* ======================
+ * API: Crear Comunicado
+ * ====================== */
+export type CreateAnnouncementPayload = {
+  title: string;
+  body?: string;
+  excerpt?: string;
+  ctaText?: string;
+  ctaTo?: string;
+  visibleFrom?: string;   // ISO "YYYY-MM-DDTHH:mm"
+  visibleUntil?: string;  // ISO "YYYY-MM-DDTHH:mm"
+  image?: File | null;    // opcional
+};
+
+/**
+ * Crea un comunicado (announcement) con imagen opcional.
+ * Requiere auth y rol admin en el backend.
+ */
+export async function createAnnouncement(payload: CreateAnnouncementPayload) {
+  const fd = new FormData();
+  Object.entries(payload).forEach(([k, v]) => {
+    if (k === 'image') {
+      if (v instanceof File) fd.append('image', v);
+    } else if (v != null && v !== '') {
+      fd.append(k, String(v));
+    }
+  });
+
+  const { data } = await api.post('/news/announcements', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
 }

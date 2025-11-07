@@ -39,33 +39,46 @@
         </div>
       </router-link>
     </div>
+
+    <!-- Sección de comunicados -->
+    <section class="admin-section">
+      <div class="section-head">
+        <h2>Comunicados</h2>
+        <p class="section-subtitle">Publica un comunicado con imagen, fechas y llamada a la acción.</p>
+      </div>
+
+      <div class="section-card">
+        <AnnouncementForm />
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, defineOptions } from 'vue';
-import { useAuthStore } from '@/stores/auth.store';
+import { ref, onMounted, defineOptions } from 'vue'
+import { useAuthStore } from '@/stores/auth.store'
+import AnnouncementForm from '@/components/admin/AnnouncementForm.vue'
 
-defineOptions({ name: 'AdminHome' });
+defineOptions({ name: 'AdminHome' })
 
-const auth = useAuthStore();
-const loggingOut = ref(false);
+const auth = useAuthStore()
+const loggingOut = ref<boolean>(false)
 
-const handleLogout = async () => {
-  if (loggingOut.value) return;
-  loggingOut.value = true;
+const handleLogout = async (): Promise<void> => {
+  if (loggingOut.value) return
+  loggingOut.value = true
   try {
-    await auth.logout(); // router.replace('/login')
+    await auth.logout() // router.replace('/login')
   } finally {
-    loggingOut.value = false;
+    loggingOut.value = false
   }
-};
+}
 
-onMounted(() => {
+onMounted((): void => {
   if (typeof document !== 'undefined') {
-    document.title = 'Panel de Administración | Intranet';
+    document.title = 'Panel de Administración | Intranet'
   }
-});
+})
 </script>
 
 <style scoped>
@@ -141,6 +154,32 @@ onMounted(() => {
   margin: 0;
   color: #666;
   font-size: 0.95rem;
+}
+
+/* Sección de comunicados */
+.admin-section {
+  margin-top: 3rem;
+}
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  margin-bottom: 1rem;
+}
+.section-head h2 {
+  margin: 0;
+}
+.section-subtitle {
+  color: #6b7280;
+  font-size: .95rem;
+  margin: 0;
+}
+.section-card {
+  background: #fff;
+  border: 1px solid var(--gray-300, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  padding: 1.25rem;
 }
 
 /* Responsive */

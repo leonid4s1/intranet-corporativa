@@ -135,6 +135,52 @@ async function createHolidayNotification(holiday, daysLeft) {
   }
 }
 
+/* =========================================================
+ *  NUEVO: Email masivo por "Comunicado" (announcement)
+ *  - Usa imageUrl/excerpt/body/cta*
+ * ========================================================= */
+export async function notifyAllUsersAboutAnnouncement(recipientsOrNull, news) {
+  try {
+    const to = Array.isArray(recipientsOrNull) && recipientsOrNull.length
+      ? recipientsOrNull
+          .map(r => (typeof r === 'string' ? r : r?.email))
+          .filter(e => e && SIMPLE_EMAIL_RE.test(e))
+      : await collectRecipientEmails();
+
+    if (!to.length) {
+      console.warn('⚠ notifyAllUsersAboutAnnouncement: no hay destinatarios válidos');
+      return false;
+    }
+
+    const subject = `📰 Nuevo comunicado: ${news?.title || 'Comunicación interna'}`;
+
+    // Construir URL absoluta para imagen si hay PUBLIC_BASE_URL
+    const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+    const absImage = news?.imageUrl
+      ? (news.imageUrl.startsWith('http') ? news.imageUrl : `${base}${news.imageUrl}`)
+      : null;
+
+    const html = `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+        <h2 style="margin:0 0 8px">Nuevo comunicado</h2>
+        <h3 style="margin:0 0 16px">${news?.title || ''}</h3>
+        ${absImage ? `<img src="${absImage}" alt="" style="max-width:100%;border-radius:8px;margin:8px 0" />` : ''}
+        ${news?.excerpt ? `<p>${news.excerpt}</p>` : ''}
+        ${news?.body ? `<div style="white-space:pre-wrap">${news.body}</div>` : ''}
+        ${news?.ctaTo ? `<p style="margin-top:16px"><a href="${news.ctaTo}" style="background:#111;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none">${news?.ctaText || 'Ver más'}</a></p>` : ''}
+      </div>
+    `;
+
+    const ok = await safeSendEmail({ to, subject, html });
+    if (ok) console.log(`📨 Comunicado enviado a ${to.length} cuentas`);
+    else console.warn('⚠ Comunicado NO enviado');
+    return ok;
+  } catch (err) {
+    console.error('❌ notifyAllUsersAboutAnnouncement error:', err?.message || err);
+    return false;
+  }
+}
+
 /* ==========================================
  *  DIGEST DE CUMPLEAÑOS (legacy por parámetros)
  *  -> útil si llamas manualmente desde el controller
@@ -380,7 +426,7 @@ export async function notifyAdminsAboutNewRequest(vacationRequest, user) {
     .map(a => (a?.email || '').trim())
     .filter(e => e && SIMPLE_EMAIL_RE.test(e));
 
-  if (to.length === 0) {
+  if (!to.length) {
     console.warn('⚠ notifyAdminsAboutNewRequest: no hay admins con email válido');
     return false;
   }

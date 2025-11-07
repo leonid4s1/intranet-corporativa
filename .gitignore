@@ -34,3 +34,5 @@ Thumbs.db
 server/.env*
 cliente/.env*
 
+server/uploads/*
+!server/uploads/.gitkeep

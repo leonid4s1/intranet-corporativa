@@ -9,7 +9,7 @@
           class="card"
           :class="[`card--${n.type}`, { 'card--empty': n.id === 'no-news' }]"
         >
-
+          <!-- === Estado vacío === -->
           <template v-if="n.id === 'no-news'">
             <div class="empty-state">
               <div class="empty-icon">📰</div>
@@ -20,17 +20,39 @@
             </div>
           </template>
 
+          <!-- === Tarjetas reales === -->
           <template v-else>
             <header class="card__head">
               <h3 class="card__title">{{ n.title }}</h3>
               <span v-if="badge(n.type)" class="badge">{{ badge(n.type) }}</span>
             </header>
-            <p class="card__body" v-if="bodyOf(n)">{{ bodyOf(n) }}</p>
+
+            <!-- Imagen destacada -->
+            <img
+              v-if="n.imageUrl"
+              :src="n.imageUrl"
+              alt=""
+              class="card__image"
+              loading="lazy"
+            />
+
+            <p v-if="bodyOf(n)" class="card__body">{{ bodyOf(n) }}</p>
+
+            <!-- CTA -->
+            <footer v-if="n.ctaText && n.ctaTo" class="card__footer">
+              <a
+                class="btn cta"
+                :href="n.ctaTo"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ n.ctaText }}</a>
+            </footer>
           </template>
         </article>
       </div>
     </div>
 
+    <!-- === Controles === -->
     <div class="controls" v-if="displayItems.length > 1">
       <button class="ctrl" @click="prev" aria-label="Anterior">‹</button>
       <span class="dots" aria-hidden="true">
@@ -52,41 +74,72 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import type { NewsItem } from '@/services/news.service'
 import { makeNoNewsItem } from '@/services/news.service'
 
+/* ======== Props ======== */
 const props = defineProps<{ items?: NewsItem[] }>()
 
+/* ======== Estado ======== */
 const currentIndex = ref(0)
 let timer: number | undefined
 
-const displayItems = computed<NewsItem[]>(() => {
-  return props.items && props.items.length > 0 ? props.items : [makeNoNewsItem()]
-})
+/* ======== Computed ======== */
+const displayItems = computed<NewsItem[]>(() =>
+  props.items && props.items.length > 0 ? props.items : [makeNoNewsItem()]
+)
 
+/* ======== Métodos ======== */
 function bodyOf(n: NewsItem): string {
-  const anyN = n as Record<string, unknown>
-  const body = typeof anyN['body'] === 'string' ? (anyN['body'] as string) : undefined
-  const excerpt = typeof anyN['excerpt'] === 'string' ? (anyN['excerpt'] as string) : undefined
-  return body ?? excerpt ?? ''
+  return n.excerpt?.trim() ?? ''
 }
 
-function startAuto() {
+function startAuto(): void {
   stopAuto()
-  if (displayItems.value.length > 1) timer = window.setInterval(() => { next() }, 6500)
+  if (displayItems.value.length > 1)
+    timer = window.setInterval(() => next(), 6500)
 }
-function stopAuto() { if (timer) window.clearInterval(timer); timer = undefined }
-function next() { currentIndex.value = (currentIndex.value + 1) % displayItems.value.length }
-function prev() { currentIndex.value = (currentIndex.value - 1 + displayItems.value.length) % displayItems.value.length }
-function go(i: number) { currentIndex.value = i; startAuto() }
-
-function badge(t: NewsItem['type']) {
-  if (t === 'holiday_notice') return 'Aviso'
-  if (t === 'birthday_self') return '¡Feliz cumpleaños!'
-  if (t === 'birthday_digest_info') return 'Cumpleaños hoy'
-  return ''
+function stopAuto(): void {
+  if (timer) window.clearInterval(timer)
+  timer = undefined
+}
+function next(): void {
+  currentIndex.value = (currentIndex.value + 1) % displayItems.value.length
+}
+function prev(): void {
+  currentIndex.value =
+    (currentIndex.value - 1 + displayItems.value.length) %
+    displayItems.value.length
+}
+function go(i: number): void {
+  currentIndex.value = i
+  startAuto()
 }
 
+/** Etiquetas según tipo */
+function badge(t: NewsItem['type']): string {
+  switch (t) {
+    case 'holiday_notice':
+      return 'Aviso'
+    case 'birthday_self':
+      return '¡Feliz cumpleaños!'
+    case 'birthday_digest_info':
+    case 'birthday_digest':
+      return 'Cumpleaños hoy'
+    case 'announcement':
+      return 'Comunicado'
+    default:
+      return ''
+  }
+}
+
+/* ======== Ciclo ======== */
 onMounted(startAuto)
 onUnmounted(stopAuto)
-watch(() => props.items?.length, () => { currentIndex.value = 0; startAuto() })
+watch(
+  () => props.items?.length,
+  () => {
+    currentIndex.value = 0
+    startAuto()
+  }
+)
 </script>
 
 <style scoped>
@@ -105,37 +158,65 @@ watch(() => props.items?.length, () => { currentIndex.value = 0; startAuto() })
 }
 .card {
   padding: 18px 22px;
-  min-height: 120px;
+  min-height: 140px;
   display:flex;
   flex-direction:column;
-  gap:8px;
+  justify-content: space-between;
+  gap:10px;
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: #fff;
 }
+
+/* Imagen */
+.card__image {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+/* Cuerpo y cabecera */
 .card__head { display:flex; align-items:center; gap:8px; }
 .card__title { margin:0; font-size: 18px; line-height: 1.3; font-weight:700; color:#1e293b; }
-.card__body { margin:0; color:#334155; line-height:1.5; }
+.card__body { margin:0; color:#334155; line-height:1.5; font-size: 0.95rem; }
+
+/* CTA */
+.card__footer {
+  margin-top: auto;
+}
+.btn.cta {
+  background:#111;
+  color:#fff;
+  padding:8px 14px;
+  border-radius:10px;
+  text-decoration:none;
+  font-size:0.9rem;
+  transition: background .2s ease;
+}
+.btn.cta:hover { background:#222; }
+
+/* Badge */
 .badge {
   font-size: 12px; padding:2px 8px; border-radius: 999px;
   background: #eef2ff; color:#3730a3; margin-left:auto;
 }
+
+/* Tipos */
 .card--holiday_notice .badge { background:#fff7ed; color:#9a3412; }
 .card--birthday_self .badge { background:#ecfeff; color:#155e75; }
+.card--announcement .badge { background:#e0f2fe; color:#0369a1; }
 
-/* === Estado vacío (sin noticias) === */
+/* === Estado vacío === */
 .card--empty {
   display:flex;
   align-items:center;
   justify-content:center;
   background: #f9fafb;
 }
-.empty-state {
-  text-align:center;
-  color:#374151;
-}
-.empty-icon {
-  font-size: 2rem;
-  margin-bottom: .5rem;
-  opacity: 0.6;
-}
+.empty-state { text-align:center; color:#374151; }
+.empty-icon { font-size: 2rem; margin-bottom: .5rem; opacity: 0.6; }
 .empty-text h3 {
   font-weight: 700;
   font-size: 1.1rem;
@@ -148,76 +229,31 @@ watch(() => props.items?.length, () => { currentIndex.value = 0; startAuto() })
   margin:0;
 }
 
+/* Controles */
 .controls { display:flex; align-items:center; justify-content:center; gap:8px; padding:8px; }
 .ctrl { background:#f3f4f6; border:0; padding:6px 10px; border-radius:10px; cursor:pointer; }
 .dots { display:flex; gap:6px; }
 .dot { width:8px; height:8px; border-radius:999px; border:0; background:#d1d5db; cursor:pointer; transition: all .2s ease; }
 .dot.active { background:#6b7280; width:18px; border-radius:6px; }
 
-/* ===== Birthday look & feel (sin tocar template) ===== */
-
-/* base polishing */
-.card{
-  position: relative;
-  border-radius: 16px;
-  border: 1px solid var(--border, #e5e7eb);
-  background: #fff;
-}
-
-/* Cumpleañero (solo el usuario) */
+/* Cumpleaños */
 .card--birthday_self{
-  background:
-    linear-gradient(180deg, rgba(99,102,241,.08), transparent 60%) #fff; /* morado suave */
+  background: linear-gradient(180deg, rgba(99,102,241,.08), transparent 60%) #fff;
   border-color: rgba(99,102,241,.28);
 }
-/* Digest (visibles para los demás) */
 .card--birthday_digest_info{
-  background:
-    linear-gradient(180deg, rgba(16,185,129,.10), transparent 60%) #fff; /* verde suave */
+  background: linear-gradient(180deg, rgba(16,185,129,.10), transparent 60%) #fff;
   border-color: rgba(16,185,129,.28);
 }
-/* Holiday */
 .card--holiday_notice{
-  background:
-    linear-gradient(180deg, rgba(251,146,60,.10), transparent 60%) #fff; /* naranja suave */
+  background: linear-gradient(180deg, rgba(251,146,60,.10), transparent 60%) #fff;
   border-color: rgba(251,146,60,.30);
 }
 
-/* Badge por tipo */
-.card--birthday_self .badge{
-  background: rgba(99,102,241,.16);
-  color: #4f46e5;
-}
-.card--birthday_digest_info .badge{
-  background: rgba(16,185,129,.18);
-  color: #059669;
-}
-.card--holiday_notice .badge{
-  background: #fff7ed;
-  color: #9a3412;
-}
-
-/* Watermark con emoji sin tocar el template */
-.card--birthday_self::before,
-.card--birthday_digest_info::before{
-  content: "🎂";
-  position: absolute;
-  left: 14px;
-  top: 16px;
-  font-size: 26px;
-  line-height: 1;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
-  opacity: .95;
-}
-/* empuja un poco el título para no chocar con el ícono */
-.card__head{ padding-left: 30px; }
-.card__body{ padding-left: 30px; }
-
-/* Ajustes responsive */
+/* Responsive */
 @media (max-width: 640px){
   .card{ min-height: 130px; }
   .card__title{ font-size: 17px; }
   .card__body{ font-size: .95rem; }
 }
-
 </style>

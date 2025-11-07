@@ -3,6 +3,7 @@ import News from '../models/News.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
 import { startOfDay, addDays, isAfter, differenceInCalendarDays } from 'date-fns';
+import { notifyAllUsersAboutAnnouncement } from '../services/notificationService.js'; // ⬅️ NUEVO
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -127,7 +128,7 @@ export const getHomeNews = async (req, res, next) => {
           { type: 'holiday_notification', isActive: true }, // incluir notificaciones de festivos
         ],
       },
-      { title: 1, body: 1, excerpt: 1, visibleFrom: 1, visibleUntil: 1, createdAt: 1, type: 1 }
+      { title: 1, body: 1, excerpt: 1, visibleFrom: 1, visibleUntil: 1, createdAt: 1, type: 1, imageUrl: 1, ctaText: 1, ctaTo: 1 }
     )
       .sort({ createdAt: -1 })
       .limit(10)
@@ -139,6 +140,9 @@ export const getHomeNews = async (req, res, next) => {
       title: n.title || 'Aviso',
       body: n.body || '',
       excerpt: n.excerpt || '',
+      imageUrl: n.imageUrl || null,
+      ctaText: n.ctaText || null,
+      ctaTo: n.ctaTo || null,
       visibleFrom: n.visibleFrom ? toISO(n.visibleFrom) : undefined,
       visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined,
     }));
@@ -268,3 +272,89 @@ export const getHomeNews = async (req, res, next) => {
 
 // Alias para compatibilidad
 export const getHomeFeed = getHomeNews;
+
+/* =========================
+ *   ADMIN: Comunicados
+ * ========================= */
+
+/**
+ * Crea un comunicado de tipo "announcement".
+ * - Acepta imagen (multer la deja en req.file)
+ * - Envía correo a toda la empresa
+ */
+export const createAnnouncement = async (req, res, next) => {
+  try {
+    const {
+      title,
+      body,
+      excerpt,
+      ctaText,
+      ctaTo,
+      visibleFrom,
+      visibleUntil,
+      status = 'published',
+      isActive = true,
+      priority = 'medium'
+    } = req.body;
+
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
+
+    const news = await News.create({
+      type: 'announcement',
+      title: String(title || '').trim(),
+      body: String(body || excerpt || title || '').trim(),
+      excerpt: excerpt ? String(excerpt).trim() : undefined,
+      imageUrl,
+      ctaText: ctaText ? String(ctaText).trim() : null,
+      ctaTo: ctaTo ? String(ctaTo).trim() : null,
+      visibleFrom: visibleFrom ? new Date(visibleFrom) : new Date(),
+      visibleUntil: visibleUntil ? new Date(visibleUntil) : null, // exclusivo
+      status,
+      isActive,
+      priority,
+      createdBy: req.user?._id || null
+    });
+
+    // correos a toda la empresa (fire-and-forget)
+    try {
+      const recipients = await User.find({ email: { $ne: null } }).select('email name').lean();
+      await notifyAllUsersAboutAnnouncement(recipients, news);
+    } catch (mailErr) {
+      console.error('[announcement email] error:', mailErr?.message || mailErr);
+    }
+
+    res.status(201).json({ ok: true, data: news });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Lista comunicados visibles (para Admin o vista de gestión).
+ * Query opcional:
+ *   - ?all=true  -> devuelve todos (ignora ventana de visibilidad)
+ */
+export const listAnnouncements = async (req, res, next) => {
+  try {
+    const all = req.query.all === 'true';
+    const now = new Date();
+
+    const filter = { type: 'announcement' };
+    if (!all) {
+      filter.$or = [
+        { visibleUntil: null, visibleFrom: { $lte: now } },
+        { visibleFrom: { $lte: now }, visibleUntil: { $gt: now } },
+      ];
+      filter.status = 'published';
+      filter.isActive = true;
+    }
+
+    const items = await News.find(filter)
+      .sort({ visibleFrom: -1 })
+      .lean();
+
+    res.json({ ok: true, data: items });
+  } catch (err) {
+    next(err);
+  }
+};
