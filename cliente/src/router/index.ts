@@ -2,15 +2,15 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { authGuard } from './guards'
 
-// ⬅️ IMPORTA EL LAYOUT
+// Layout
 import DefaultLayout from '@/layouts/DefaultLayout.vue'
 
 // Vistas (lazy)
 const LoginView               = () => import('@/views/auth/LoginView.vue')
-// const RegisterView         = () => import('@/views/auth/RegisterView.vue') // eliminado
 const EmailVerificationView   = () => import('@/views/auth/EmailVerificationView.vue')
 
 const AdminDashboard          = () => import('@/views/admin/AdminHome.vue')
+const AdminAnnouncements      = () => import('@/views/admin/AdminAnnouncements.vue') // ⬅️ NUEVA
 const UserRolesAdmin          = () => import('@/views/admin/UserRolesAdmin.vue')
 const UserManagement          = () => import('@/views/admin/UserManagement.vue')
 const VacationManagement      = () => import('@/views/admin/AdminVacationManagement.vue')
@@ -19,9 +19,10 @@ const VacationsApprovedAdmin  = () => import('@/views/admin/VacationsApprovedAdm
 const UserDashboard           = () => import('@/views/user/Home.vue')
 const VacationCalendar        = () => import('@/views/user/VacationCalendar.vue')
 
-// 👇 NUEVO: vista de cambio de contraseña (usuario autenticado)
+// Cuenta
 const ChangePassword          = () => import('@/views/account/ChangePassword.vue')
 
+// Errores
 const ForbiddenView           = () => import('@/views/errors/ForbiddenView.vue')
 const NotFoundView            = () => import('@/views/errors/NotFoundView.vue')
 
@@ -33,11 +34,7 @@ const routes: Array<RouteRecordRaw> = [
     component: LoginView,
     meta: { public: true, guestOnly: true, title: 'Iniciar Sesión', requiresVerifiedEmail: false }
   },
-  {
-    path: '/register',
-    redirect: { name: 'login' },
-    meta: { public: true }
-  },
+  { path: '/register', redirect: { name: 'login' }, meta: { public: true } },
 
   // Verificación de email (pública)
   {
@@ -53,52 +50,34 @@ const routes: Array<RouteRecordRaw> = [
     meta: { public: true }
   },
 
-  // 🟦 ÁREA DE USUARIO BAJO EL LAYOUT (Sidebar en todas estas rutas)
+  // 🟦 Área de usuario (con DefaultLayout)
   {
     path: '/',
-    component: DefaultLayout, // ← aquí vive el sidebar + drawer móvil
-    meta: { requiresAuth: true }, // guard general para todo el bloque
+    component: DefaultLayout,
+    meta: { requiresAuth: true },
     children: [
-      { path: '', redirect: { name: 'home' } }, // raíz -> home
-      {
-        path: 'home',
-        name: 'home',
-        component: UserDashboard,
-        meta: { title: 'Inicio' }
-      },
-      {
-        path: 'vacaciones',
-        name: 'vacations',
-        component: VacationCalendar,
-        meta: { title: 'Calendario de Vacaciones' }
-      },
+      { path: '', redirect: { name: 'home' } },
+      { path: 'home', name: 'home', component: UserDashboard, meta: { title: 'Inicio' } },
+      { path: 'vacaciones', name: 'vacations', component: VacationCalendar, meta: { title: 'Calendario de Vacaciones' } },
 
-      // 👇 NUEVO: Cambiar contraseña
-      {
-        path: 'account/password',
-        name: 'change-password',
-        component: ChangePassword,
-        meta: { title: 'Cambiar contraseña' }
-      },
-      // (opcional) alias legible
-      {
-        path: 'settings/password',
-        redirect: { name: 'change-password' }
-      },
-
-      // 👉 aquí puedes añadir más vistas de usuario
-      // { path: 'tareas', name: 'tareas', component: () => import('@/views/Tasks.vue'), meta: { title: 'Tareas' } },
-      // { path: 'documentacion', name: 'docs', component: () => import('@/views/Docs.vue'), meta: { title: 'Documentación' } },
-      // { path: 'formatos', name: 'formatos', component: () => import('@/views/Formats.vue'), meta: { title: 'Formatos' } },
+      // Cuenta
+      { path: 'account/password', name: 'change-password', component: ChangePassword, meta: { title: 'Cambiar contraseña' } },
+      { path: 'settings/password', redirect: { name: 'change-password' } },
     ],
   },
 
-  // Admin (sin el DefaultLayout de usuario; si quieres, podemos crear un AdminLayout aparte)
+  // 🛠 Admin (rutas independientes)
   {
     path: '/admin',
     name: 'admin-dashboard',
     component: AdminDashboard,
     meta: { requiresAuth: true, requiresAdmin: true, title: 'Panel de Administración' }
+  },
+  {
+    path: '/admin/announcements',
+    name: 'admin-announcements',
+    component: AdminAnnouncements,
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Comunicados' } // ⬅️ NUEVA
   },
   {
     path: '/admin/users',

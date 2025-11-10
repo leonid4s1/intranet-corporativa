@@ -3,7 +3,6 @@
     <header class="admin-header">
       <h1>Panel de Administración</h1>
 
-      <!-- Usa el botón de marca -->
       <button
         @click="handleLogout"
         class="btn logout-btn"
@@ -27,7 +26,7 @@
         <i class="fas fa-user-cog"></i>
         <div class="card-content">
           <h3>Administrar Usuarios</h3>
-          <p>Gestiona cuentas de usuario y accesos</p>
+        <p>Gestiona cuentas de usuario y accesos</p>
         </div>
       </router-link>
 
@@ -38,26 +37,22 @@
           <p>Gestiona solicitudes y días de vacaciones</p>
         </div>
       </router-link>
+
+      <!-- Nueva tarjeta: Comunicados -->
+      <router-link to="/admin/announcements" class="admin-card">
+        <i class="fas fa-bullhorn"></i>
+        <div class="card-content">
+          <h3>Comunicados</h3>
+          <p>Publica y gestiona comunicados de la empresa</p>
+        </div>
+      </router-link>
     </div>
-
-    <!-- Sección de comunicados -->
-    <section class="admin-section">
-      <div class="section-head">
-        <h2>Comunicados</h2>
-        <p class="section-subtitle">Publica un comunicado con imagen, fechas y llamada a la acción.</p>
-      </div>
-
-      <div class="section-card">
-        <AnnouncementForm />
-      </div>
-    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, defineOptions } from 'vue'
 import { useAuthStore } from '@/stores/auth.store'
-import AnnouncementForm from '@/components/admin/AnnouncementForm.vue'
 
 defineOptions({ name: 'AdminHome' })
 
@@ -68,7 +63,7 @@ const handleLogout = async (): Promise<void> => {
   if (loggingOut.value) return
   loggingOut.value = true
   try {
-    await auth.logout() // router.replace('/login')
+    await auth.logout()
   } finally {
     loggingOut.value = false
   }
@@ -95,20 +90,11 @@ onMounted((): void => {
   margin-bottom: 2rem;
 }
 
-.admin-header h1 {
-  margin: 0;
-}
+.admin-header h1 { margin: 0; }
 
-/* === Botón de marca (usa reglas .btn de brand.css) === */
-.logout-btn {
-  /* sin colores locales: hereda background/hover de .btn */
-  min-width: 146px;
-}
-.logout-btn:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-  transform: none;
-}
+/* Botón de marca */
+.logout-btn { min-width: 146px; }
+.logout-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
 
 /* Grid de opciones */
 .admin-options {
@@ -150,37 +136,7 @@ onMounted((): void => {
   font-weight: 700;
   color: var(--ink, #4B5055);
 }
-.card-content p {
-  margin: 0;
-  color: #666;
-  font-size: 0.95rem;
-}
-
-/* Sección de comunicados */
-.admin-section {
-  margin-top: 3rem;
-}
-.section-head {
-  display: flex;
-  flex-direction: column;
-  gap: .25rem;
-  margin-bottom: 1rem;
-}
-.section-head h2 {
-  margin: 0;
-}
-.section-subtitle {
-  color: #6b7280;
-  font-size: .95rem;
-  margin: 0;
-}
-.section-card {
-  background: #fff;
-  border: 1px solid var(--gray-300, #e5e7eb);
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-  padding: 1.25rem;
-}
+.card-content p { margin: 0; color: #666; font-size: 0.95rem; }
 
 /* Responsive */
 @media (max-width: 768px) {
