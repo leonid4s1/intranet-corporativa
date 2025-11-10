@@ -116,17 +116,12 @@ function go(i: number): void {
 /** Etiquetas según tipo */
 function badge(t: NewsItem['type']): string {
   switch (t) {
-    case 'holiday_notice':
-      return 'Aviso'
-    case 'birthday_self':
-      return '¡Feliz cumpleaños!'
+    case 'holiday_notice':       return 'Aviso'
+    case 'birthday_self':        return '¡Feliz cumpleaños!'
     case 'birthday_digest_info':
-    case 'birthday_digest':
-      return 'Cumpleaños hoy'
-    case 'announcement':
-      return 'Comunicado'
-    default:
-      return ''
+    case 'birthday_digest':      return 'Cumpleaños hoy'
+    case 'announcement':         return 'Comunicado'
+    default:                     return ''
   }
 }
 
@@ -177,57 +172,87 @@ watch(
   border-radius: 10px;
 }
 
-/* Cuerpo y cabecera */
-.card__head { display:flex; align-items:center; gap:8px; }
+/* Cabecera y cuerpo */
+.card__head { display:flex; align-items:center; gap:8px; padding-left: 30px; }
 .card__title { margin:0; font-size: 18px; line-height: 1.3; font-weight:700; color:#1e293b; }
-.card__body { margin:0; color:#334155; line-height:1.5; font-size: 0.95rem; }
+.card__body { margin:0; color:#334155; line-height:1.5; font-size: 0.95rem; padding-left: 30px; }
 
 /* CTA */
-.card__footer {
-  margin-top: auto;
-}
+.card__footer { margin-top: auto; }
 .btn.cta {
-  background:#111;
-  color:#fff;
-  padding:8px 14px;
-  border-radius:10px;
-  text-decoration:none;
-  font-size:0.9rem;
-  transition: background .2s ease;
+  background:#111; color:#fff; padding:8px 14px; border-radius:10px;
+  text-decoration:none; font-size:0.9rem; transition: background .2s ease;
 }
 .btn.cta:hover { background:#222; }
 
-/* Badge */
+/* Badge (base neutra; cada tipo ajusta color) */
 .badge {
-  font-size: 12px; padding:2px 8px; border-radius: 999px;
-  background: #eef2ff; color:#3730a3; margin-left:auto;
+  font-size: 12px; padding:2px 8px; border-radius: 999px; margin-left:auto;
+  background: #eef2ff; color:#3730a3;
 }
 
-/* Tipos */
+/* ===== Colores por tipo ===== */
+
+/* Cumpleaños (morado unificado: self + digest) */
+.card--birthday_self,
+.card--birthday_digest_info {
+  background: linear-gradient(180deg, rgba(99,102,241,.10), transparent 60%) #fff;
+  border-color: rgba(99,102,241,.30);
+}
+.card--birthday_self .badge,
+.card--birthday_digest_info .badge {
+  background: rgba(99,102,241,.18);
+  color: #4f46e5;
+}
+/* ícono 🎂 */
+.card--birthday_self::before,
+.card--birthday_digest_info::before{
+  content: "🎂";
+  position: absolute; left: 14px; top: 16px;
+  font-size: 26px; line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
+  opacity: .95;
+}
+
+/* Festivos (naranja) */
+.card--holiday_notice{
+  background: linear-gradient(180deg, rgba(251,146,60,.10), transparent 60%) #fff;
+  border-color: rgba(251,146,60,.30);
+}
 .card--holiday_notice .badge { background:#fff7ed; color:#9a3412; }
-.card--birthday_self .badge { background:#ecfeff; color:#155e75; }
-.card--announcement .badge { background:#e0f2fe; color:#0369a1; }
+/* ícono 📅 */
+.card--holiday_notice::before{
+  content: "📅";
+  position: absolute; left: 14px; top: 16px;
+  font-size: 26px; line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
+  opacity: .95;
+}
+
+/* Comunicados (verde) */
+.card--announcement{
+  background: linear-gradient(180deg, rgba(34,197,94,.10), transparent 60%) #fff;
+  border-color: rgba(34,197,94,.30);
+}
+.card--announcement .badge{
+  background: rgba(34,197,94,.18);
+  color: #047857;
+}
+/* ícono 📢 */
+.card--announcement::before{
+  content: "📢";
+  position: absolute; left: 14px; top: 16px;
+  font-size: 26px; line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
+  opacity: .95;
+}
 
 /* === Estado vacío === */
-.card--empty {
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background: #f9fafb;
-}
+.card--empty { display:flex; align-items:center; justify-content:center; background: #f9fafb; }
 .empty-state { text-align:center; color:#374151; }
 .empty-icon { font-size: 2rem; margin-bottom: .5rem; opacity: 0.6; }
-.empty-text h3 {
-  font-weight: 700;
-  font-size: 1.1rem;
-  color:#111827;
-  margin-bottom: .25rem;
-}
-.empty-text p {
-  font-size: .92rem;
-  color:#6b7280;
-  margin:0;
-}
+.empty-text h3 { font-weight: 700; font-size: 1.1rem; color:#111827; margin-bottom: .25rem; }
+.empty-text p { font-size: .92rem; color:#6b7280; margin:0; }
 
 /* Controles */
 .controls { display:flex; align-items:center; justify-content:center; gap:8px; padding:8px; }
@@ -235,20 +260,6 @@ watch(
 .dots { display:flex; gap:6px; }
 .dot { width:8px; height:8px; border-radius:999px; border:0; background:#d1d5db; cursor:pointer; transition: all .2s ease; }
 .dot.active { background:#6b7280; width:18px; border-radius:6px; }
-
-/* Cumpleaños */
-.card--birthday_self{
-  background: linear-gradient(180deg, rgba(99,102,241,.08), transparent 60%) #fff;
-  border-color: rgba(99,102,241,.28);
-}
-.card--birthday_digest_info{
-  background: linear-gradient(180deg, rgba(16,185,129,.10), transparent 60%) #fff;
-  border-color: rgba(16,185,129,.28);
-}
-.card--holiday_notice{
-  background: linear-gradient(180deg, rgba(251,146,60,.10), transparent 60%) #fff;
-  border-color: rgba(251,146,60,.30);
-}
 
 /* Responsive */
 @media (max-width: 640px){
