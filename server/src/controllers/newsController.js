@@ -122,12 +122,7 @@ export const getHomeNews = async (req, res, next) => {
 
     // 1) Noticias publicadas (mínimo) - INCLUYENDO holiday_notification
     const published = await News.find(
-      {
-        $or: [
-          { status: 'published' },
-          { type: 'holiday_notification', isActive: true }, // incluir notificaciones de festivos
-        ],
-      },
+      {status: 'published', type: { $ne: 'holiday_notification' }},
       { title: 1, body: 1, excerpt: 1, visibleFrom: 1, visibleUntil: 1, createdAt: 1, type: 1, imageUrl: 1, ctaText: 1, ctaTo: 1 }
     )
       .sort({ createdAt: -1 })
