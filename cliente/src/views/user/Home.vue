@@ -110,7 +110,7 @@ const navigateTo = (path: string) => router.push(`/${path}`)
 
     <!-- Acceso rápido -->
     <section class="quick-access">
-      <h3>Acceso Rápido</h3>
+
       <div class="access-grid">
         <!-- Deshabilitados -->
         <div class="access-card is-disabled" aria-disabled="true" tabindex="-1">
