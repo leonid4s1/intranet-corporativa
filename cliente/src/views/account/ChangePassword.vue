@@ -268,10 +268,14 @@ calcStrength()
 .cp-input{
   width: 100%; border: 1px solid #E5E7EB; border-radius: 10px; padding: .6rem .75rem;
   font-size: .95rem; background: #fff; color:#111827;
-  padding-right: 2.75rem; /* espacio para el botón */
+  padding-right: 3rem; /* espacio extra para el botón */
   box-sizing: border-box;
 }
 .cp-input:focus{ outline: none; border-color:#4B5055; box-shadow: 0 0 0 3px rgba(75,80,85,.15); }
+
+/* Oculta el ojo nativo de Edge/IE para no tapar el personalizado */
+.cp-input::-ms-reveal,
+.cp-input::-ms-clear { display: none; }
 
 /* Botón ojo dentro del input */
 .cp-eye{
@@ -289,14 +293,14 @@ calcStrength()
   border-radius: 9999px;
   box-shadow: 0 2px 6px rgba(0,0,0,.06);
   color: #4B5563;         /* color base */
-  z-index: 1;             /* que quede sobre el input */
+  z-index: 2;             /* por encima del input */
   cursor: pointer;
 }
 
 .cp-eye:hover{ background:#f9fafb; }
 .cp-eye:focus-visible{ outline: 2px solid rgba(75,80,85,.4); outline-offset: 2px; }
 
-/* 🔧 Fuerza el color del trazo del ícono */
+/* Fuerza el color del trazo del ícono */
 .cp-eye svg{
   width: 18px;
   height: 18px;
@@ -305,11 +309,8 @@ calcStrength()
   fill: none;                  /* por si algún reset pone fill */
 }
 
-
 /* (opcional) cambia el color al pasar el mouse */
-.cp-eye:hover svg{
-  stroke: #1f2937 !important;
-}
+.cp-eye:hover svg{ stroke: #1f2937 !important; }
 
 .cp-help{ margin-top: 6px; color:#4B5563; font-size:.9rem; }
 .cp-rules{ margin: 6px 0 0; padding-left: 18px; font-size: .85rem; color:#6B7280; }
