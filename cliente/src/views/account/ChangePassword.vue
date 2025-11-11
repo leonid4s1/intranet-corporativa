@@ -177,7 +177,7 @@ function calcStrength(): void {
   ruleUp.value  = /[A-Z]/.test(v)
   ruleLo.value  = /[a-z]/.test(v)
   ruleNu.value  = /[0-9]/.test(v)
-  ruleSp.value  = /[\\W_]/.test(v)
+  ruleSp.value  = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(v) // Corregido
 
   const score = [ruleLen.value, ruleUp.value, ruleLo.value, ruleNu.value, ruleSp.value].filter(Boolean).length
   strengthLabel.value = ['Débil', 'Básica', 'Media', 'Fuerte', 'Muy fuerte'][Math.max(0, score - 1)]
@@ -278,21 +278,39 @@ calcStrength()
   right: .5rem;
   top: 50%;
   transform: translateY(-50%);
-  height: 34px; width: 34px;
-  display:flex; align-items:center; justify-content:center;
-  background:#fff;
-  border:1px solid #E5E7EB;
-  border-radius: 9999px;
-  box-shadow: 0 2px 6px rgba(0,0,0,.06);
+  height: 32px;
+  width: 32px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#f8f9fa;
+  border:1px solid #d1d5db;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,.1);
   cursor:pointer;
   z-index: 3;
   padding: 0;
+  transition: all 0.2s ease;
 }
-.cp-eye-pill:hover{ background:#f9fafb; }
-.cp-eye-pill:focus-visible{ outline: 2px solid rgba(75,80,85,.4); outline-offset: 2px; }
+.cp-eye-pill:hover{
+  background:#e5e7eb;
+  border-color: #9ca3af;
+}
+.cp-eye-pill:active{
+  transform: translateY(-50%) scale(0.95);
+}
+.cp-eye-pill:focus-visible{
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+}
 .cp-eye-pill svg{
-  width: 18px; height: 18px;
-  stroke:#4B5563; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round;
+  width: 16px;
+  height: 16px;
+  stroke:#4b5563;
+  fill:none;
+  stroke-width:1.5;
+  stroke-linecap:round;
+  stroke-linejoin:round;
 }
 
 /* resto */
