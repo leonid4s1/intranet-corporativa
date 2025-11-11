@@ -87,8 +87,11 @@ const displayItems = computed<NewsItem[]>(() =>
 )
 
 /* ======== Métodos ======== */
+/** Muestra excerpt y, si no hay, usa body (sin usar any). */
 function bodyOf(n: NewsItem): string {
-  return n.excerpt?.trim() ?? ''
+  if (n.excerpt && n.excerpt.trim()) return n.excerpt.trim()
+  const raw = (n as unknown as Record<string, unknown>)['body']
+  return typeof raw === 'string' ? raw.trim() : ''
 }
 
 function startAuto(): void {
@@ -181,16 +184,44 @@ watch(
 /* Cabecera y cuerpo */
 .card__head { display:flex; align-items:center; gap:8px; padding-left: 30px; }
 .card__title { margin:0; font-size: 19px; line-height: 1.3; font-weight:800; color:#0f172a; letter-spacing:.1px; }
-.card__body {
-  margin:2px 0 0 0;
-  color:#334155;
-  line-height:1.6;
-  font-size: 0.97rem;
-  padding-left: 30px;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;      /* 3 líneas máx */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+
+/* ===== Callout global para el cuerpo ===== */
+.card{
+  /* valores por defecto (neutros) */
+  --callout-bg: #F5F7FA;
+  --callout-text: #334155;
+  --callout-border: #E5E7EB;
+  --callout-accent: #CBD5E1;
+  --callout-emoji: "📰";
+}
+.card .card__body{
+  margin-top: 6px;
+  padding: 12px 14px;
+  padding-left: 14px; /* el borde izquierdo actúa como acento */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  background: var(--callout-bg);
+  color: var(--callout-text);
+  border: 1px solid var(--callout-border);
+  border-left: 5px solid var(--callout-accent);
+  border-radius: 12px;
+
+  font-weight: 600;
+  letter-spacing: .1px;
+  line-height: 1.55;
+
+  /* aseguramos que luzca (sin truncar) */
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  padding-right: 16px;
+}
+.card .card__body::before{
+  content: var(--callout-emoji);
+  font-size: 20px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,.05));
 }
 
 /* CTA */
@@ -207,60 +238,38 @@ watch(
   background: #eef2ff; color:#3730a3; font-weight:700;
 }
 
-/* ===== Colores por tipo ===== */
+/* ===== Colores por tipo (afectan el callout mediante vars) ===== */
 
 /* Cumpleaños (morado unificado: self + digest) */
 .card--birthday_self,
 .card--birthday_digest_info {
   background: linear-gradient(180deg, rgba(99,102,241,.10), transparent 60%) #fff;
   border-color: rgba(99,102,241,.30);
+  --callout-bg:#F5F3FF; --callout-text:#4C1D95; --callout-border:#DDD6FE; --callout-accent:#8B5CF6; --callout-emoji:"🎂";
 }
 .card--birthday_self .badge,
 .card--birthday_digest_info .badge {
   background: rgba(99,102,241,.18);
   color: #4f46e5;
 }
-/* ícono 🎂 */
-.card--birthday_self::before,
-.card--birthday_digest_info::before{
-  content: "🎂";
-  position: absolute; left: 14px; top: 16px;
-  font-size: 26px; line-height: 1;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
-  opacity: .95;
-}
 
 /* Festivos (naranja) */
 .card--holiday_notice{
   background: linear-gradient(180deg, rgba(251,146,60,.10), transparent 60%) #fff;
   border-color: rgba(251,146,60,.30);
+  --callout-bg:#FFF3E8; --callout-text:#9A3412; --callout-border:#FDBA74; --callout-accent:#F97316; --callout-emoji:"🗓️";
 }
 .card--holiday_notice .badge { background:#fff7ed; color:#9a3412; }
-/* ícono 📅 */
-.card--holiday_notice::before{
-  content: "📅";
-  position: absolute; left: 14px; top: 16px;
-  font-size: 26px; line-height: 1;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
-  opacity: .95;
-}
 
 /* Comunicados (verde) */
 .card--announcement{
   background: linear-gradient(180deg, rgba(34,197,94,.10), transparent 60%) #fff;
   border-color: rgba(34,197,94,.30);
+  --callout-bg:#ECFDF5; --callout-text:#065F46; --callout-border:#A7F3D0; --callout-accent:#10B981; --callout-emoji:"📢";
 }
 .card--announcement .badge{
   background: rgba(34,197,94,.18);
   color: #047857;
-}
-/* ícono 📢 */
-.card--announcement::before{
-  content: "📢";
-  position: absolute; left: 14px; top: 16px;
-  font-size: 26px; line-height: 1;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,.08));
-  opacity: .95;
 }
 
 /* === Estado vacío === */
@@ -281,6 +290,6 @@ watch(
 @media (max-width: 640px){
   .card{ min-height: 140px; }
   .card__title{ font-size: 18px; }
-  .card__body{ font-size: .95rem; -webkit-line-clamp: 4; } /* un poco más de texto en móvil */
+  .card .card__body{ font-size: .95rem; }
 }
 </style>
