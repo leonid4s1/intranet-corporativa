@@ -31,8 +31,13 @@
         :title="brandTitle"
         :aria-hidden="collapsed ? 'true' : 'false'"
       >
-        <img class="brand-logo" :src="logoUrl" alt="" aria-hidden="true" />
-        <span class="brand-text">ODES</span>
+        <img
+          class="brand-lockup"
+          :src="brandLockupUrl"
+          alt="Odes Construction"
+          decoding="async"
+          loading="eager"
+        />
       </RouterLink>
     </div>
 
@@ -76,7 +81,9 @@ import { computed, onMounted, onBeforeUnmount, onBeforeMount, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useUiStore } from '@/stores/ui.store';
 import { storeToRefs } from 'pinia';
-import logoPng from '@/assets/odes-mark.png'; // ← PNG corporativo
+
+import logoPng from '@/assets/odes-mark.png';                 // ← PNG para el botón
+import brandLockup from '@/assets/brand/odes-constrction.png'; // ← Lockup grande del sidebar
 
 const route = useRoute();
 const ui = useUiStore();
@@ -87,6 +94,7 @@ const isMobile = ref(false);
 const isMobileOpen = computed(() => ui.sidebarMobileOpen);
 
 const logoUrl = computed(() => logoPng);
+const brandLockupUrl = computed(() => brandLockup);
 
 function updateIsMobile() {
   isMobile.value = window.matchMedia(`(max-width: ${MOBILE_BP}px)`).matches;
@@ -189,24 +197,20 @@ const items = computed(() => {
   }
 }
 
-/* Marca (logo + texto) */
+/* Marca (lockup) */
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  padding-left: 2px;
   text-decoration: none;
   color: #fff;
 }
-.brand-logo {
-  width: 20px;
-  height: 20px;
-  opacity: 0.95;
-  border-radius: 4px;
-}
-.brand-text {
-  font-family: var(--font-brand);
-  font-weight: 800;
-  letter-spacing: 0.2px;
+.brand-lockup {
+  display: block;
+  height: 28px;     /* ajusta 24–36px a gusto */
+  width: auto;
+  object-fit: contain;
+  opacity: 0.98;
 }
 
 /* Focus accesible */
