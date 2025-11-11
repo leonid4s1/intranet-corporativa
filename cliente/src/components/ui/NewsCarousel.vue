@@ -143,7 +143,7 @@ watch(
   overflow: hidden;
   border-radius: 14px;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 6px 24px rgba(0,0,0,.06);
+  box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 10px 26px rgba(0,0,0,.06);
 }
 .track {
   display: grid;
@@ -152,8 +152,8 @@ watch(
   transition: transform .45s ease;
 }
 .card {
-  padding: 18px 22px;
-  min-height: 140px;
+  padding: 20px 22px;
+  min-height: 150px;
   display:flex;
   flex-direction:column;
   justify-content: space-between;
@@ -162,6 +162,11 @@ watch(
   border-radius: 16px;
   border: 1px solid var(--border, #e5e7eb);
   background: #fff;
+  transition: box-shadow .15s ease, transform .15s ease;
+}
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(0,0,0,.08);
 }
 
 /* Imagen */
@@ -169,13 +174,24 @@ watch(
   width: 100%;
   max-height: 220px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 12px;
+  outline: 1px solid rgba(0,0,0,.05);
 }
 
 /* Cabecera y cuerpo */
 .card__head { display:flex; align-items:center; gap:8px; padding-left: 30px; }
-.card__title { margin:0; font-size: 18px; line-height: 1.3; font-weight:700; color:#1e293b; }
-.card__body { margin:0; color:#334155; line-height:1.5; font-size: 0.95rem; padding-left: 30px; }
+.card__title { margin:0; font-size: 19px; line-height: 1.3; font-weight:800; color:#0f172a; letter-spacing:.1px; }
+.card__body {
+  margin:2px 0 0 0;
+  color:#334155;
+  line-height:1.6;
+  font-size: 0.97rem;
+  padding-left: 30px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;      /* 3 líneas máx */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 /* CTA */
 .card__footer { margin-top: auto; }
@@ -187,8 +203,8 @@ watch(
 
 /* Badge (base neutra; cada tipo ajusta color) */
 .badge {
-  font-size: 12px; padding:2px 8px; border-radius: 999px; margin-left:auto;
-  background: #eef2ff; color:#3730a3;
+  font-size: 12px; padding:3px 10px; border-radius: 999px; margin-left:auto;
+  background: #eef2ff; color:#3730a3; font-weight:700;
 }
 
 /* ===== Colores por tipo ===== */
@@ -255,16 +271,16 @@ watch(
 .empty-text p { font-size: .92rem; color:#6b7280; margin:0; }
 
 /* Controles */
-.controls { display:flex; align-items:center; justify-content:center; gap:8px; padding:8px; }
-.ctrl { background:#f3f4f6; border:0; padding:6px 10px; border-radius:10px; cursor:pointer; }
+.controls { display:flex; align-items:center; justify-content:center; gap:10px; padding:10px 8px; }
+.ctrl { background:#eef2f7; border:0; padding:6px 11px; border-radius:12px; cursor:pointer; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
 .dots { display:flex; gap:6px; }
 .dot { width:8px; height:8px; border-radius:999px; border:0; background:#d1d5db; cursor:pointer; transition: all .2s ease; }
 .dot.active { background:#6b7280; width:18px; border-radius:6px; }
 
 /* Responsive */
 @media (max-width: 640px){
-  .card{ min-height: 130px; }
-  .card__title{ font-size: 17px; }
-  .card__body{ font-size: .95rem; }
+  .card{ min-height: 140px; }
+  .card__title{ font-size: 18px; }
+  .card__body{ font-size: .95rem; -webkit-line-clamp: 4; } /* un poco más de texto en móvil */
 }
 </style>
