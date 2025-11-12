@@ -2,7 +2,7 @@
 import { Router } from 'express'
 // OJO: usa la forma de export real de tu middleware.
 // Si en middleware/auth.js exportas named => { auth }, si es default => auth
-import { auth } from '../middleware/auth.js'
+import auth  from '../middleware/auth.js'
 import admin from '../middleware/admin.js'
 
 import {
