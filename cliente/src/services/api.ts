@@ -23,6 +23,10 @@ const trimSlashEnd = (s: string) => s.replace(/\/+$/, '');
 const trimSlashStart = (s: string) => s.replace(/^\/+/, '');
 const API_BASE_URL = trimSlashEnd(RAW_BASE);
 
+/** 👇 NUEVO: dominio absoluto para recursos estáticos servidos en /uploads */
+export const UPLOADS_BASE_URL =
+  import.meta.env.VITE_UPLOADS_URL ?? 'https://intranet-corporativa.onrender.com';
+
 const api: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
@@ -104,13 +108,9 @@ api.interceptors.response.use(
         !!reqUrl &&
         (/\/auth\/login\b/.test(reqUrl) || /\/auth\/refresh\b/.test(reqUrl) || /\/auth\/logout\b/.test(reqUrl));
 
-      /** ⬇️ CAMBIO CLAVE:
-       * Si el 401 viene del propio /auth/login (o refresh/logout),
-       * NO redirigimos. Devolvemos el error para que la vista (Login)
-       * muestre "usuario/contraseña incorrecta" en el mismo formulario.
-       */
+      // Si el 401 viene de /auth/login|refresh|logout, no redirigimos
       if (isAuthPath) {
-        return Promise.reject(error); // ← sin clearAuth, sin redirect
+        return Promise.reject(error);
       }
 
       const auth = useAuthStore();
@@ -139,7 +139,7 @@ api.interceptors.response.use(
 
         // Si no se pudo refrescar, limpia y manda a login (solo si no estamos ya allí)
         auth.clearAuth();
-        goToLoginIfNeeded(); // ⬅️ en vez de window.location a ciegas
+        goToLoginIfNeeded();
         return Promise.reject(error);
       } finally {
         refreshing = false;

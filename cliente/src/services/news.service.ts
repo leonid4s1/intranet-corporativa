@@ -1,5 +1,5 @@
 // cliente/src/services/news.service.ts
-import api from './api';
+import api, { UPLOADS_BASE_URL } from './api';  // 👈 añadimos UPLOADS_BASE_URL
 
 /* ===== Tipos permitidos ===== */
 export const allowedTypes = [
@@ -77,12 +77,19 @@ function normalize(raw: ServerNewsItem): NewsItem {
     baseExcerpt ||
     (safeType === 'holiday_notice' ? `Próximo día festivo: ${title}` : '');
 
+  // 👇 si viene ruta relativa (/uploads/...), prepende el dominio del backend
+  const rawImg = raw.imageUrl ?? null;
+  const imageUrl =
+    rawImg && rawImg.startsWith('/uploads/')
+      ? `${UPLOADS_BASE_URL}${rawImg}`
+      : rawImg;
+
   return {
     id: String(raw.id),
     type: safeType,
     title,
     excerpt,
-    imageUrl: raw.imageUrl ?? null,
+    imageUrl,
     ctaText: raw.ctaText ?? null,
     ctaTo: raw.ctaTo ?? null,
     visibleFrom: raw.visibleFrom,
