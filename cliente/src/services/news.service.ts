@@ -1,22 +1,18 @@
 // cliente/src/services/news.service.ts
 import api from './api';
 
-/* ======================
- * Tipos permitidos
- * ====================== */
+/* ===== Tipos permitidos ===== */
 export const allowedTypes = [
   'static',
   'holiday_notice',
   'birthday_self',
   'birthday_digest_info',
-  'birthday_digest', // compat: legacy
-  'announcement',    // ⬅️ NUEVO: comunicados
+  'birthday_digest',
+  'announcement',
 ] as const;
 export type AllowedType = typeof allowedTypes[number];
 
-/* ======================
- * Modelos
- * ====================== */
+/* ===== Modelos ===== */
 export type NewsItem = {
   id: string;
   type: AllowedType;
@@ -25,8 +21,8 @@ export type NewsItem = {
   imageUrl?: string | null;
   ctaText?: string | null;
   ctaTo?: string | null;
-  visibleFrom?: string;   // ISO
-  visibleUntil?: string;  // ISO (exclusive)
+  visibleFrom?: string;
+  visibleUntil?: string;
 };
 
 type ServerNewsItem = {
@@ -44,16 +40,11 @@ type ServerNewsItem = {
 
 type HomeFeedResponse = { items: ServerNewsItem[] };
 
-/* ======================
- * Helpers
- * ====================== */
-
-/** Type guard: restringe a AllowedType de forma segura */
+/* ===== Helpers ===== */
 function isAllowedType(t: string): t is AllowedType {
   return (allowedTypes as readonly string[]).includes(t);
 }
 
-/** Ventana de visibilidad (from <= now < until). Si no hay fechas, consideramos infinito. */
 function isWithinWindow(now: Date, from?: string, until?: string): boolean {
   const n = now.getTime();
   const f = from ? new Date(from).getTime() : -Infinity;
@@ -61,7 +52,6 @@ function isWithinWindow(now: Date, from?: string, until?: string): boolean {
   return n >= f && n < u;
 }
 
-/** Tarjeta placeholder cuando no hay noticias */
 export function makeNoNewsItem(): NewsItem {
   return {
     id: 'no-news',
@@ -74,7 +64,6 @@ export function makeNoNewsItem(): NewsItem {
   };
 }
 
-/** Normaliza un item del servidor a NewsItem seguro */
 function normalize(raw: ServerNewsItem): NewsItem {
   const safeType: AllowedType = isAllowedType(raw.type) ? (raw.type as AllowedType) : 'static';
   if (safeType === 'static' && raw.type && raw.type !== 'static') {
@@ -101,22 +90,19 @@ function normalize(raw: ServerNewsItem): NewsItem {
   };
 }
 
-/** Puntaje de prioridad para ordenar en el carrusel */
 function priorityScore(it: NewsItem): number {
   switch (it.type) {
-    case 'holiday_notice': return 120;       // el más alto
+    case 'holiday_notice': return 120;
     case 'birthday_self': return 100;
     case 'birthday_digest_info':
     case 'birthday_digest': return 80;
-    case 'announcement': return 70;          // ⬅️ prioridad alta pero debajo de cumpleaños
+    case 'announcement': return 70;
     case 'static':
     default: return 50;
   }
 }
 
-/* ======================
- * API: Home feed
- * ====================== */
+/* ===== API: Home feed ===== */
 export async function getHomeNews(): Promise<NewsItem[]> {
   try {
     const { data } = await api.get<HomeFeedResponse>('/news/home');
@@ -127,7 +113,6 @@ export async function getHomeNews(): Promise<NewsItem[]> {
       .map(normalize)
       .filter((it) => isWithinWindow(now, it.visibleFrom, it.visibleUntil));
 
-    // Si existe 'birthday_self', oculta cualquier digest (info/legacy)
     const hasSelf = normalized.some((it) => it.type === 'birthday_self');
     const filtered = hasSelf
       ? normalized.filter(
@@ -135,7 +120,6 @@ export async function getHomeNews(): Promise<NewsItem[]> {
         )
       : normalized;
 
-    // Deduplicación defensiva por id
     const seen = new Set<string>();
     const deduped = filtered.filter((it) => {
       if (seen.has(it.id)) return false;
@@ -143,8 +127,6 @@ export async function getHomeNews(): Promise<NewsItem[]> {
       return true;
     });
 
-    // Orden: prioridad desc; si ambos son holiday_notice -> más próximo primero (visibleUntil asc);
-    // luego fallback por visibleFrom desc para el resto.
     return deduped.sort((a, b) => {
       const pa = priorityScore(a);
       const pb = priorityScore(b);
@@ -153,12 +135,12 @@ export async function getHomeNews(): Promise<NewsItem[]> {
       if (a.type === 'holiday_notice' && b.type === 'holiday_notice') {
         const ua = a.visibleUntil ? new Date(a.visibleUntil).getTime() : Infinity;
         const ub = b.visibleUntil ? new Date(b.visibleUntil).getTime() : Infinity;
-        if (ua !== ub) return ua - ub; // más próximo primero
+        if (ua !== ub) return ua - ub;
       }
 
       const ta = a.visibleFrom ? new Date(a.visibleFrom).getTime() : 0;
       const tb = b.visibleFrom ? new Date(b.visibleFrom).getTime() : 0;
-      return tb - ta; // más reciente primero
+      return tb - ta;
     });
   } catch (err) {
     console.error('[news.service] Error obteniendo /news/home', err);
@@ -166,36 +148,50 @@ export async function getHomeNews(): Promise<NewsItem[]> {
   }
 }
 
-/* ======================
- * API: Crear Comunicado
- * ====================== */
+/* ===== API: Crear Comunicado ===== */
 export type CreateAnnouncementPayload = {
   title: string;
   body?: string;
   excerpt?: string;
   ctaText?: string;
   ctaTo?: string;
-  visibleFrom?: string;   // ISO "YYYY-MM-DDTHH:mm"
-  visibleUntil?: string;  // ISO "YYYY-MM-DDTHH:mm"
-  image?: File | null;    // opcional
+  visibleFrom?: string | Date;   // aceptamos Date o string
+  visibleUntil?: string | Date;
+  image?: File | null;
 };
 
-/**
- * Crea un comunicado (announcement) con imagen opcional.
- * Requiere auth y rol admin en el backend.
- */
+function toIsoIfDate(v: unknown): string | undefined {
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === 'string' && v.trim() !== '') return v;
+  return undefined;
+}
+
 export async function createAnnouncement(payload: CreateAnnouncementPayload) {
   const fd = new FormData();
-  Object.entries(payload).forEach(([k, v]) => {
-    if (k === 'image') {
-      if (v instanceof File) fd.append('image', v);
-    } else if (v != null && v !== '') {
-      fd.append(k, String(v));
-    }
-  });
 
-  const { data } = await api.post('/news/announcements', fd, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return data;
+  // Campos texto/fecha (sin undefined/empty)
+  if (payload.title) fd.append('title', payload.title);
+  if (payload.body) fd.append('body', payload.body);
+  if (payload.excerpt) fd.append('excerpt', payload.excerpt);
+  if (payload.ctaText) fd.append('ctaText', payload.ctaText);
+  if (payload.ctaTo) fd.append('ctaTo', payload.ctaTo);
+
+  const vf = toIsoIfDate(payload.visibleFrom);
+  const vu = toIsoIfDate(payload.visibleUntil);
+  if (vf) fd.append('visibleFrom', vf);
+  if (vu) fd.append('visibleUntil', vu);
+
+  // Imagen (nombre de campo EXACTO: 'image')
+  if (payload.image instanceof File) {
+    fd.append('image', payload.image, payload.image.name);
+  }
+
+  // ⚠️ No seteamos manualmente 'Content-Type' para que Axios agregue el boundary
+  try {
+    const { data } = await api.post('/news/announcements', fd);
+    return data;
+  } catch (err) {
+    console.error('[Announcement] create error', err);
+    throw err;
+  }
 }

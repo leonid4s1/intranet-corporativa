@@ -141,9 +141,10 @@ app.use(express.urlencoded({ extended: false }))
 // Compresión HTTP
 app.use(compression())
 
-// === NUEVO: estático /uploads (para imágenes subidas de comunicados) ===
-// Carpeta física: server/uploads  (nota: desde src -> ../uploads)
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')))
+/* ===== /uploads estático (ÚNICO y alineado con uploadService) ===== */
+// Debe coincidir con server/src/services/uploadService.js
+const UPLOAD_DIR = process.env.UPLOAD_DIR || '/tmp/uploads'
+app.use('/uploads', express.static(UPLOAD_DIR))
 
 /** Health */
 app.get('/api/health', async (_req, res) => {
@@ -251,8 +252,6 @@ if (process.env.SERVE_STATIC === 'true') {
     res.sendFile(path.join(__dirname, '../../cliente/dist/index.html'))
   })
 }
-
-app.use('/uploads', express.static('server/uploads'));
 
 /** Errores (al final) */
 app.use(errorHandler)

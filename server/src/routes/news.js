@@ -1,38 +1,20 @@
-// server/src/routes/news.js - ACTUALIZADO
+// server/src/routes/news.js
 import { Router } from 'express'
-import multer from 'multer'
-import path from 'path'
-import auth from '../middleware/auth.js'
+// OJO: usa la forma de export real de tu middleware.
+// Si en middleware/auth.js exportas named => { auth }, si es default => auth
+import { auth } from '../middleware/auth.js'
 import admin from '../middleware/admin.js'
 
 import {
-  getHomeNews,             // feed para el carrusel/home
-  createAnnouncement,      // crear comunicado (con imagen)
-  listAnnouncements        // listar comunicados (admin)
+  getHomeNews,
+  createAnnouncement,
+  listAnnouncements,
 } from '../controllers/newsController.js'
 
-import News from '../models/News.js' // rutas legacy existentes
+import News from '../models/News.js'
+import { upload } from '../services/uploadService.js' // ← usa el servicio central
 
 const router = Router()
-
-/* =========================
- * Subida de imágenes (multer)
- * ========================= */
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    // Carpeta física: server/uploads  (ojo: este archivo vive en server/src/routes)
-    cb(null, path.join(process.cwd(), 'server/uploads'))
-  },
-  filename: (_req, file, cb) => {
-    const safeBase = file.originalname.replace(/[^\w.-]+/g, '_')
-    const ts = Date.now()
-    cb(null, `${ts}_${safeBase}`)
-  }
-})
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
-})
 
 /* =========================
  * HOME FEED
@@ -42,16 +24,19 @@ router.get('/home', auth, getHomeNews)
 /* =========================
  * ADMIN: Comunicados
  * ========================= */
-// Crear comunicado (con imagen opcional)
-router.post('/announcements', auth, admin, upload.single('image'), createAnnouncement)
+router.post(
+  '/announcements',
+  auth,
+  admin,
+  upload.single('image'),   // ← campo DEBE ser 'image'
+  createAnnouncement
+)
 
-// Listar comunicados (vigentes por defecto; ?all=true para todos)
 router.get('/announcements', auth, admin, listAnnouncements)
 
 /* =========================
  * Rutas legacy existentes
  * ========================= */
-// Obtener todas las noticias
 router.get('/', async (_req, res) => {
   try {
     const newsList = await News.find().sort({ date: -1 })
@@ -62,7 +47,6 @@ router.get('/', async (_req, res) => {
   }
 })
 
-// Crear noticia simple (JSON, sin imagen)
 router.post('/', async (req, res) => {
   try {
     const newNews = new News(req.body)
