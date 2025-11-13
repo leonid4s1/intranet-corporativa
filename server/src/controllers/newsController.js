@@ -171,7 +171,7 @@ export const getHomeNews = async (req, res, next) => {
             type: 'holiday_notice',
             title: `Próximo día festivo: ${h.name}`,
             body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
-              timeZone: MX_TZ,
+              timeZone: 'UTC',
               weekday: 'long',
               day: '2-digit',
               month: 'long',
