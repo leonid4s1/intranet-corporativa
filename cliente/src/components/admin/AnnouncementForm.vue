@@ -1,7 +1,6 @@
 <!-- cliente/src/components/admin/AnnouncementForm.vue -->
 <template>
   <form class="card form" @submit.prevent="submit" novalidate>
-    <h2>Publicar comunicado</h2>
 
     <label>Título
       <input v-model.trim="form.title" required />
