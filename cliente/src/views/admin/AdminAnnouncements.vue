@@ -23,7 +23,8 @@
 
       <transition name="collapse">
         <div v-if="showForm" class="form-body">
-          <AnnouncementForm />
+          <!-- 👇 aquí va el cambio: ocultamos el título interno del form -->
+          <AnnouncementForm :show-title="false" />
         </div>
       </transition>
     </section>
