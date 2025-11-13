@@ -12,7 +12,7 @@ export const allowedTypes = [
 ] as const;
 export type AllowedType = typeof allowedTypes[number];
 
-/* ===== Modelos ===== */
+/* ===== Modelos base ===== */
 export type NewsItem = {
   id: string;
   type: AllowedType;
@@ -40,7 +40,7 @@ type ServerNewsItem = {
 
 type HomeFeedResponse = { items: ServerNewsItem[] };
 
-/* ===== Helpers ===== */
+/* ===== Helpers base ===== */
 function isAllowedType(t: string): t is AllowedType {
   return (allowedTypes as readonly string[]).includes(t);
 }
@@ -193,12 +193,153 @@ export async function createAnnouncement(payload: CreateAnnouncementPayload) {
     fd.append('image', payload.image, payload.image.name);
   }
 
-  // ⚠️ No seteamos manualmente 'Content-Type' para que Axios agregue el boundary
   try {
     const { data } = await api.post('/news/announcements', fd);
     return data;
   } catch (err) {
     console.error('[Announcement] create error', err);
+    throw err;
+  }
+}
+
+/* =======================================================
+ *   API ADMIN: Listar / actualizar / eliminar comunicados
+ * ======================================================= */
+
+export type AdminAnnouncement = NewsItem & {
+  body?: string;
+  status?: string;
+  isActive?: boolean;
+  priority?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  /** true si actualmente está publicado y dentro de ventana de visibilidad */
+  published: boolean;
+};
+
+type ServerAnnouncement = ServerNewsItem & {
+  status?: string;
+  isActive?: boolean;
+  priority?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  published?: boolean;
+};
+
+type AdminListResponse = {
+  ok: boolean;
+  data: ServerAnnouncement[];
+};
+
+type AdminOneResponse = {
+  ok: boolean;
+  data: ServerAnnouncement;
+};
+
+function normalizeAdminAnnouncement(raw: ServerAnnouncement): AdminAnnouncement {
+  const base = normalize(raw); // reaprovechamos normalización (tipos, imagen, excerpt...)
+  return {
+    ...base,
+    body: raw.body,
+    status: raw.status,
+    isActive: raw.isActive,
+    priority: raw.priority,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    published: Boolean(raw.published),
+  };
+}
+
+/**
+ * Obtiene la lista de comunicados para el administrador.
+ * @param all true => ignora ventana de visibilidad (usa ?all=true)
+ */
+export async function fetchAdminAnnouncements(
+  all: boolean = true
+): Promise<AdminAnnouncement[]> {
+  try {
+    const { data } = await api.get<AdminListResponse>('/news/announcements', {
+      params: all ? { all: 'true' } : {},
+    });
+
+    const items: ServerAnnouncement[] = data?.data ?? [];
+    return items.map(normalizeAdminAnnouncement);
+  } catch (err) {
+    console.error('[Announcement] admin list error', err);
+    throw err;
+  }
+}
+
+/**
+ * Payload para actualizar comunicado.
+ * Todos los campos son opcionales.
+ */
+export type UpdateAnnouncementPayload = Partial<CreateAnnouncementPayload> & {
+  status?: string;
+  isActive?: boolean;
+  priority?: string;
+};
+
+export async function updateAnnouncement(
+  id: string,
+  payload: UpdateAnnouncementPayload
+): Promise<AdminAnnouncement> {
+  const fd = new FormData();
+
+  // Solo agregamos campos que vengan definidos (permitimos limpiar algunos con null/string vacía)
+  if (payload.title !== undefined) fd.append('title', payload.title ?? '');
+  if (payload.body !== undefined) fd.append('body', payload.body ?? '');
+  if (payload.excerpt !== undefined) fd.append('excerpt', payload.excerpt ?? '');
+  if (payload.ctaText !== undefined) fd.append('ctaText', payload.ctaText ?? '');
+  if (payload.ctaTo !== undefined) fd.append('ctaTo', payload.ctaTo ?? '');
+
+  if (payload.visibleFrom !== undefined) {
+    const vf = toIsoIfDate(payload.visibleFrom);
+    if (vf) fd.append('visibleFrom', vf);
+    else fd.append('visibleFrom', '');
+  }
+
+  if (payload.visibleUntil !== undefined) {
+    const vu = toIsoIfDate(payload.visibleUntil);
+    if (vu) fd.append('visibleUntil', vu);
+    else fd.append('visibleUntil', '');
+  }
+
+  if (payload.status !== undefined) {
+    fd.append('status', payload.status);
+  }
+  if (payload.isActive !== undefined) {
+    fd.append('isActive', String(payload.isActive));
+  }
+  if (payload.priority !== undefined) {
+    fd.append('priority', payload.priority);
+  }
+
+  if (payload.image instanceof File) {
+    fd.append('image', payload.image, payload.image.name);
+  }
+
+  try {
+    const { data } = await api.put<AdminOneResponse>(
+      `/news/announcements/${id}`,
+      fd
+    );
+    const raw = data.data;
+    return normalizeAdminAnnouncement(raw);
+  } catch (err) {
+    console.error('[Announcement] update error', err);
+    throw err;
+  }
+}
+
+/**
+ * Elimina (quitar) un comunicado por id.
+ */
+export async function deleteAnnouncement(id: string): Promise<void> {
+  try {
+    await api.delete(`/news/announcements/${id}`);
+  } catch (err) {
+    console.error('[Announcement] delete error', err);
     throw err;
   }
 }

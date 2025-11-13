@@ -3,7 +3,7 @@ import News from '../models/News.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
 import { startOfDay, addDays, isAfter, differenceInCalendarDays } from 'date-fns';
-import { notifyAllUsersAboutAnnouncement } from '../services/notificationService.js'; // ⬅️ NUEVO
+import { notifyAllUsersAboutAnnouncement } from '../services/notificationService.js'; // ⬅️ mails anuncio
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -57,7 +57,12 @@ function isRecurringFlag(h) {
     .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
     .trim();
-  return t === 'recurring' || t === 'recurrente' || t === 'recurrent' || t === 'recurrencia';
+  return (
+    t === 'recurring' ||
+    t === 'recurrente' ||
+    t === 'recurrent' ||
+    t === 'recurrencia'
+  );
 }
 
 /**
@@ -122,8 +127,19 @@ export const getHomeNews = async (req, res, next) => {
 
     // 1) Noticias publicadas (mínimo) - INCLUYENDO holiday_notification
     const published = await News.find(
-      {status: 'published', type: { $ne: 'holiday_notification' }},
-      { title: 1, body: 1, excerpt: 1, visibleFrom: 1, visibleUntil: 1, createdAt: 1, type: 1, imageUrl: 1, ctaText: 1, ctaTo: 1 }
+      { status: 'published', type: { $ne: 'holiday_notification' } },
+      {
+        title: 1,
+        body: 1,
+        excerpt: 1,
+        visibleFrom: 1,
+        visibleUntil: 1,
+        createdAt: 1,
+        type: 1,
+        imageUrl: 1,
+        ctaText: 1,
+        ctaTo: 1,
+      }
     )
       .sort({ createdAt: -1 })
       .limit(10)
@@ -143,7 +159,10 @@ export const getHomeNews = async (req, res, next) => {
     }));
 
     // 2) Días festivos: ventana 7d + fallback por proximidad
-    const holidays = await Holiday.find({}, { name: 1, date: 1, recurring: 1, type: 1 }).lean();
+    const holidays = await Holiday.find(
+      {},
+      { name: 1, date: 1, recurring: 1, type: 1 }
+    ).lean();
 
     for (const h of holidays) {
       if (!h?.date || !h?.name) continue;
@@ -162,7 +181,8 @@ export const getHomeNews = async (req, res, next) => {
       if (inWindow || fallbackHit) {
         // Evita duplicar si ya existe una notificación para este festivo
         const existingHolidayNotification = items.find(
-          (item) => item.type === 'holiday_notice' && item.title.includes(h.name)
+          (item) =>
+            item.type === 'holiday_notice' && item.title.includes(h.name)
         );
 
         if (!existingHolidayNotification) {
@@ -188,10 +208,15 @@ export const getHomeNews = async (req, res, next) => {
             if (typeof fn === 'function') {
               await fn({ ...h, date: occStart });
             } else {
-              console.warn('[holiday_notice] sendUpcomingHolidayEmailIfSevenDaysBefore no está exportada.');
+              console.warn(
+                '[holiday_notice] sendUpcomingHolidayEmailIfSevenDaysBefore no está exportada.'
+              );
             }
           } catch (errMail) {
-            console.error('[holiday_notice 7d] error enviando correo:', errMail?.message || errMail);
+            console.error(
+              '[holiday_notice 7d] error enviando correo:',
+              errMail?.message || errMail
+            );
           }
         }
       }
@@ -220,7 +245,10 @@ export const getHomeNews = async (req, res, next) => {
             await fn();
           }
         } catch (errMail) {
-          console.error('[birthdays] error enviando correos:', errMail?.message || errMail);
+          console.error(
+            '[birthdays] error enviando correos:',
+            errMail?.message || errMail
+          );
         }
       }
 
@@ -229,7 +257,8 @@ export const getHomeNews = async (req, res, next) => {
         // Card personal si ES su cumpleaños y está logueado
         if (user) {
           const me = await User.findById(user.id).lean();
-          const isMyBirthday = !!me?.birthDate && mmddMX(me.birthDate) === todayMMDD_MX;
+          const isMyBirthday =
+            !!me?.birthDate && mmddMX(me.birthDate) === todayMMDD_MX;
 
           if (isMyBirthday) {
             const first = (me?.name || 'colaborador').split(' ')[0];
@@ -246,7 +275,9 @@ export const getHomeNews = async (req, res, next) => {
 
         // Digest visible para TODOS (no depende de que el cumpleañero inicie sesión)
         if (birthdayTodayUsers.length > 0) {
-          const names = birthdayTodayUsers.map((u) => u.name || u.email).join(', ');
+          const names = birthdayTodayUsers
+            .map((u) => u.name || u.email)
+            .join(', ');
           items.unshift({
             id: `birthday-digest-${todayMMDD_MX}`,
             type: 'birthday_digest_info',
@@ -289,7 +320,7 @@ export const createAnnouncement = async (req, res, next) => {
       visibleUntil,
       status = 'published',
       isActive = true,
-      priority = 'medium'
+      priority = 'medium',
     } = req.body;
 
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
@@ -307,12 +338,16 @@ export const createAnnouncement = async (req, res, next) => {
       status,
       isActive,
       priority,
-      createdBy: req.user?._id || null
+      createdBy: req.user?._id || null,
     });
 
     // correos a toda la empresa (fire-and-forget)
     try {
-      const recipients = await User.find({ email: { $ne: null } }).select('email name').lean();
+      const recipients = await User.find({
+        email: { $ne: null },
+      })
+        .select('email name')
+        .lean();
       await notifyAllUsersAboutAnnouncement(recipients, news);
     } catch (mailErr) {
       console.error('[announcement email] error:', mailErr?.message || mailErr);
@@ -325,9 +360,12 @@ export const createAnnouncement = async (req, res, next) => {
 };
 
 /**
- * Lista comunicados visibles (para Admin o vista de gestión).
+ * Lista comunicados (para Admin o vista de gestión).
  * Query opcional:
  *   - ?all=true  -> devuelve todos (ignora ventana de visibilidad)
+ *
+ * Cada item incluye:
+ *   - published: boolean => si está actualmente publicado / visible
  */
 export const listAnnouncements = async (req, res, next) => {
   try {
@@ -335,7 +373,9 @@ export const listAnnouncements = async (req, res, next) => {
     const now = new Date();
 
     const filter = { type: 'announcement' };
+
     if (!all) {
+      // Solo los visibles y activos para vista pública
       filter.$or = [
         { visibleUntil: null, visibleFrom: { $lte: now } },
         { visibleFrom: { $lte: now }, visibleUntil: { $gt: now } },
@@ -344,11 +384,117 @@ export const listAnnouncements = async (req, res, next) => {
       filter.isActive = true;
     }
 
-    const items = await News.find(filter)
-      .sort({ visibleFrom: -1 })
-      .lean();
+    const raw = await News.find(filter).sort({ visibleFrom: -1 }).lean();
+
+    const items = raw.map((n) => {
+      const visibleFrom = n.visibleFrom ? new Date(n.visibleFrom) : null;
+      const visibleUntil = n.visibleUntil ? new Date(n.visibleUntil) : null;
+
+      const isCurrentlyPublished =
+        n.status === 'published' &&
+        (n.isActive ?? true) &&
+        (!visibleFrom || visibleFrom <= now) &&
+        (!visibleUntil || visibleUntil > now);
+
+      return {
+        ...n,
+        id: String(n._id),
+        published: isCurrentlyPublished,
+      };
+    });
 
     res.json({ ok: true, data: items });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Actualiza un comunicado existente.
+ * Se limita a campos permitidos.
+ * Si viene archivo (req.file) se actualiza imageUrl.
+ */
+export const updateAnnouncement = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const {
+      title,
+      body,
+      excerpt,
+      ctaText,
+      ctaTo,
+      visibleFrom,
+      visibleUntil,
+      status,
+      isActive,
+      priority,
+    } = req.body;
+
+    const updateData = {};
+
+    if (title !== undefined) updateData.title = String(title).trim();
+    if (body !== undefined) updateData.body = String(body).trim();
+    if (excerpt !== undefined) updateData.excerpt = String(excerpt).trim();
+    if (ctaText !== undefined)
+      updateData.ctaText = ctaText ? String(ctaText).trim() : null;
+    if (ctaTo !== undefined)
+      updateData.ctaTo = ctaTo ? String(ctaTo).trim() : null;
+
+    if (visibleFrom !== undefined) {
+      updateData.visibleFrom = visibleFrom ? new Date(visibleFrom) : null;
+    }
+    if (visibleUntil !== undefined) {
+      updateData.visibleUntil = visibleUntil ? new Date(visibleUntil) : null;
+    }
+
+    if (status !== undefined) updateData.status = status;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (priority !== undefined) updateData.priority = priority;
+
+    // Si suben nueva imagen
+    if (req.file) {
+      updateData.imageUrl = `/uploads/${req.file.filename}`;
+    }
+
+    const updated = await News.findOneAndUpdate(
+      { _id: id, type: 'announcement' },
+      updateData,
+      { new: true, runValidators: true }
+    ).lean();
+
+    if (!updated) {
+      return res
+        .status(404)
+        .json({ ok: false, message: 'Comunicado no encontrado' });
+    }
+
+    res.json({ ok: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Elimina (despublica definitivamente) un comunicado.
+ */
+export const deleteAnnouncement = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const deleted = await News.findOneAndDelete({
+      _id: id,
+      type: 'announcement',
+    }).lean();
+
+    if (!deleted) {
+      return res
+        .status(404)
+        .json({ ok: false, message: 'Comunicado no encontrado' });
+    }
+
+    // 204: No Content
+    res.status(204).end();
   } catch (err) {
     next(err);
   }
