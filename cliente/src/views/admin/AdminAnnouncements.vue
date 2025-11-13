@@ -8,10 +8,24 @@
       <router-link class="btn" :to="{ name: 'admin-home' }">← Volver al panel</router-link>
     </header>
 
-    <!-- ================== FORMULARIO ================== -->
+    <!-- ================== FORMULARIO (RETRÁCTIL) ================== -->
     <section class="card">
-      <h2 class="section-title">Publicar comunicado</h2>
-      <AnnouncementForm />
+      <header class="section-head">
+        <h2 class="section-title">Publicar comunicado</h2>
+        <button
+          type="button"
+          class="btn btn-secondary btn-toggle"
+          @click="toggleForm"
+        >
+          {{ showForm ? 'Ocultar formulario' : 'Mostrar formulario' }}
+        </button>
+      </header>
+
+      <transition name="collapse">
+        <div v-if="showForm" class="form-body">
+          <AnnouncementForm />
+        </div>
+      </transition>
     </section>
 
     <!-- ================== LISTADO ADMIN ================== -->
@@ -105,6 +119,7 @@ defineOptions({ name: 'AdminAnnouncements' });
 
 const announcements = ref<AdminAnnouncement[]>([]);
 const loading = ref(false);
+const showForm = ref(true);
 
 function formatDate(value?: string): string {
   if (!value) return '—';
@@ -116,7 +131,7 @@ function formatDate(value?: string): string {
 async function loadAnnouncements(): Promise<void> {
   loading.value = true;
   try {
-    // true => ignora ventana de visibilidad, trae todos
+    // true => ignora ventana de visibilidad, trae todos los announcements
     announcements.value = await fetchAdminAnnouncements(true);
   } finally {
     loading.value = false;
@@ -127,22 +142,22 @@ async function reload(): Promise<void> {
   await loadAnnouncements();
 }
 
+function toggleForm(): void {
+  showForm.value = !showForm.value;
+}
+
 async function togglePublished(item: AdminAnnouncement): Promise<void> {
   const makeDraft = item.published;
 
-  // Definimos cambios mínimos de estado:
-  // - publicado => status 'published', isActive true
-  // - borrador  => status 'draft', isActive false
-  const payload =
-    makeDraft
-      ? { status: 'draft', isActive: false }
-      : { status: 'published', isActive: true };
+  const payload = makeDraft
+    ? { status: 'draft', isActive: false }
+    : { status: 'published', isActive: true };
 
   try {
     await updateAnnouncement(item.id, payload);
     await loadAnnouncements();
   } catch {
-    // ya se loguea en el servicio
+    // el servicio ya hace console.error
   }
 }
 
@@ -156,7 +171,7 @@ async function confirmDelete(item: AdminAnnouncement): Promise<void> {
     await deleteAnnouncement(item.id);
     await loadAnnouncements();
   } catch {
-    // ya se loguea en el servicio
+    // ya logueado en el servicio
   }
 }
 
@@ -201,7 +216,7 @@ onMounted(() => {
 }
 
 .section-title {
-  margin: 0 0 0.75rem;
+  margin: 0;
 }
 
 .btn {
@@ -229,6 +244,23 @@ onMounted(() => {
 .btn-danger {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.btn-toggle {
+  font-size: 0.75rem;
+  padding-inline: 10px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.form-body {
+  margin-top: 0.25rem;
 }
 
 .list-card {
@@ -303,5 +335,21 @@ onMounted(() => {
 .empty-state {
   padding: 0.5rem 0;
   color: #6b7280;
+}
+
+/* Animación simple de plegado */
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: max-height 0.18s ease, opacity 0.18s ease;
+}
+.collapse-enter-from,
+.collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+.collapse-enter-to,
+.collapse-leave-from {
+  max-height: 1000px;
+  opacity: 1;
 }
 </style>
