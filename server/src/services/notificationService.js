@@ -79,11 +79,25 @@ async function safeSendEmail({ to, subject, html }) {
     console.warn('⚠ safeSendEmail: lista de destinatarios vacía');
     return false;
   }
+
   try {
-    await sendEmail({ to, subject, html });
+    // Enviar UN correo por destinatario para no exponer la lista completa
+    await Promise.all(
+      to.map((email) =>
+        sendEmail({
+          to: email,
+          subject,
+          html,
+        })
+      )
+    );
+
     return true;
   } catch (err) {
-    console.error('✉️  Error enviando correo:', err?.response?.body || err?.message || err);
+    console.error(
+      '✉️  Error enviando correo:',
+      err?.response?.body || err?.message || err
+    );
     return false;
   }
 }
