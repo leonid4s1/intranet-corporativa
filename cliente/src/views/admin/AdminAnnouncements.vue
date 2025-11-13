@@ -120,7 +120,7 @@ defineOptions({ name: 'AdminAnnouncements' });
 
 const announcements = ref<AdminAnnouncement[]>([]);
 const loading = ref(false);
-const showForm = ref(true);
+const showForm = ref(false);
 
 function formatDate(value?: string): string {
   if (!value) return '—';
