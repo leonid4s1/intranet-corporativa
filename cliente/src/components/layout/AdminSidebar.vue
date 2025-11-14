@@ -1,12 +1,22 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import { adminMenu, type AdminMenuItem, type Role } from './adminMenu';
 
-// Store de autenticación
 import { useAuthStore } from '@/stores/auth.store';
+import { useUiStore } from '@/stores/ui.store';
+
+// logo cuadrado (el mismo que el sidebar de usuario)
+import logoMark from '@/assets/odes-mark.png';
+
 const auth = useAuthStore();
-const role = computed<Role | undefined>(() => auth.user?.role as Role | undefined);
+const ui = useUiStore();
+const route = useRoute();
+
+/* ========= Roles / menú ========= */
+const role = computed<Role | undefined>(
+  () => auth.user?.role as Role | undefined
+);
 
 function canSee(item: AdminMenuItem): boolean {
   if (!role.value) return false;
@@ -16,11 +26,10 @@ function canSee(item: AdminMenuItem): boolean {
 function filterByRole(items: AdminMenuItem[]): AdminMenuItem[] {
   return items
     .filter(canSee)
-    .map(i => (i.children ? { ...i, children: i.children.filter(canSee) } : i))
-    .filter(i => !i.children || i.children.length > 0);
+    .map((i) => (i.children ? { ...i, children: i.children.filter(canSee) } : i))
+    .filter((i) => !i.children || i.children.length > 0);
 }
 
-const route = useRoute();
 function isItemActive(item: AdminMenuItem): boolean {
   const name = typeof item.to === 'object' ? item.to?.name : undefined;
   if (name && route.name === name) return true;
@@ -29,27 +38,77 @@ function isItemActive(item: AdminMenuItem): boolean {
 }
 
 const menu = computed(() => filterByRole(adminMenu));
+
+/* ========= Estado visual sidebar ========= */
+
+// viene directamente del store
+const collapsed = computed(() => ui.sidebarCollapsed);
+const isMobileOpen = computed(() => ui.sidebarMobileOpen);
+
+// calculamos si es móvil con el ancho de ventana
+const isMobile = ref(false);
+
+const handleResize = () => {
+  if (typeof window === 'undefined') return;
+  isMobile.value = window.innerWidth < 992; // breakpoint similar al layout
+};
+
+onMounted(() => {
+  handleResize();
+  window.addEventListener('resize', handleResize);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize);
+});
+
+const onBurgerClick = () => {
+  if (isMobile.value) {
+    ui.sidebarMobileOpen = !ui.sidebarMobileOpen;
+  } else {
+    ui.toggleSidebar();
+  }
+};
 </script>
 
 <template>
   <aside
-    class="admin-sidebar"
+    id="admin-sidebar"
+    class="app-sidebar admin-sidebar"
+    :class="{
+      'is-collapsed': collapsed,
+      'is-mobile': isMobile,
+      'is-open': isMobile && isMobileOpen
+    }"
+    :style="{ '--sidebar-width': collapsed ? '72px' : '240px' }"
     role="navigation"
     aria-label="Menú de administración"
   >
     <!-- Cabecera / marca -->
     <div class="side-head">
-      <div class="brand-admin">
-        <img
-          src="@/assets/brand/odes-lockup.png"
-          alt="Odes Construction"
-          width="32"
-          height="32"
-        />
-        <div class="brand-admin__text">
-          <span class="brand-admin__title">Administración</span>
-          <span class="brand-admin__subtitle">Panel interno</span>
-        </div>
+      <button
+        class="brand-btn"
+        type="button"
+        @click="onBurgerClick"
+        :aria-label="
+          isMobile
+            ? isMobileOpen
+              ? 'Cerrar menú'
+              : 'Abrir menú'
+            : collapsed
+              ? 'Expandir menú'
+              : 'Colapsar menú'
+        "
+        aria-controls="admin-sidebar"
+        :aria-expanded="isMobile ? isMobileOpen : undefined"
+      >
+        <img :src="logoMark" alt="Logo Odes" width="28" height="28" />
+      </button>
+
+      <!-- Texto solo cuando NO está colapsado (o en móvil) -->
+      <div v-if="!collapsed || isMobile" class="brand-admin">
+        <span class="brand-admin__title">Administración</span>
+        <span class="brand-admin__subtitle">Panel interno</span>
       </div>
     </div>
 
@@ -67,7 +126,7 @@ const menu = computed(() => filterByRole(adminMenu));
             <span class="side-link__label">{{ item.label }}</span>
           </RouterLink>
 
-          <!-- Grupo con hijos (ej. Vacaciones) -->
+          <!-- Grupo (Vacaciones) -->
           <div v-else class="side-group">
             <div
               class="side-group__label"
@@ -94,38 +153,24 @@ const menu = computed(() => filterByRole(adminMenu));
 </template>
 
 <style scoped>
+/* Aprovechamos estilos globales de .app-sidebar, aquí afinamos detalles de admin */
+
 .admin-sidebar {
-  width: 260px;
-  min-height: 100vh;
-  padding: 24px 18px;
-  background: #0f172a;
-  color: #e5e7eb;
-  border-radius: 0 24px 24px 0;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.6);
-  position: sticky;
-  top: 0;
-  display: flex;
-  flex-direction: column;
+  padding-top: 20px;
+  padding-bottom: 20px;
 }
 
-.side-head {
-  margin-bottom: 24px;
-}
-
+/* Marca / texto */
 .brand-admin {
   display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.brand-admin__text {
-  display: flex;
   flex-direction: column;
+  margin-left: 10px;
 }
 
 .brand-admin__title {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
+  color: #f9fafb;
 }
 
 .brand-admin__subtitle {
@@ -133,22 +178,23 @@ const menu = computed(() => filterByRole(adminMenu));
   color: #9ca3af;
 }
 
+/* Menú */
 .side-menu {
   list-style: none;
   padding: 0;
-  margin: 0;
+  margin: 16px 0 0;
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
-/* Links base */
+/* Link base */
 .side-link {
   display: block;
-  padding: 9px 11px;
-  border-radius: 12px;
+  padding: 8px 12px;
+  border-radius: 999px;
   text-decoration: none;
-  color: inherit;
   font-size: 0.9rem;
+  color: #e5e7eb;
   transition:
     background 0.15s ease-out,
     color 0.15s ease-out,
@@ -156,7 +202,7 @@ const menu = computed(() => filterByRole(adminMenu));
 }
 
 .side-link:hover {
-  background: rgba(148, 163, 184, 0.16);
+  background: rgba(148, 163, 184, 0.18);
   transform: translateX(2px);
 }
 
@@ -166,18 +212,17 @@ const menu = computed(() => filterByRole(adminMenu));
   color: #111827;
 }
 
-/* Texto dentro del link */
 .side-link__label {
   font-weight: 500;
 }
 
-/* Grupos (ej. Vacaciones) */
+/* Grupos (Vacaciones) */
 .side-group {
   margin-top: 4px;
 }
 
 .side-group__label {
-  padding: 4px 6px;
+  padding: 6px 12px 2px;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -190,25 +235,35 @@ const menu = computed(() => filterByRole(adminMenu));
 
 .side-group__list {
   list-style: none;
-  padding-left: 6px;
+  padding-left: 8px;
   margin: 4px 0 0;
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .side-link--child {
   font-size: 0.85rem;
-  border-radius: 10px;
+  padding-inline: 16px;
 }
 
-/* Responsive: si el ancho es chico, lo hacemos más compacto */
+/* Collapsado: ocultamos texto y hacemos todo más compacto */
+.app-sidebar.is-collapsed .brand-admin {
+  display: none;
+}
+
+.app-sidebar.is-collapsed .side-link {
+  text-align: center;
+  padding-inline: 10px;
+}
+
+/* Móvil: que ocupe todo el ancho cuando esté abierto (como el del usuario) */
+.app-sidebar.is-mobile {
+  border-radius: 0;
+}
+
 @media (max-width: 960px) {
   .admin-sidebar {
-    position: static;
-    width: 100%;
-    border-radius: 16px;
     min-height: auto;
-    margin-bottom: 16px;
   }
 }
 </style>
