@@ -1,114 +1,125 @@
 <template>
-  <div class="admin-announcements page">
-    <header class="page-head">
-      <div>
-        <h1>Comunicados</h1>
-        <p class="sub">Publica un comunicado con imagen, fechas y llamada a la acción.</p>
-      </div>
-      <router-link class="btn" :to="{ name: 'admin-home' }">← Volver al panel</router-link>
-    </header>
-
-    <!-- ================== FORMULARIO (RETRÁCTIL) ================== -->
-    <section class="card">
-      <header class="section-head">
-        <h2 class="section-title">Publicar comunicado</h2>
-        <button
-          type="button"
-          class="btn btn-secondary btn-toggle"
-          @click="toggleForm"
-        >
-          {{ showForm ? 'Ocultar formulario' : 'Mostrar formulario' }}
-        </button>
-      </header>
-
-      <transition name="collapse">
-        <div v-if="showForm" class="form-body">
-          <!-- 👇 aquí va el cambio: ocultamos el título interno del form -->
-          <AnnouncementForm :show-title="false" />
+  <AdminLayout>
+    <div class="admin-announcements page">
+      <header class="page-head">
+        <div>
+          <h1>Comunicados</h1>
+          <p class="sub">
+            Publica un comunicado con imagen, fechas y llamada a la acción.
+          </p>
         </div>
-      </transition>
-    </section>
-
-    <!-- ================== LISTADO ADMIN ================== -->
-    <section class="card list-card">
-      <header class="list-head">
-        <h2 class="section-title">Comunicados existentes</h2>
-        <button
-          type="button"
-          class="btn btn-secondary"
-          @click="reload"
-          :disabled="loading"
-        >
-          {{ loading ? 'Actualizando…' : 'Actualizar' }}
-        </button>
+        <router-link class="btn" :to="{ name: 'admin-home' }">
+          ← Volver al panel
+        </router-link>
       </header>
 
-      <div v-if="loading" class="table-wrap">
-        <p>Cargando comunicados…</p>
-      </div>
+      <!-- ================== FORMULARIO (RETRÁCTIL) ================== -->
+      <section class="card">
+        <header class="section-head">
+          <h2 class="section-title">Publicar comunicado</h2>
+          <button
+            type="button"
+            class="btn btn-secondary btn-toggle"
+            @click="toggleForm"
+          >
+            {{ showForm ? 'Ocultar formulario' : 'Mostrar formulario' }}
+          </button>
+        </header>
 
-      <div v-else-if="announcements.length" class="table-wrap">
-        <table class="simple-table">
-          <thead>
-            <tr>
-              <th>Título</th>
-              <th>Visible desde</th>
-              <th>Visible hasta</th>
-              <th>Estado</th>
-              <th class="col-actions">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in announcements" :key="item.id">
-              <td>
-                <div class="title-cell">
-                  <strong>{{ item.title }}</strong>
-                  <small v-if="item.excerpt" class="excerpt">
-                    {{ item.excerpt }}
-                  </small>
-                </div>
-              </td>
-              <td>{{ formatDate(item.visibleFrom) }}</td>
-              <td>{{ formatDate(item.visibleUntil) }}</td>
-              <td>
-                <span
-                  class="status-pill"
-                  :class="item.published ? 'is-published' : 'is-unpublished'"
-                >
-                  {{ item.published ? 'Publicado' : 'No publicado' }}
-                </span>
-              </td>
-              <td class="col-actions">
-                <button
-                  type="button"
-                  class="btn xs"
-                  @click="togglePublished(item)"
-                >
-                  {{ item.published ? 'Marcar como borrador' : 'Publicar ahora' }}
-                </button>
-                <button
-                  type="button"
-                  class="btn xs btn-danger"
-                  @click="confirmDelete(item)"
-                >
-                  Quitar
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <transition name="collapse">
+          <div v-if="showForm" class="form-body">
+            <!-- 👇 aquí va el cambio: ocultamos el título interno del form -->
+            <AnnouncementForm :show-title="false" />
+          </div>
+        </transition>
+      </section>
 
-      <div v-else class="empty-state">
-        <p>No hay comunicados registrados todavía.</p>
-      </div>
-    </section>
-  </div>
+      <!-- ================== LISTADO ADMIN ================== -->
+      <section class="card list-card">
+        <header class="list-head">
+          <h2 class="section-title">Comunicados existentes</h2>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="reload"
+            :disabled="loading"
+          >
+            {{ loading ? 'Actualizando…' : 'Actualizar' }}
+          </button>
+        </header>
+
+        <div v-if="loading" class="table-wrap">
+          <p>Cargando comunicados…</p>
+        </div>
+
+        <div v-else-if="announcements.length" class="table-wrap">
+          <table class="simple-table">
+            <thead>
+              <tr>
+                <th>Título</th>
+                <th>Visible desde</th>
+                <th>Visible hasta</th>
+                <th>Estado</th>
+                <th class="col-actions">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in announcements" :key="item.id">
+                <td>
+                  <div class="title-cell">
+                    <strong>{{ item.title }}</strong>
+                    <small v-if="item.excerpt" class="excerpt">
+                      {{ item.excerpt }}
+                    </small>
+                  </div>
+                </td>
+                <td>{{ formatDate(item.visibleFrom) }}</td>
+                <td>{{ formatDate(item.visibleUntil) }}</td>
+                <td>
+                  <span
+                    class="status-pill"
+                    :class="item.published ? 'is-published' : 'is-unpublished'"
+                  >
+                    {{ item.published ? 'Publicado' : 'No publicado' }}
+                  </span>
+                </td>
+                <td class="col-actions">
+                  <button
+                    type="button"
+                    class="btn xs"
+                    @click="togglePublished(item)"
+                  >
+                    {{
+                      item.published
+                        ? 'Marcar como borrador'
+                        : 'Publicar ahora'
+                    }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn xs btn-danger"
+                    @click="confirmDelete(item)"
+                  >
+                    Quitar
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-else class="empty-state">
+          <p>No hay comunicados registrados todavía.</p>
+        </div>
+      </section>
+    </div>
+  </AdminLayout>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import AnnouncementForm from '@/components/admin/AnnouncementForm.vue';
+import AdminLayout from '@/layouts/AdminLayout.vue';
 import {
   fetchAdminAnnouncements,
   updateAnnouncement,

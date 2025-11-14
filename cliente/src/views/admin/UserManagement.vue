@@ -1,514 +1,516 @@
 <!-- cliente/src/views/admin/UserManagement.vue -->
 <template>
-  <div class="user-management-container">
-    <!-- Toasts -->
-    <div class="toast-container" role="status" aria-live="polite">
-      <div
-        v-for="t in toasts"
-        :key="t.id"
-        class="toast"
-        :class="`toast--${t.type}`"
-      >
-        <span class="toast-dot" aria-hidden="true"></span>
-        <span class="toast-text">{{ t.text }}</span>
-      </div>
-    </div>
-
-    <div class="header">
-      <h2 class="title">Gestión de Usuarios</h2>
-
-      <div class="header-actions">
-        <button class="create-btn" @click="openCreateModal">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          Crear usuario
-        </button>
-        <div v-if="loading" class="loading-indicator">Cargando usuarios...</div>
-      </div>
-    </div>
-
-    <div v-if="error" class="error-message">
-      {{ error }}
-    </div>
-
-    <div class="table-container">
-      <table v-if="users.length" class="user-table">
-        <thead>
-          <tr>
-            <th class="name-column">Nombre</th>
-            <th class="email-column">Email</th>
-            <th class="role-column">Rol</th>
-            <th>Puesto</th>
-            <th>Ingreso</th>
-            <th>Nacimiento</th>
-            <th class="vac-col text-right">Usados</th>
-            <th class="vac-col text-right">Totales</th>
-            <th class="vac-col text-right">Disp.</th>
-            <th class="window-column">Ventana</th>
-            <th class="actions-column">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in users" :key="u.id" class="user-row">
-            <td class="name-cell">
-              <div class="user-info">
-                <span class="user-name">{{ u.name }}</span>
-                <span class="user-status" :class="{ active: u.isActive, inactive: !u.isActive }">
-                  {{ u.isActive ? 'Activo' : 'Inactivo' }}
-                </span>
-                <span v-if="u.email_verified_at" class="verified-badge">Verificado</span>
-              </div>
-            </td>
-            <td class="email-cell">{{ u.email }}</td>
-            <td class="role-cell">
-              <span class="role-badge" :class="u.role">
-                {{ u.role === 'admin' ? 'Administrador' : 'Usuario' }}
-              </span>
-            </td>
-
-            <td>{{ u.position || '—' }}</td>
-            <td>{{ dateOnly(u.hireDate) || '—' }}</td>
-            <td>{{ dateOnly(u.birthDate) || '—' }}</td>
-
-            <!-- Vacaciones (totales ya incluyen bono admin) -->
-            <td class="p-1 text-right">{{ used(u) }}</td>
-            <td class="p-1 text-right font-medium">{{ total(u) }}</td>
-            <td class="p-1 text-right">
-              <span
-                class="px-2 py-1 rounded text-xs"
-                :class="remaining(u) > 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-700'"
-              >
-                {{ remaining(u) }}
-              </span>
-            </td>
-
-            <!-- Botón que abre el modal "Saldo por ventanas" -->
-            <td class="window-cell">
-              <button class="win-btn" @click="openWindowsModal(u)">
-                Ver saldo
-              </button>
-            </td>
-
-            <td class="actions-cell">
-              <button class="edit-btn" @click="openEditModal(u)" title="Editar">
-                <svg class="icon" viewBox="0 0 24 24">
-                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-                </svg>
-              </button>
-              <button class="vac-btn" @click="openVacationModal(u)" title="Derecho LFT + Bono admin">
-                <svg class="icon" viewBox="0 0 24 24">
-                  <path d="M12 7a5 5 0 00-5 5v5h10v-5a5 5 0 00-5-5zm0-5a3 3 0 013 3h-6a3 3 0 013-3z"/>
-                </svg>
-              </button>
-              <button class="delete-btn" @click="confirmDelete(u.id)" title="Eliminar">
-                <svg class="icon" viewBox="0 0 24 24">
-                  <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-                </svg>
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div v-else class="empty-state">No se encontraron usuarios</div>
-    </div>
-
-    <!-- Create User Modal -->
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Crear nuevo usuario</h3>
-          <button class="close-btn" @click="closeCreateModal" title="Cerrar">
-            <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
+  <AdminLayout>
+    <div class="user-management-container">
+      <!-- Toasts -->
+      <div class="toast-container" role="status" aria-live="polite">
+        <div
+          v-for="t in toasts"
+          :key="t.id"
+          class="toast"
+          :class="`toast--${t.type}`"
+        >
+          <span class="toast-dot" aria-hidden="true"></span>
+          <span class="toast-text">{{ t.text }}</span>
         </div>
+      </div>
 
-        <form class="modal-body" @submit.prevent="handleCreateUser">
-          <div class="form-group">
-            <label>Nombre completo</label>
-            <input
-              type="text"
-              v-model.trim="createForm.name"
-              :class="{ 'input-error': createErrors.name }"
-              placeholder="Ej. Juan Pérez"
-              autocomplete="name"
-            />
-            <small v-if="createErrors.name" class="error-text">{{ createErrors.name }}</small>
+      <div class="header">
+        <h2 class="title">Gestión de Usuarios</h2>
+
+        <div class="header-actions">
+          <button class="create-btn" @click="openCreateModal">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            Crear usuario
+          </button>
+          <div v-if="loading" class="loading-indicator">Cargando usuarios...</div>
+        </div>
+      </div>
+
+      <div v-if="error" class="error-message">
+        {{ error }}
+      </div>
+
+      <div class="table-container">
+        <table v-if="users.length" class="user-table">
+          <thead>
+            <tr>
+              <th class="name-column">Nombre</th>
+              <th class="email-column">Email</th>
+              <th class="role-column">Rol</th>
+              <th>Puesto</th>
+              <th>Ingreso</th>
+              <th>Nacimiento</th>
+              <th class="vac-col text-right">Usados</th>
+              <th class="vac-col text-right">Totales</th>
+              <th class="vac-col text-right">Disp.</th>
+              <th class="window-column">Ventana</th>
+              <th class="actions-column">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in users" :key="u.id" class="user-row">
+              <td class="name-cell">
+                <div class="user-info">
+                  <span class="user-name">{{ u.name }}</span>
+                  <span class="user-status" :class="{ active: u.isActive, inactive: !u.isActive }">
+                    {{ u.isActive ? 'Activo' : 'Inactivo' }}
+                  </span>
+                  <span v-if="u.email_verified_at" class="verified-badge">Verificado</span>
+                </div>
+              </td>
+              <td class="email-cell">{{ u.email }}</td>
+              <td class="role-cell">
+                <span class="role-badge" :class="u.role">
+                  {{ u.role === 'admin' ? 'Administrador' : 'Usuario' }}
+                </span>
+              </td>
+
+              <td>{{ u.position || '—' }}</td>
+              <td>{{ dateOnly(u.hireDate) || '—' }}</td>
+              <td>{{ dateOnly(u.birthDate) || '—' }}</td>
+
+              <!-- Vacaciones (totales ya incluyen bono admin) -->
+              <td class="p-1 text-right">{{ used(u) }}</td>
+              <td class="p-1 text-right font-medium">{{ total(u) }}</td>
+              <td class="p-1 text-right">
+                <span
+                  class="px-2 py-1 rounded text-xs"
+                  :class="remaining(u) > 0 ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-700'"
+                >
+                  {{ remaining(u) }}
+                </span>
+              </td>
+
+              <!-- Botón que abre el modal "Saldo por ventanas" -->
+              <td class="window-cell">
+                <button class="win-btn" @click="openWindowsModal(u)">
+                  Ver saldo
+                </button>
+              </td>
+
+              <td class="actions-cell">
+                <button class="edit-btn" @click="openEditModal(u)" title="Editar">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                  </svg>
+                </button>
+                <button class="vac-btn" @click="openVacationModal(u)" title="Derecho LFT + Bono admin">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M12 7a5 5 0 00-5 5v5h10v-5a5 5 0 00-5-5zm0-5a3 3 0 013 3h-6a3 3 0 013-3z"/>
+                  </svg>
+                </button>
+                <button class="delete-btn" @click="confirmDelete(u.id)" title="Eliminar">
+                  <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                  </svg>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div v-else class="empty-state">No se encontraron usuarios</div>
+      </div>
+
+      <!-- Create User Modal -->
+      <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Crear nuevo usuario</h3>
+            <button class="close-btn" @click="closeCreateModal" title="Cerrar">
+              <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
           </div>
 
-          <div class="form-group">
-            <label>Correo electrónico</label>
-            <input
-              type="email"
-              v-model.trim="createForm.email"
-              :class="{ 'input-error': createErrors.email }"
-              placeholder="correo@empresa.com"
-              autocomplete="email"
-            />
-            <small v-if="createErrors.email" class="error-text">{{ createErrors.email }}</small>
-          </div>
-
-          <!-- Contraseña (con ojito, medidor y reglas) -->
-          <div class="form-group">
-            <label>Contraseña</label>
-
-            <div class="cp-input-wrap">
+          <form class="modal-body" @submit.prevent="handleCreateUser">
+            <div class="form-group">
+              <label>Nombre completo</label>
               <input
-                :type="showPwd ? 'text' : 'password'"
-                v-model="createForm.password"
-                :class="{ 'input-error': createErrors.password }"
-                placeholder="Mínimo 8 caracteres con mayúscula, número y símbolo"
-                autocomplete="new-password"
-                @input="touchedPwd = true"
-                aria-describedby="pwd-help"
+                type="text"
+                v-model.trim="createForm.name"
+                :class="{ 'input-error': createErrors.name }"
+                placeholder="Ej. Juan Pérez"
+                autocomplete="name"
               />
-              <button
-                type="button"
-                class="cp-eye"
-                :aria-label="showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'"
-                @click="showPwd = !showPwd"
-              >
-                <EyeIcon />
-              </button>
+              <small v-if="createErrors.name" class="error-text">{{ createErrors.name }}</small>
             </div>
 
-            <!-- Medidor de fuerza -->
-            <PasswordStrengthMeter :password="createForm.password" class="mt-2" />
-
-            <!-- Reglas en vivo -->
-            <ul class="pwd-rules" id="pwd-help" aria-live="polite">
-              <li :class="{ ok: pwdRules.min }">Mínimo 8 caracteres</li>
-              <li :class="{ ok: pwdRules.upper }">Al menos 1 mayúscula (A–Z)</li>
-              <li :class="{ ok: pwdRules.lower }">Al menos 1 minúscula (a–z)</li>
-              <li :class="{ ok: pwdRules.digit }">Al menos 1 número (0–9)</li>
-              <li :class="{ ok: pwdRules.special }">Al menos 1 símbolo (!@#$…)</li>
-              <li :class="{ ok: pwdRules.nospace }">Sin espacios</li>
-            </ul>
-
-            <small v-if="createErrors.password" class="error-text">{{ createErrors.password }}</small>
-          </div>
-
-          <!-- Confirmar contraseña (con ojito) -->
-          <div class="form-group">
-            <label>Confirmar contraseña</label>
-
-            <div class="cp-input-wrap">
+            <div class="form-group">
+              <label>Correo electrónico</label>
               <input
-              :type="showConfirm ? 'text' : 'password'"
-              v-model="createForm.password_confirmation"
-              :class="{ 'input-error': createErrors.password_confirmation || (touchedConfirm && !passwordsMatch) }"
-              placeholder="Repite la contraseña"
-              autocomplete="new-password"
-              @input="touchedConfirm = true"
-            />
-              <button
-                type="button"
-                class="cp-eye"
-                :aria-label="showConfirm ? 'Ocultar confirmación' : 'Mostrar confirmación'"
-                @click="showConfirm = !showConfirm"
-              >
-                <EyeIcon />
-              </button>
+                type="email"
+                v-model.trim="createForm.email"
+                :class="{ 'input-error': createErrors.email }"
+                placeholder="correo@empresa.com"
+                autocomplete="email"
+              />
+              <small v-if="createErrors.email" class="error-text">{{ createErrors.email }}</small>
             </div>
 
-            <small v-if="touchedConfirm && !passwordsMatch" class="error-text">Las contraseñas no coinciden</small>
-            <small v-else-if="createErrors.password_confirmation" class="error-text">{{ createErrors.password_confirmation }}</small>
+            <!-- Contraseña (con ojito, medidor y reglas) -->
+            <div class="form-group">
+              <label>Contraseña</label>
+
+              <div class="cp-input-wrap">
+                <input
+                  :type="showPwd ? 'text' : 'password'"
+                  v-model="createForm.password"
+                  :class="{ 'input-error': createErrors.password }"
+                  placeholder="Mínimo 8 caracteres con mayúscula, número y símbolo"
+                  autocomplete="new-password"
+                  @input="touchedPwd = true"
+                  aria-describedby="pwd-help"
+                />
+                <button
+                  type="button"
+                  class="cp-eye"
+                  :aria-label="showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                  @click="showPwd = !showPwd"
+                >
+                  <EyeIcon />
+                </button>
+              </div>
+
+              <!-- Medidor de fuerza -->
+              <PasswordStrengthMeter :password="createForm.password" class="mt-2" />
+
+              <!-- Reglas en vivo -->
+              <ul class="pwd-rules" id="pwd-help" aria-live="polite">
+                <li :class="{ ok: pwdRules.min }">Mínimo 8 caracteres</li>
+                <li :class="{ ok: pwdRules.upper }">Al menos 1 mayúscula (A–Z)</li>
+                <li :class="{ ok: pwdRules.lower }">Al menos 1 minúscula (a–z)</li>
+                <li :class="{ ok: pwdRules.digit }">Al menos 1 número (0–9)</li>
+                <li :class="{ ok: pwdRules.special }">Al menos 1 símbolo (!@#$…)</li>
+                <li :class="{ ok: pwdRules.nospace }">Sin espacios</li>
+              </ul>
+
+              <small v-if="createErrors.password" class="error-text">{{ createErrors.password }}</small>
+            </div>
+
+            <!-- Confirmar contraseña (con ojito) -->
+            <div class="form-group">
+              <label>Confirmar contraseña</label>
+
+              <div class="cp-input-wrap">
+                <input
+                  :type="showConfirm ? 'text' : 'password'"
+                  v-model="createForm.password_confirmation"
+                  :class="{ 'input-error': createErrors.password_confirmation || (touchedConfirm && !passwordsMatch) }"
+                  placeholder="Repite la contraseña"
+                  autocomplete="new-password"
+                  @input="touchedConfirm = true"
+                />
+                <button
+                  type="button"
+                  class="cp-eye"
+                  :aria-label="showConfirm ? 'Ocultar confirmación' : 'Mostrar confirmación'"
+                  @click="showConfirm = !showConfirm"
+                >
+                  <EyeIcon />
+                </button>
+              </div>
+
+              <small v-if="touchedConfirm && !passwordsMatch" class="error-text">Las contraseñas no coinciden</small>
+              <small v-else-if="createErrors.password_confirmation" class="error-text">{{ createErrors.password_confirmation }}</small>
+            </div>
+
+            <div class="form-group">
+              <label>Rol</label>
+              <select v-model="createForm.role">
+                <option value="user">Usuario</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+
+            <!-- NUEVOS CAMPOS -->
+            <div class="form-group">
+              <label>Puesto</label>
+              <input
+                type="text"
+                v-model.trim="createForm.position"
+                :class="{ 'input-error': createErrors.position }"
+                placeholder="Ej. Auxiliar administrativo"
+              />
+              <small v-if="createErrors.position" class="error-text">{{ createErrors.position }}</small>
+            </div>
+
+            <div class="form-group">
+              <label>Fecha de ingreso</label>
+              <input
+                type="date"
+                v-model="createForm.hireDate"
+                :class="{ 'input-error': createErrors.hireDate }"
+              />
+              <small v-if="createErrors.hireDate" class="error-text">{{ createErrors.hireDate }}</small>
+            </div>
+
+            <div class="form-group">
+              <label>Fecha de nacimiento</label>
+              <input
+                type="date"
+                v-model="createForm.birthDate"
+                :class="{ 'input-error': createErrors.birthDate }"
+              />
+              <small v-if="createErrors.birthDate" class="error-text">{{ createErrors.birthDate }}</small>
+            </div>
+
+            <div class="modal-footer">
+              <button type="button" class="cancel-btn" @click="closeCreateModal">Cancelar</button>
+              <button
+                class="save-btn"
+                type="submit"
+                :disabled="creating || !isCreateValid"
+                :aria-disabled="creating || !isCreateValid"
+                :title="!isCreateValid ? 'Completa los campos correctamente' : 'Crear usuario'"
+              >
+                {{ creating ? 'Creando…' : 'Crear usuario' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Edit User Modal -->
+      <div v-if="showEditModal" class="modal-overlay" @click.self="closeModal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Editar Usuario: {{ selectedUser?.name }}</h3>
+            <button class="close-btn" @click="closeModal" title="Cerrar">
+              <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
           </div>
 
-          <div class="form-group">
-            <label>Rol</label>
-            <select v-model="createForm.role">
-              <option value="user">Usuario</option>
-              <option value="admin">Administrador</option>
-            </select>
-          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>Nombre:</label>
+              <input
+                type="text"
+                :value="selectedUser?.name || ''"
+                @input="e => updateSelectedUser('name', (e.target as HTMLInputElement).value)"
+              />
+            </div>
 
-          <!-- NUEVOS CAMPOS -->
-          <div class="form-group">
-            <label>Puesto</label>
-            <input
-              type="text"
-              v-model.trim="createForm.position"
-              :class="{ 'input-error': createErrors.position }"
-              placeholder="Ej. Auxiliar administrativo"
-            />
-            <small v-if="createErrors.position" class="error-text">{{ createErrors.position }}</small>
-          </div>
+            <div class="form-group">
+              <label>Email:</label>
+              <input type="email" :value="selectedUser?.email || ''" disabled />
+            </div>
 
-          <div class="form-group">
-            <label>Fecha de ingreso</label>
-            <input
-              type="date"
-              v-model="createForm.hireDate"
-              :class="{ 'input-error': createErrors.hireDate }"
-            />
-            <small v-if="createErrors.hireDate" class="error-text">{{ createErrors.hireDate }}</small>
-          </div>
+            <div class="form-group">
+              <label>Rol:</label>
+              <select
+                :value="selectedUser?.role"
+                @change="e => updateSelectedUser('role', (e.target as HTMLSelectElement).value as Role)"
+              >
+                <option value="user">Usuario</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
 
-          <div class="form-group">
-            <label>Fecha de nacimiento</label>
-            <input
-              type="date"
-              v-model="createForm.birthDate"
-              :class="{ 'input-error': createErrors.birthDate }"
-            />
-            <small v-if="createErrors.birthDate" class="error-text">{{ createErrors.birthDate }}</small>
+            <div class="form-group">
+              <label>Estado:</label>
+              <select
+                :value="selectedUser?.isActive"
+                @change="e => updateSelectedUser('isActive', (e.target as HTMLSelectElement).value === 'true')"
+              >
+                <option :value="true">Activo</option>
+                <option :value="false">Inactivo</option>
+              </select>
+            </div>
+
+            <!-- META EDITABLE -->
+            <div class="form-group">
+              <label>Puesto</label>
+              <input
+                type="text"
+                :value="selectedUserMeta.position"
+                @input="e => selectedUserMeta.position = (e.target as HTMLInputElement).value"
+              />
+            </div>
+
+            <div class="form-group">
+              <label>Fecha de ingreso</label>
+              <input
+                type="date"
+                :value="selectedUserMeta.hireDate"
+                @input="e => selectedUserMeta.hireDate = (e.target as HTMLInputElement).value"
+              />
+            </div>
+
+            <div class="form-group">
+              <label>Fecha de nacimiento</label>
+              <input
+                type="date"
+                :value="selectedUserMeta.birthDate"
+                @input="e => selectedUserMeta.birthDate = (e.target as HTMLInputElement).value"
+              />
+            </div>
+
+            <div class="form-group">
+              <label>Nueva Contraseña</label>
+              <input v-model="newPassword" type="password" placeholder="Deja en blanco para mantener la actual" />
+            </div>
+
+            <div v-if="metaErrorsText" class="modal-error">{{ metaErrorsText }}</div>
           </div>
 
           <div class="modal-footer">
-            <button type="button" class="cancel-btn" @click="closeCreateModal">Cancelar</button>
-            <button
-              class="save-btn"
-              type="submit"
-              :disabled="creating || !isCreateValid"
-              :aria-disabled="creating || !isCreateValid"
-              :title="!isCreateValid ? 'Completa los campos correctamente' : 'Crear usuario'"
-            >
-              {{ creating ? 'Creando…' : 'Crear usuario' }}
+            <button class="cancel-btn" @click="closeModal">Cancelar</button>
+            <button class="save-btn" @click="updateUser">Guardar</button>
+          </div>
+
+          <div v-if="modalError" class="modal-error">{{ modalError }}</div>
+        </div>
+      </div>
+
+      <!-- Modal Vacaciones (LFT + Bono admin) -->
+      <div v-if="showVacModal" class="modal-overlay" @click.self="closeVacModal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Vacaciones: {{ vacForm.name }}</h3>
+            <button class="close-btn" @click="closeVacModal" title="Cerrar">
+              <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
             </button>
           </div>
-        </form>
-      </div>
-    </div>
 
-    <!-- Edit User Modal -->
-    <div v-if="showEditModal" class="modal-overlay" @click.self="closeModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Editar Usuario: {{ selectedUser?.name }}</h3>
-          <button class="close-btn" @click="closeModal" title="Cerrar">
-            <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
-        </div>
+          <div class="modal-body">
+            <!-- Resumen LFT -->
+            <div class="grid-2">
+              <div class="stat">
+                <span class="label">Derecho (LFT)</span>
+                <span class="value">{{ vacForm.lftTotal }}</span>
+              </div>
+              <div class="stat">
+                <span class="label">Bono admin</span>
+                <span class="value">{{ vacForm.bonus }}</span>
+              </div>
 
-        <div class="modal-body">
-          <div class="form-group">
-            <label>Nombre:</label>
-            <input
-              type="text"
-              :value="selectedUser?.name || ''"
-              @input="e => updateSelectedUser('name', (e.target as HTMLInputElement).value)"
-            />
+              <div class="stat">
+                <span class="label">Total efectivo</span>
+                <span class="value">{{ vacForm.effectiveTotal }}</span>
+              </div>
+              <div class="stat">
+                <span class="label">Usados</span>
+                <span class="value">{{ vacForm.used }}</span>
+              </div>
+
+              <div class="stat full">
+                <span class="label">Disponibles</span>
+                <span class="value">{{ Math.max(0, vacForm.effectiveTotal - vacForm.used) }}</span>
+              </div>
+            </div>
+
+            <!-- Ventana LFT -->
+            <div class="modal-info" v-if="vacForm.windowStart && vacForm.windowEnd">
+              Ventana LFT vigente:
+              <strong>{{ vacForm.windowStart }}</strong> → <strong>{{ vacForm.windowEnd }}</strong>
+            </div>
+
+            <!-- ÚNICA ACCIÓN: Aumentar bono admin -->
+            <div class="form-group">
+              <label>Bono a agregar</label>
+              <div class="bonus-row">
+                <input
+                  type="number"
+                  class="bonus-input"
+                  v-model.number="bonusToAdd"
+                  step="1"
+                  min="0"
+                  placeholder="0"
+                  @keyup.enter.stop.prevent="saveBonusIncrease"
+                />
+                <small class="text-warn" style="margin-left:.25rem;">
+                  Este valor se <strong>suma</strong> al bono admin actual.
+                </small>
+              </div>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label>Email:</label>
-            <input type="email" :value="selectedUser?.email || ''" disabled />
-          </div>
-
-          <div class="form-group">
-            <label>Rol:</label>
-            <select
-              :value="selectedUser?.role"
-              @change="e => updateSelectedUser('role', (e.target as HTMLSelectElement).value as Role)"
+          <div class="modal-footer">
+            <button class="cancel-btn" @click="closeVacModal">Cerrar</button>
+            <button
+              class="save-btn"
+              :disabled="savingVac || !isValidBonusToAdd"
+              @click.stop.prevent="saveBonusIncrease"
+              title="Aumentar bono admin"
             >
-              <option value="user">Usuario</option>
-              <option value="admin">Administrador</option>
-            </select>
+              {{ savingVac ? 'Guardando…' : 'Guardar' }}
+            </button>
           </div>
 
-          <div class="form-group">
-            <label>Estado:</label>
-            <select
-              :value="selectedUser?.isActive"
-              @change="e => updateSelectedUser('isActive', (e.target as HTMLSelectElement).value === 'true')"
-            >
-              <option :value="true">Activo</option>
-              <option :value="false">Inactivo</option>
-            </select>
-          </div>
-
-          <!-- META EDITABLE -->
-          <div class="form-group">
-            <label>Puesto</label>
-            <input
-              type="text"
-              :value="selectedUserMeta.position"
-              @input="e => selectedUserMeta.position = (e.target as HTMLInputElement).value"
-            />
-          </div>
-
-          <div class="form-group">
-            <label>Fecha de ingreso</label>
-            <input
-              type="date"
-              :value="selectedUserMeta.hireDate"
-              @input="e => selectedUserMeta.hireDate = (e.target as HTMLInputElement).value"
-            />
-          </div>
-
-          <div class="form-group">
-            <label>Fecha de nacimiento</label>
-            <input
-              type="date"
-              :value="selectedUserMeta.birthDate"
-              @input="e => selectedUserMeta.birthDate = (e.target as HTMLInputElement).value"
-            />
-          </div>
-
-          <div class="form-group">
-            <label>Nueva Contraseña</label>
-            <input v-model="newPassword" type="password" placeholder="Deja en blanco para mantener la actual" />
-          </div>
-
-          <div v-if="metaErrorsText" class="modal-error">{{ metaErrorsText }}</div>
+          <div v-if="vacError" class="modal-error">{{ vacError }}</div>
         </div>
-
-        <div class="modal-footer">
-          <button class="cancel-btn" @click="closeModal">Cancelar</button>
-          <button class="save-btn" @click="updateUser">Guardar</button>
-        </div>
-
-        <div v-if="modalError" class="modal-error">{{ modalError }}</div>
       </div>
-    </div>
 
-    <!-- Modal Vacaciones (LFT + Bono admin) -->
-    <div v-if="showVacModal" class="modal-overlay" @click.self="closeVacModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Vacaciones: {{ vacForm.name }}</h3>
-          <button class="close-btn" @click="closeVacModal" title="Cerrar">
-            <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
-        </div>
-
-        <div class="modal-body">
-          <!-- Resumen LFT -->
-          <div class="grid-2">
-            <div class="stat">
-              <span class="label">Derecho (LFT)</span>
-              <span class="value">{{ vacForm.lftTotal }}</span>
-            </div>
-            <div class="stat">
-              <span class="label">Bono admin</span>
-              <span class="value">{{ vacForm.bonus }}</span>
-            </div>
-
-            <div class="stat">
-              <span class="label">Total efectivo</span>
-              <span class="value">{{ vacForm.effectiveTotal }}</span>
-            </div>
-            <div class="stat">
-              <span class="label">Usados</span>
-              <span class="value">{{ vacForm.used }}</span>
-            </div>
-
-            <div class="stat full">
-              <span class="label">Disponibles</span>
-              <span class="value">{{ Math.max(0, vacForm.effectiveTotal - vacForm.used) }}</span>
-            </div>
+      <!-- Modal: Saldo por ventanas -->
+      <div v-if="showWindowsModal" class="modal-overlay" @click.self="closeWindowsModal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Saldo por ventanas</h3>
+            <button class="close-btn" @click="closeWindowsModal" title="Cerrar">
+              <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
           </div>
 
-          <!-- Ventana LFT -->
-          <div class="modal-info" v-if="vacForm.windowStart && vacForm.windowEnd">
-            Ventana LFT vigente:
-            <strong>{{ vacForm.windowStart }}</strong> → <strong>{{ vacForm.windowEnd }}</strong>
-          </div>
+          <div class="modal-body">
+            <div style="margin-bottom:.5rem;">
+              <strong>Usuario:</strong>
+              {{ winModal.userName }}
+              <span v-if="winModal.userEmail"> — {{ winModal.userEmail }}</span>
+            </div>
 
-          <!-- ÚNICA ACCIÓN: Aumentar bono admin -->
-          <div class="form-group">
-            <label>Bono a agregar</label>
-            <div class="bonus-row">
-              <input
-                type="number"
-                class="bonus-input"
-                v-model.number="bonusToAdd"
-                step="1"
-                min="0"
-                placeholder="0"
-                @keyup.enter.stop.prevent="saveBonusIncrease"
-              />
-              <small class="text-warn" style="margin-left:.25rem;">
-                Este valor se <strong>suma</strong> al bono admin actual.
+            <div v-if="winModal.loading" class="muted">Cargando ventanas…</div>
+            <div v-else-if="winModal.error" class="modal-error">{{ winModal.error }}</div>
+
+            <template v-else-if="winModal.summary">
+              <div class="table-container" style="box-shadow:none;">
+                <table class="user-table">
+                  <thead>
+                    <tr>
+                      <th>Ventana</th>
+                      <th>Rango</th>
+                      <th>Expira</th>
+                      <th class="text-right">Días</th>
+                      <th class="text-right">Usados</th>
+                      <th class="text-right">Restantes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="w in winModal.summary.windows" :key="w.label + '-' + w.year">
+                      <td>
+                        <span class="badge" :class="w.label === 'current' ? 'badge-gold' : 'badge-blue'">
+                          {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
+                        </span>
+                        <div class="subtle">Año: {{ w.year }}</div>
+                      </td>
+                      <td>{{ formatISO(w.start) }} — {{ formatISO(w.end) }}</td>
+                      <td>{{ formatISO(w.expiresAt) }}</td>
+                      <td class="text-right">{{ w.days }}</td>
+                      <td class="text-right">{{ w.used }}</td>
+                      <td class="text-right"><strong>{{ remainingOf(w) }}</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="modal-info" style="display:flex;align-items:center;justify-content:space-between;">
+                <div>Bono admin: <strong>{{ winModal.summary.bonusAdmin }}</strong></div>
+                <div class="pill total-pill">Disponible total: {{ winModal.summary.available }}</div>
+              </div>
+
+              <small class="text-warn" style="display:block;margin-top:.5rem;">
+                * Los días no gozados de la primera ventana expiran a los 18 meses (se eliminan de disponibles).
               </small>
-            </div>
-          </div>
-        </div>
-
-        <div class="modal-footer">
-          <button class="cancel-btn" @click="closeVacModal">Cerrar</button>
-          <button
-            class="save-btn"
-            :disabled="savingVac || !isValidBonusToAdd"
-            @click.stop.prevent="saveBonusIncrease"
-            title="Aumentar bono admin"
-          >
-            {{ savingVac ? 'Guardando…' : 'Guardar' }}
-          </button>
-        </div>
-
-        <div v-if="vacError" class="modal-error">{{ vacError }}</div>
-      </div>
-    </div>
-
-    <!-- Modal: Saldo por ventanas -->
-    <div v-if="showWindowsModal" class="modal-overlay" @click.self="closeWindowsModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Saldo por ventanas</h3>
-          <button class="close-btn" @click="closeWindowsModal" title="Cerrar">
-            <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-          </button>
-        </div>
-
-        <div class="modal-body">
-          <div style="margin-bottom:.5rem;">
-            <strong>Usuario:</strong>
-            {{ winModal.userName }}
-            <span v-if="winModal.userEmail"> — {{ winModal.userEmail }}</span>
+            </template>
           </div>
 
-          <div v-if="winModal.loading" class="muted">Cargando ventanas…</div>
-          <div v-else-if="winModal.error" class="modal-error">{{ winModal.error }}</div>
-
-          <template v-else-if="winModal.summary">
-            <div class="table-container" style="box-shadow:none;">
-              <table class="user-table">
-                <thead>
-                  <tr>
-                    <th>Ventana</th>
-                    <th>Rango</th>
-                    <th>Expira</th>
-                    <th class="text-right">Días</th>
-                    <th class="text-right">Usados</th>
-                    <th class="text-right">Restantes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="w in winModal.summary.windows" :key="w.label + '-' + w.year">
-                    <td>
-                      <span class="badge" :class="w.label === 'current' ? 'badge-gold' : 'badge-blue'">
-                        {{ w.label === 'current' ? 'Año en curso' : 'Siguiente año' }}
-                      </span>
-                      <div class="subtle">Año: {{ w.year }}</div>
-                    </td>
-                    <td>{{ formatISO(w.start) }} — {{ formatISO(w.end) }}</td>
-                    <td>{{ formatISO(w.expiresAt) }}</td>
-                    <td class="text-right">{{ w.days }}</td>
-                    <td class="text-right">{{ w.used }}</td>
-                    <td class="text-right"><strong>{{ remainingOf(w) }}</strong></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="modal-info" style="display:flex;align-items:center;justify-content:space-between;">
-              <div>Bono admin: <strong>{{ winModal.summary.bonusAdmin }}</strong></div>
-              <div class="pill total-pill">Disponible total: {{ winModal.summary.available }}</div>
-            </div>
-
-            <small class="text-warn" style="display:block;margin-top:.5rem;">
-              * Los días no gozados de la primera ventana expiran a los 18 meses (se eliminan de disponibles).
-            </small>
-          </template>
-        </div>
-
-        <div class="modal-footer">
-          <button class="cancel-btn" @click="closeWindowsModal">Cerrar</button>
+          <div class="modal-footer">
+            <button class="cancel-btn" @click="closeWindowsModal">Cerrar</button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </AdminLayout>
 </template>
 
 <script setup lang="ts">
@@ -520,6 +522,7 @@ import vacationService, { type WindowsSummary, type VacationWindow, VacationServ
 import type { User as BaseUser, Role, VacationDays } from '@/services/user.service'
 import PasswordStrengthMeter from '@/components/auth/PasswordStrengthMeter.vue'
 import EyeIcon from '@/components/icons/EyeIcon.vue'
+import AdminLayout from '@/layouts/AdminLayout.vue'
 
 /** Usuario con meta extendida para esta vista */
 type AdminUser = BaseUser & {

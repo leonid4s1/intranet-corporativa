@@ -6,7 +6,7 @@ import { adminMenu, type AdminMenuItem, type Role } from './adminMenu';
 import { useAuthStore } from '@/stores/auth.store';
 import { useUiStore } from '@/stores/ui.store';
 
-// logo cuadrado (el mismo que el sidebar de usuario)
+// isotipo cuadrado (mismo pack que usas en la app)
 import logoMark from '@/assets/odes-mark.png';
 
 const auth = useAuthStore();
@@ -41,16 +41,16 @@ const menu = computed(() => filterByRole(adminMenu));
 
 /* ========= Estado visual sidebar ========= */
 
-// viene directamente del store
+// del store
 const collapsed = computed(() => ui.sidebarCollapsed);
 const isMobileOpen = computed(() => ui.sidebarMobileOpen);
 
-// calculamos si es móvil con el ancho de ventana
+// detectamos móvil por ancho de ventana
 const isMobile = ref(false);
 
 const handleResize = () => {
   if (typeof window === 'undefined') return;
-  isMobile.value = window.innerWidth < 992; // breakpoint similar al layout
+  isMobile.value = window.innerWidth < 992; // breakpoint aproximado
 };
 
 onMounted(() => {
@@ -153,11 +153,13 @@ const onBurgerClick = () => {
 </template>
 
 <style scoped>
-/* Aprovechamos estilos globales de .app-sidebar, aquí afinamos detalles de admin */
-
+/* Fondo y texto: oscuro como el sidebar del usuario */
 .admin-sidebar {
+  background: #111827;
+  color: #e5e7eb;
   padding-top: 20px;
   padding-bottom: 20px;
+  border-right: 1px solid rgba(15, 23, 42, 0.7);
 }
 
 /* Marca / texto */
@@ -190,7 +192,7 @@ const onBurgerClick = () => {
 /* Link base */
 .side-link {
   display: block;
-  padding: 8px 12px;
+  padding: 9px 14px;
   border-radius: 999px;
   text-decoration: none;
   font-size: 0.9rem;
@@ -202,11 +204,11 @@ const onBurgerClick = () => {
 }
 
 .side-link:hover {
-  background: rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.25);
   transform: translateX(2px);
 }
 
-/* Activo */
+/* Activo: pastilla naranja como en el usuario */
 .side-link.is-active {
   background: #f97316;
   color: #111827;
@@ -216,13 +218,13 @@ const onBurgerClick = () => {
   font-weight: 500;
 }
 
-/* Grupos (Vacaciones) */
+/* Grupos (VACACIONES) */
 .side-group {
   margin-top: 4px;
 }
 
 .side-group__label {
-  padding: 6px 12px 2px;
+  padding: 6px 14px 2px;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -243,10 +245,10 @@ const onBurgerClick = () => {
 
 .side-link--child {
   font-size: 0.85rem;
-  padding-inline: 16px;
+  padding-inline: 18px;
 }
 
-/* Collapsado: ocultamos texto y hacemos todo más compacto */
+/* Collapsado: ocultamos texto y compactamos */
 .app-sidebar.is-collapsed .brand-admin {
   display: none;
 }
@@ -256,7 +258,7 @@ const onBurgerClick = () => {
   padding-inline: 10px;
 }
 
-/* Móvil: que ocupe todo el ancho cuando esté abierto (como el del usuario) */
+/* Móvil: que se vea como panel */
 .app-sidebar.is-mobile {
   border-radius: 0;
 }

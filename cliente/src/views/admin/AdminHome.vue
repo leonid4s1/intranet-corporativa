@@ -1,9 +1,5 @@
 <template>
-  <div class="admin-shell">
-    <!-- Menú lateral de administración -->
-    <AdminSidebar />
-
-    <!-- Contenido principal -->
+  <AdminLayout>
     <div class="admin-home">
       <header class="admin-header">
         <h1>Panel de Administración</h1>
@@ -19,8 +15,6 @@
       </header>
 
       <div class="admin-options">
-        <!-- (ELIMINADO: Gestión de Roles) -->
-
         <router-link to="/admin/users" class="admin-card">
           <i class="fas fa-user-cog"></i>
           <div class="card-content">
@@ -46,53 +40,38 @@
         </router-link>
       </div>
     </div>
-  </div>
+  </AdminLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, defineOptions } from 'vue'
-import { useAuthStore } from '@/stores/auth.store'
-import AdminSidebar from '@/components/layout/AdminSidebar.vue'
+import { ref, onMounted, defineOptions } from 'vue';
+import { useAuthStore } from '@/stores/auth.store';
+import AdminLayout from '@/layouts/AdminLayout.vue';
 
-defineOptions({ name: 'AdminHome' })
+defineOptions({ name: 'AdminHome' });
 
-const auth = useAuthStore()
-const loggingOut = ref<boolean>(false)
+const auth = useAuthStore();
+const loggingOut = ref<boolean>(false);
 
 const handleLogout = async (): Promise<void> => {
-  if (loggingOut.value) return
-  loggingOut.value = true
+  if (loggingOut.value) return;
+  loggingOut.value = true;
   try {
-    await auth.logout()
+    await auth.logout();
   } finally {
-    loggingOut.value = false
+    loggingOut.value = false;
   }
-}
+};
 
 onMounted((): void => {
   if (typeof document !== 'undefined') {
-    document.title = 'Panel de Administración | Intranet'
+    document.title = 'Panel de Administración | Intranet';
   }
-})
+});
 </script>
 
 <style scoped>
-/* Layout con menú lateral */
-.admin-shell {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 24px;
-}
-
-/* En móviles ponemos el menú arriba y contenido abajo */
-@media (max-width: 960px) {
-  .admin-shell {
-    grid-template-columns: 1fr;
-  }
-}
-
 .admin-home {
-  padding: 2rem;
   max-width: 1200px;
   margin: 0 auto;
 }
