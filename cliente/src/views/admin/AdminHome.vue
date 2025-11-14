@@ -1,51 +1,50 @@
 <template>
-  <div class="admin-home">
-    <header class="admin-header">
-      <h1>Panel de Administración</h1>
+  <div class="admin-shell">
+    <!-- Menú lateral de administración -->
+    <AdminSidebar />
 
-      <button
-        @click="handleLogout"
-        class="btn logout-btn"
-        :disabled="loggingOut"
-        type="button"
-      >
-        {{ loggingOut ? 'Saliendo…' : 'Cerrar sesión' }}
-      </button>
-    </header>
+    <!-- Contenido principal -->
+    <div class="admin-home">
+      <header class="admin-header">
+        <h1>Panel de Administración</h1>
 
-    <div class="admin-options">
-      <router-link to="/admin/roles" class="admin-card">
-        <i class="fas fa-user-tag"></i>
-        <div class="card-content">
-          <h3>Gestión de Roles</h3>
-          <p>Administrar los permisos y funciones de los usuarios</p>
-        </div>
-      </router-link>
+        <button
+          @click="handleLogout"
+          class="btn logout-btn"
+          :disabled="loggingOut"
+          type="button"
+        >
+          {{ loggingOut ? 'Saliendo…' : 'Cerrar sesión' }}
+        </button>
+      </header>
 
-      <router-link to="/admin/users" class="admin-card">
-        <i class="fas fa-user-cog"></i>
-        <div class="card-content">
-          <h3>Administrar Usuarios</h3>
-        <p>Gestiona cuentas de usuario y accesos</p>
-        </div>
-      </router-link>
+      <div class="admin-options">
+        <!-- (ELIMINADO: Gestión de Roles) -->
 
-      <router-link to="/admin/vacations" class="admin-card">
-        <i class="fas fa-calendar-alt"></i>
-        <div class="card-content">
-          <h3>Administración de Vacaciones</h3>
-          <p>Gestiona solicitudes y días de vacaciones</p>
-        </div>
-      </router-link>
+        <router-link to="/admin/users" class="admin-card">
+          <i class="fas fa-user-cog"></i>
+          <div class="card-content">
+            <h3>Administrar Usuarios</h3>
+            <p>Gestiona cuentas de usuario y accesos</p>
+          </div>
+        </router-link>
 
-      <!-- Nueva tarjeta: Comunicados -->
-      <router-link to="/admin/announcements" class="admin-card">
-        <i class="fas fa-bullhorn"></i>
-        <div class="card-content">
-          <h3>Comunicados</h3>
-          <p>Publica y gestiona comunicados de la empresa</p>
-        </div>
-      </router-link>
+        <router-link to="/admin/vacations" class="admin-card">
+          <i class="fas fa-calendar-alt"></i>
+          <div class="card-content">
+            <h3>Administración de Vacaciones</h3>
+            <p>Gestiona solicitudes y días de vacaciones</p>
+          </div>
+        </router-link>
+
+        <router-link to="/admin/announcements" class="admin-card">
+          <i class="fas fa-bullhorn"></i>
+          <div class="card-content">
+            <h3>Comunicados</h3>
+            <p>Publica y gestiona comunicados de la empresa</p>
+          </div>
+        </router-link>
+      </div>
     </div>
   </div>
 </template>
@@ -53,6 +52,7 @@
 <script setup lang="ts">
 import { ref, onMounted, defineOptions } from 'vue'
 import { useAuthStore } from '@/stores/auth.store'
+import AdminSidebar from '@/components/layout/AdminSidebar.vue'
 
 defineOptions({ name: 'AdminHome' })
 
@@ -77,6 +77,20 @@ onMounted((): void => {
 </script>
 
 <style scoped>
+/* Layout con menú lateral */
+.admin-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 24px;
+}
+
+/* En móviles ponemos el menú arriba y contenido abajo */
+@media (max-width: 960px) {
+  .admin-shell {
+    grid-template-columns: 1fr;
+  }
+}
+
 .admin-home {
   padding: 2rem;
   max-width: 1200px;
@@ -90,11 +104,19 @@ onMounted((): void => {
   margin-bottom: 2rem;
 }
 
-.admin-header h1 { margin: 0; }
+.admin-header h1 {
+  margin: 0;
+}
 
 /* Botón de marca */
-.logout-btn { min-width: 146px; }
-.logout-btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+.logout-btn {
+  min-width: 146px;
+}
+.logout-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
 
 /* Grid de opciones */
 .admin-options {
@@ -113,15 +135,18 @@ onMounted((): void => {
   background: #ffffff;
   border-radius: 12px;
   border: 1px solid var(--gray-300, #e5e7eb);
-  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   text-decoration: none;
   color: var(--ink-900, #2c3e50);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
   cursor: pointer;
 }
 .admin-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 10px 24px rgba(0,0,0,0.10);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.1);
   border-color: var(--gray-400, #cdcdcd);
 }
 .admin-card i {
@@ -134,16 +159,28 @@ onMounted((): void => {
   margin: 0 0 0.5rem 0;
   font-size: 1.2rem;
   font-weight: 700;
-  color: var(--ink, #4B5055);
+  color: var(--ink, #4b5055);
 }
-.card-content p { margin: 0; color: #666; font-size: 0.95rem; }
+.card-content p {
+  margin: 0;
+  color: #666;
+  font-size: 0.95rem;
+}
 
 /* Responsive */
 @media (max-width: 768px) {
-  .admin-header { flex-direction: column; align-items: flex-start; gap: 1rem; }
-  .logout-btn { align-self: flex-end; }
+  .admin-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  .logout-btn {
+    align-self: flex-end;
+  }
 }
 @media (max-width: 480px) {
-  .admin-options { grid-template-columns: 1fr; }
+  .admin-options {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
