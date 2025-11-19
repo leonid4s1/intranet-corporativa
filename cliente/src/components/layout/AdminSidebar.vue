@@ -41,10 +41,6 @@ const menu = computed(() => filterByRole(adminMenu));
 
 /* ========= Estado visual sidebar ========= */
 
-// del store
-const collapsed = computed(() => ui.sidebarCollapsed);
-const isMobileOpen = computed(() => ui.sidebarMobileOpen);
-
 // detectamos móvil por ancho de ventana
 const isMobile = ref(false);
 
@@ -61,6 +57,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
 });
+
+// del store PERO ajustado para que en móvil no se "colapse"
+const collapsed = computed(() => !isMobile.value && ui.sidebarCollapsed);
+const isMobileOpen = computed(() => isMobile.value && ui.sidebarMobileOpen);
 
 const onBurgerClick = () => {
   if (isMobile.value) {
@@ -85,9 +85,9 @@ const onBurgerClick = () => {
     aria-label="Menú de administración"
   >
     <!-- Cabecera / marca -->
-    <div class="side-head">
+    <div class="side-head admin-side-head">
       <button
-        class="brand-btn"
+        class="brand-btn admin-brand-btn"
         type="button"
         @click="onBurgerClick"
         :aria-label="
@@ -102,7 +102,9 @@ const onBurgerClick = () => {
         aria-controls="admin-sidebar"
         :aria-expanded="isMobile ? isMobileOpen : undefined"
       >
-        <img :src="logoMark" alt="Logo Odes" width="28" height="28" />
+        <div class="brand-mark-wrap">
+          <img :src="logoMark" alt="Logo Odes" class="brand-mark-img" />
+        </div>
       </button>
 
       <!-- Texto solo cuando NO está colapsado (o en móvil) -->
@@ -113,7 +115,7 @@ const onBurgerClick = () => {
     </div>
 
     <!-- Menú -->
-    <nav class="side-nav">
+    <nav class="side-nav admin-side-nav">
       <ul class="side-menu">
         <li v-for="(item, i) in menu" :key="i">
           <!-- Item simple -->
@@ -155,11 +157,41 @@ const onBurgerClick = () => {
 <style scoped>
 /* Fondo y texto: oscuro como el sidebar del usuario */
 .admin-sidebar {
-  background: #111827;
+  background: #020617;
   color: #e5e7eb;
   padding-top: 20px;
   padding-bottom: 20px;
   border-right: 1px solid rgba(15, 23, 42, 0.7);
+}
+
+/* Aseguramos cabecera consistente */
+.admin-side-head {
+  padding-inline: 12px;
+}
+
+/* Botón de marca: buen contraste con el fondo */
+.admin-brand-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.brand-mark-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: #f97316; /* naranja corporativo */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 20px rgba(249, 115, 22, 0.35);
+}
+
+.brand-mark-img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
 }
 
 /* Marca / texto */
@@ -172,11 +204,13 @@ const onBurgerClick = () => {
 .brand-admin__title {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #f9fafb;
+  color: #f9fafb; /* blanco para contraste máximo */
 }
 
 .brand-admin__subtitle {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   color: #9ca3af;
 }
 
@@ -248,17 +282,31 @@ const onBurgerClick = () => {
   padding-inline: 18px;
 }
 
-/* Collapsado: ocultamos texto y compactamos */
+/* ===================== */
+/*   ESTADO COLAPSADO    */
+/* ===================== */
+
+/* Ocultamos textos para que no se corten al hacer el sidebar estrecho */
 .app-sidebar.is-collapsed .brand-admin {
   display: none;
 }
 
+.app-sidebar.is-collapsed .side-group__label {
+  display: none;
+}
+
+.app-sidebar.is-collapsed .side-link__label {
+  display: none;
+}
+
+/* Compactamos los enlaces para que queden como “píldoras” centradas */
 .app-sidebar.is-collapsed .side-link {
   text-align: center;
   padding-inline: 10px;
+  justify-content: center;
 }
 
-/* Móvil: que se vea como panel */
+/* Móvil: que se vea como panel completo, sin colapsar */
 .app-sidebar.is-mobile {
   border-radius: 0;
 }
