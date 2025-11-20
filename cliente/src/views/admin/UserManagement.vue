@@ -16,7 +16,19 @@
       </div>
 
       <div class="header">
-        <h2 class="title">Gestión de Usuarios</h2>
+        <div class = "header-main">
+          <h2 class="title">Gestión de Usuarios</h2>
+
+          <!-- Buscador -->
+          <div class = "search-wrap">
+            <input
+              v-model = "search"
+              type = "text"
+              class = "search-input"
+              placeholder="Buscar por nombre o email..."
+            />
+          </div>
+        </div>
 
         <div class="header-actions">
           <button class="create-btn" @click="openCreateModal">
@@ -32,7 +44,7 @@
       </div>
 
       <div class="table-container">
-        <table v-if="users.length" class="user-table">
+        <table v-if="filteredUsers.length" class="user-table">
           <thead>
             <tr>
               <th class="name-column">Nombre</th>
@@ -49,11 +61,14 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="u in users" :key="u.id" class="user-row">
+            <tr v-for="u in filteredUsers" :key="u.id" class="user-row">
               <td class="name-cell">
                 <div class="user-info">
                   <span class="user-name">{{ u.name }}</span>
-                  <span class="user-status" :class="{ active: u.isActive, inactive: !u.isActive }">
+                  <span
+                    class="user-status"
+                    :class="{ active: u.isActive, inactive: !u.isActive }"
+                  >
                     {{ u.isActive ? 'Activo' : 'Inactivo' }}
                   </span>
                   <span v-if="u.email_verified_at" class="verified-badge">Verificado</span>
@@ -92,17 +107,27 @@
               <td class="actions-cell">
                 <button class="edit-btn" @click="openEditModal(u)" title="Editar">
                   <svg class="icon" viewBox="0 0 24 24">
-                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+                    <path
+                      d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                    />
                   </svg>
                 </button>
-                <button class="vac-btn" @click="openVacationModal(u)" title="Derecho LFT + Bono admin">
+                <button
+                  class="vac-btn"
+                  @click="openVacationModal(u)"
+                  title="Derecho LFT + Bono admin"
+                >
                   <svg class="icon" viewBox="0 0 24 24">
-                    <path d="M12 7a5 5 0 00-5 5v5h10v-5a5 5 0 00-5-5zm0-5a3 3 0 013 3h-6a3 3 0 013-3z"/>
+                    <path
+                      d="M12 7a5 5 0 00-5 5v5h10v-5a5 5 0 00-5-5zm0-5a3 3 0 013 3h-6a3 3 0 013-3z"
+                    />
                   </svg>
                 </button>
                 <button class="delete-btn" @click="confirmDelete(u.id)" title="Eliminar">
                   <svg class="icon" viewBox="0 0 24 24">
-                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                    <path
+                      d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+                    />
                   </svg>
                 </button>
               </td>
@@ -518,7 +543,11 @@ import { ref, computed, onMounted } from 'vue'
 import dayjs from 'dayjs'
 import api from '@/services/api'
 import userService from '@/services/user.service'
-import vacationService, { type WindowsSummary, type VacationWindow, VacationService as VacSvcNS } from '@/services/vacation.service'
+import vacationService, {
+  type WindowsSummary,
+  type VacationWindow,
+  VacationService as VacSvcNS
+} from '@/services/vacation.service'
 import type { User as BaseUser, Role, VacationDays } from '@/services/user.service'
 import PasswordStrengthMeter from '@/components/auth/PasswordStrengthMeter.vue'
 import EyeIcon from '@/components/icons/EyeIcon.vue'
@@ -573,6 +602,20 @@ const users = ref<RowUser[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+/* === Buscador === */
+const search = ref('')
+
+const filteredUsers = computed<RowUser[]>(() => {
+  const term = search.value.trim().toLowerCase()
+  if (!term) return users.value
+
+  return users.value.filter((u) => {
+    const name = (u.name ?? '').toLowerCase()
+    const email = (u.email ?? '').toLowerCase()
+    return name.includes(term) || email.includes(term)
+  })
+})
+
 /* ===== Utils ===== */
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const strongPassRe = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/
@@ -591,12 +634,14 @@ const pwdRules = computed(() => {
     lower: /[a-z]/.test(p),
     digit: /\d/.test(p),
     special: /[^A-Za-z0-9\s]/.test(p),
-    nospace: !/\s/.test(p),
+    nospace: !/\s/.test(p)
   }
 })
 const rulesPassed = computed(() => Object.values(pwdRules.value).filter(Boolean).length)
 const rulesAllOk = computed(() => rulesPassed.value === 6)
-const passwordsMatch = computed(() => createForm.value.password === createForm.value.password_confirmation)
+const passwordsMatch = computed(
+  () => createForm.value.password === createForm.value.password_confirmation
+)
 
 function dateOnly(v?: string | null): string | null {
   if (!v) return null
@@ -605,13 +650,13 @@ function dateOnly(v?: string | null): string | null {
 }
 function isFuture(d: string) {
   if (!isoDayRe.test(d)) return false
-  const t = new Date().setUTCHours(0,0,0,0)
-  return new Date(d).setUTCHours(0,0,0,0) > t
+  const t = new Date().setUTCHours(0, 0, 0, 0)
+  return new Date(d).setUTCHours(0, 0, 0, 0) > t
 }
 function yearsBetween(a: string, b: string) {
   const A = new Date(a).getTime()
   const B = new Date(b).getTime()
-  return (B - A) / (365.25*24*60*60*1000)
+  return (B - A) / (365.25 * 24 * 60 * 60 * 1000)
 }
 function formatISO(iso: string | Date | undefined): string {
   if (!iso) return ''
@@ -621,14 +666,18 @@ function formatISO(iso: string | Date | undefined): string {
 
 /* ===== Toasts ===== */
 type ToastType = 'success' | 'error' | 'info' | 'warn'
-interface Toast { id: number; type: ToastType; text: string }
+interface Toast {
+  id: number
+  type: ToastType
+  text: string
+}
 const toasts = ref<Toast[]>([])
 let toastSeed = 0
 function pushToast(text: string, type: ToastType = 'info', timeout = 3500) {
   const id = ++toastSeed
   toasts.value.push({ id, type, text })
   window.setTimeout(() => {
-    toasts.value = toasts.value.filter(t => t.id !== id)
+    toasts.value = toasts.value.filter((t) => t.id !== id)
   }, timeout)
 }
 
@@ -643,8 +692,8 @@ const createForm = ref({
   password_confirmation: '',
   role: 'user' as Role,
   position: '',
-  hireDate: '',     // YYYY-MM-DD
-  birthDate: ''     // YYYY-MM-DD
+  hireDate: '', // YYYY-MM-DD
+  birthDate: '' // YYYY-MM-DD
 })
 const createErrors = ref<Record<string, string>>({
   name: '',
@@ -675,21 +724,49 @@ const isCreateValid = computed(() => {
 
 function resetCreateForm() {
   createForm.value = {
-    name: '', email: '', password: '', password_confirmation: '',
-    role: 'user', position: '', hireDate: '', birthDate: ''
+    name: '',
+    email: '',
+    password: '',
+    password_confirmation: '',
+    role: 'user',
+    position: '',
+    hireDate: '',
+    birthDate: ''
   }
-  createErrors.value = { name:'', email:'', password:'', password_confirmation:'', position:'', hireDate:'', birthDate:'' }
+  createErrors.value = {
+    name: '',
+    email: '',
+    password: '',
+    password_confirmation: '',
+    position: '',
+    hireDate: '',
+    birthDate: ''
+  }
 }
 
 function validateCreate(): boolean {
   const f = createForm.value
   const e = createErrors.value
-  e.name = !f.name.trim() ? 'El nombre es requerido' : f.name.trim().length < 3 ? 'Mínimo 3 caracteres' : ''
-  e.email = !f.email.trim() ? 'El email es requerido' : !emailRe.test(f.email.trim()) ? 'Email inválido' : ''
-  e.password = !f.password ? 'La contraseña es requerida'
-              : !strongPassRe.test(f.password) ? 'Debe incluir mayúscula, número y símbolo (min. 8)' : ''
-  e.password_confirmation = !f.password_confirmation ? 'Confirma la contraseña'
-                          : f.password_confirmation !== f.password ? 'Las contraseñas no coinciden' : ''
+  e.name = !f.name.trim()
+    ? 'El nombre es requerido'
+    : f.name.trim().length < 3
+      ? 'Mínimo 3 caracteres'
+      : ''
+  e.email = !f.email.trim()
+    ? 'El email es requerido'
+    : !emailRe.test(f.email.trim())
+      ? 'Email inválido'
+      : ''
+  e.password = !f.password
+    ? 'La contraseña es requerida'
+    : !strongPassRe.test(f.password)
+      ? 'Debe incluir mayúscula, número y símbolo (min. 8)'
+      : ''
+  e.password_confirmation = !f.password_confirmation
+    ? 'Confirma la contraseña'
+    : f.password_confirmation !== f.password
+      ? 'Las contraseñas no coinciden'
+      : ''
 
   e.position = '' // opcional
 
@@ -734,9 +811,11 @@ async function handleCreateUser() {
       password: createForm.value.password,
       password_confirmation: createForm.value.password_confirmation,
       role: createForm.value.role,
-      ...(createForm.value.position.trim() && { position: createForm.value.position.trim() }),
+      ...(createForm.value.position.trim() && {
+        position: createForm.value.position.trim()
+      }),
       ...(createForm.value.hireDate && { hireDate: createForm.value.hireDate }),
-      ...(createForm.value.birthDate && { birthDate: createForm.value.birthDate }),
+      ...(createForm.value.birthDate && { birthDate: createForm.value.birthDate })
     }
 
     const { user, requiresEmailVerification }: CreateUserReturn =
@@ -754,7 +833,10 @@ async function handleCreateUser() {
     if (looksLikeTimeout(err)) {
       await fetchUsers()
       closeCreateModal()
-      pushToast('Usuario creado, pero el servidor tardó más de lo esperado. Refrescamos la lista.', 'info')
+      pushToast(
+        'Usuario creado, pero el servidor tardó más de lo esperado. Refrescamos la lista.',
+        'info'
+      )
       console.warn('[createUser][timeout] Refrescado de lista tras timeout', err)
       return
     }
@@ -807,7 +889,9 @@ const vacForm = ref<VacFormState>({
 
 /* NUEVO: input único para aumentar bono */
 const bonusToAdd = ref<number>(0)
-const isValidBonusToAdd = computed(() => Number.isInteger(bonusToAdd.value) && bonusToAdd.value > 0)
+const isValidBonusToAdd = computed(
+  () => Number.isInteger(bonusToAdd.value) && bonusToAdd.value > 0
+)
 
 onMounted(async () => {
   await fetchUsers()
@@ -834,7 +918,7 @@ async function fetchUsers() {
   loading.value = true
   error.value = null
   try {
-    const base = await userService.getAllUsers() as AdminUser[]
+    const base = (await userService.getAllUsers()) as AdminUser[]
     const today = dayjs().startOf('day')
 
     const rows = await Promise.all(
@@ -848,24 +932,28 @@ async function fetchUsers() {
           const windows = Array.isArray(sum?.windows) ? sum.windows : []
 
           // ¿Hay al menos una ventana activa hoy?
-          const activeWins = windows.filter(w => isActiveWindow(w as WindowLike, today))
+          const activeWins = windows.filter((w) => isActiveWindow(w as WindowLike, today))
           if (activeWins.length === 0) {
             // antes del primer aniversario (o fuera de toda ventana activa)
             return { ...u, total: 0, used: 0, available: 0 } as RowUser
           }
 
           // Bono con fallback a adminExtra del listado base
-          const bonus =
-            Number.isFinite(Number(sum?.bonusAdmin))
-              ? Number(sum!.bonusAdmin)
-              : Number((u.vacationDays as VacationDaysExtended | undefined)?.adminExtra ?? 0)
+          const bonus = Number.isFinite(Number(sum?.bonusAdmin))
+            ? Number(sum!.bonusAdmin)
+            : Number(
+                (u.vacationDays as VacationDaysExtended | undefined)?.adminExtra ?? 0
+              )
 
           // Totales = días de TODAS las ventanas activas + bono
-          const totalActivas = activeWins.reduce((acc, w) => acc + (Number(w?.days) || 0), 0)
+          const totalActivas = activeWins.reduce(
+            (acc, w) => acc + (Number(w?.days) || 0),
+            0
+          )
           const total = totalActivas + bonus
 
           // Usados = de la ventana vigente (label 'current')
-          const currentWin = windows.find(w => w.label === 'current')
+          const currentWin = windows.find((w) => w.label === 'current')
           const usedCurrent = Number(currentWin?.used ?? 0)
 
           // Disponibles = summary.available (ya suma activas + bono), o respaldo calculado
@@ -887,7 +975,8 @@ async function fetchUsers() {
 
     users.value = rows
   } catch (err: unknown) {
-    error.value = err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
+    error.value =
+      err instanceof Error ? err.message : 'Error desconocido al cargar usuarios'
     console.error('Error fetching users:', err)
   } finally {
     loading.value = false
@@ -941,7 +1030,7 @@ async function loadLFTSummary(userId: string) {
   type Envelope = ApiSummaryLFT | { data?: ApiSummaryLFT }
   const env = data as Envelope
   const payload: ApiSummaryLFT =
-    ('data' in env && env.data) ? env.data! : (env as ApiSummaryLFT)
+    'data' in env && env.data ? env.data : (env as ApiSummaryLFT)
 
   const vac = payload.vacation ?? {}
   const win = vac.window ?? {}
@@ -950,8 +1039,8 @@ async function loadLFTSummary(userId: string) {
     lftTotal: Number(vac.right ?? 0) || 0,
     lftUsed: Number(vac.used ?? 0) || 0,
     lftRemaining: Number(vac.remaining ?? 0) || 0,
-    windowStart: win?.start ? String(win.start).slice(0,10) : '',
-    windowEnd: win?.end ? String(win.end).slice(0,10) : ''
+    windowStart: win?.start ? String(win.start).slice(0, 10) : '',
+    windowEnd: win?.end ? String(win.end).slice(0, 10) : ''
   }
 }
 
@@ -965,14 +1054,18 @@ function computeRowFromSummary(sum: WindowsSummary, bonus: number) {
     if (!s.isValid() || !exp.isValid()) return false
     return !today.isBefore(s, 'day') && !today.isAfter(exp, 'day')
   })
-  const totalActivas = activeWins.reduce((acc, w) => acc + (Number(w?.days) || 0), 0)
-  const currentWin = windows.find(w => w.label === 'current')
+  const totalActivas = activeWins.reduce(
+    (acc, w) => acc + (Number(w?.days) || 0),
+    0
+  )
+  const currentWin = windows.find((w) => w.label === 'current')
   const usedCurrent = Number(currentWin?.used ?? 0)
-  const available = activeWins.reduce((acc, w) => {
-    const d = Number(w?.days) || 0
-    const u = Number(w?.used) || 0
-    return acc + Math.max(0, d - u)
-  }, 0) + Math.max(0, Math.floor(bonus))
+  const available =
+    activeWins.reduce((acc, w) => {
+      const d = Number(w?.days) || 0
+      const u = Number(w?.used) || 0
+      return acc + Math.max(0, d - u)
+    }, 0) + Math.max(0, Math.floor(bonus))
 
   return {
     total: totalActivas + Math.max(0, Math.floor(bonus)),
@@ -981,14 +1074,17 @@ function computeRowFromSummary(sum: WindowsSummary, bonus: number) {
   }
 }
 
-function applyRowTotals(userId: string, totals: { total: number; used: number; available: number }) {
-  const idx = users.value.findIndex(u => u.id === userId)
+function applyRowTotals(
+  userId: string,
+  totals: { total: number; used: number; available: number }
+) {
+  const idx = users.value.findIndex((u) => u.id === userId)
   if (idx === -1) return
   users.value[idx] = {
     ...users.value[idx],
     total: totals.total,
     used: totals.used,
-    available: totals.available,
+    available: totals.available
   }
 }
 
@@ -1041,12 +1137,17 @@ async function updateUser() {
   modalError.value = null
 
   try {
-    const current = users.value.find(x => x.id === selectedUser.value?.id)
+    const current = users.value.find((x) => x.id === selectedUser.value?.id)
     if (!current) throw new Error('Usuario no encontrado en la lista actual')
 
     // Nombre
-    if (selectedUser.value.name.trim() && selectedUser.value.name !== current.name) {
-      await userService.updateUserName(selectedUser.value.id, { name: selectedUser.value.name })
+    if (
+      selectedUser.value.name.trim() &&
+      selectedUser.value.name !== current.name
+    ) {
+      await userService.updateUserName(selectedUser.value.id, {
+        name: selectedUser.value.name
+      })
     }
 
     // Estado
@@ -1056,7 +1157,9 @@ async function updateUser() {
 
     // Contraseña
     if (newPassword.value.trim().length > 0) {
-      await userService.updateUserPassword(selectedUser.value.id, { newPassword: newPassword.value })
+      await userService.updateUserPassword(selectedUser.value.id, {
+        newPassword: newPassword.value
+      })
     }
 
     // Meta (puesto/fechas)
@@ -1067,7 +1170,7 @@ async function updateUser() {
     if (selectedUserMeta.value.position !== (current.position || '')) {
       metaPayload.position = selectedUserMeta.value.position
     }
-    if (selectedUserMeta.value.hireDate !== dateOnly(current.hireDate) ) {
+    if (selectedUserMeta.value.hireDate !== dateOnly(current.hireDate)) {
       metaPayload.hireDate = selectedUserMeta.value.hireDate
     }
     if (selectedUserMeta.value.birthDate !== dateOnly(current.birthDate)) {
@@ -1096,7 +1199,7 @@ async function confirmDelete(userId: string) {
   if (!ok) return
   try {
     await userService.deleteUser(userId)
-    users.value = users.value.filter(u => u.id !== userId)
+    users.value = users.value.filter((u) => u.id !== userId)
     pushToast('Usuario eliminado', 'success')
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'No se pudo eliminar el usuario'
@@ -1132,10 +1235,9 @@ async function openVacationModal(u: AdminUser) {
       u.id,
       dateOnly(u.hireDate) || undefined
     )
-    const bonus =
-      Number.isFinite(Number(sum?.bonusAdmin))
-        ? Number(sum!.bonusAdmin)
-        : 0
+    const bonus = Number.isFinite(Number(sum?.bonusAdmin))
+      ? Number(sum!.bonusAdmin)
+      : 0
 
     vacForm.value = {
       id: (u.id || '').trim(),
@@ -1147,7 +1249,7 @@ async function openVacationModal(u: AdminUser) {
       windowStart: s.windowStart,
       windowEnd: s.windowEnd,
       bonus,
-      effectiveTotal: Math.max(curTotal, Math.max(curUsed, s.lftTotal)),
+      effectiveTotal: Math.max(curTotal, Math.max(curUsed, s.lftTotal))
     }
   } catch (e: unknown) {
     console.error('[vacationModal] error loading LFT summary', e)
@@ -1195,7 +1297,9 @@ async function saveBonusIncrease() {
 
     // 2) Refrescar summary y recalcular fila
     const sum = await vacationService.getWindowsSummaryFixed(userId)
-    const newBonus = Number.isFinite(Number(sum?.bonusAdmin)) ? Number(sum!.bonusAdmin) : vacForm.value.bonus
+    const newBonus = Number.isFinite(Number(sum?.bonusAdmin))
+      ? Number(sum!.bonusAdmin)
+      : vacForm.value.bonus
     const totals = computeRowFromSummary(sum, newBonus)
     applyRowTotals(userId, totals)
 
@@ -1207,7 +1311,10 @@ async function saveBonusIncrease() {
     // 4) Sincronizar el modal actual
     vacForm.value.bonus = newBonus
     vacForm.value.currentTotal = totals.total
-    vacForm.value.effectiveTotal = Math.max(totals.total, Math.max(vacForm.value.used, vacForm.value.lftTotal))
+    vacForm.value.effectiveTotal = Math.max(
+      totals.total,
+      Math.max(vacForm.value.used, vacForm.value.lftTotal)
+    )
     bonusToAdd.value = 0
 
     pushToast('Bono aumentado correctamente', 'success')
@@ -1250,10 +1357,14 @@ async function openWindowsModal(u: AdminUser) {
   winModal.value.summary = null
 
   try {
-    const sum = await vacationService.getWindowsSummaryFixed(u.id, dateOnly(u.hireDate) || undefined)
+    const sum = await vacationService.getWindowsSummaryFixed(
+      u.id,
+      dateOnly(u.hireDate) || undefined
+    )
     winModal.value.summary = sum
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'No se pudo cargar el saldo por ventanas'
+    const msg =
+      e instanceof Error ? e.message : 'No se pudo cargar el saldo por ventanas'
     winModal.value.error = msg
     pushToast(msg, 'error')
   } finally {
@@ -1270,7 +1381,11 @@ function closeWindowsModal() {
 </script>
 
 <style scoped>
-.user-management-container { padding: 2rem; max-width: 1200px; margin: 0 auto; }
+.user-management-container {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
 
 /* Toasts */
 .toast-container {
@@ -1278,82 +1393,274 @@ function closeWindowsModal() {
   top: 1rem;
   right: 1rem;
   display: grid;
-  gap: .5rem;
+  gap: 0.5rem;
   z-index: 1100;
 }
 .toast {
   display: flex;
   align-items: center;
-  gap: .5rem;
-  padding: .625rem .875rem;
-  border-radius: .5rem;
-  box-shadow: 0 6px 18px rgba(0,0,0,.08);
-  font-size: .95rem;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  font-size: 0.95rem;
   line-height: 1.2;
   background: #f7fafc;
   color: #2d3748;
   border: 1px solid #e2e8f0;
 }
-.toast-dot { width: .5rem; height: .5rem; border-radius: 9999px; display: inline-block; }
-.toast--success { background: #f0fff4; color: #22543d; border-color: #c6f6d5; }
-.toast--error   { background: #fff5f5; color: #742a2a; border-color: #fed7d7; }
-.toast--info    { background: #ebf8ff; color: #2a4365; border-color: #bee3f8; }
-.toast--warn    { background: #fffaf0; color: #744210; border-color: #feebc8; }
+.toast-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  display: inline-block;
+}
+.toast--success {
+  background: #f0fff4;
+  color: #22543d;
+  border-color: #c6f6d5;
+}
+.toast--error {
+  background: #fff5f5;
+  color: #742a2a;
+  border-color: #fed7d7;
+}
+.toast--info {
+  background: #ebf8ff;
+  color: #2a4365;
+  border-color: #bee3f8;
+}
+.toast--warn {
+  background: #fffaf0;
+  color: #744210;
+  border-color: #feebc8;
+}
 
-.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
-.header-actions { display: flex; align-items: center; gap: .75rem; }
-.title { font-size: 1.5rem; font-weight: 600; color: #1a202c; }
-.loading-indicator { color: #4a5568; font-size: 0.875rem; }
-.error-message { padding: 1rem; background-color: #fff5f5; color: #e53e3e; border-radius: 0.375rem; margin-bottom: 1.5rem; }
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
 
-.create-btn { display: inline-flex; align-items: center; gap: .5rem; padding: .5rem .75rem; border-radius: .375rem; background: #48bb78; color: #fff; font-weight: 600; }
-.create-btn:hover { background: #38a169; }
-.create-btn .icon { width: 1.1rem; height: 1.1rem; fill: currentColor; }
+.header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.search-wrap {
+  max-width: 260px;
+}
+
+.search-input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.875rem;
+  outline: none;
+  background: #ffffff;
+}
+
+.search-input:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.4);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a202c;
+}
+.loading-indicator {
+  color: #4a5568;
+  font-size: 0.875rem;
+}
+.error-message {
+  padding: 1rem;
+  background-color: #fff5f5;
+  color: #e53e3e;
+  border-radius: 0.375rem;
+  margin-bottom: 1.5rem;
+}
+
+.create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  background: #48bb78;
+  color: #fff;
+  font-weight: 600;
+}
+.create-btn:hover {
+  background: #38a169;
+}
+.create-btn .icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: currentColor;
+}
 
 .table-container {
   background-color: white;
   border-radius: 0.5rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   overflow-x: auto;
   overflow-y: hidden;
 }
 
-.user-table { width: 100%; border-collapse: collapse; }
-.user-table th { padding: 1rem; text-align: left; background-color: #f7fafc; color: #4a5568; font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
-.user-table td { padding: 1rem; border-top: 1px solid #edf2f7; }
-.user-row:hover { background-color: #f8fafc; }
+.user-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.user-table th {
+  padding: 1rem;
+  text-align: left;
+  background-color: #f7fafc;
+  color: #4a5568;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+.user-table td {
+  padding: 1rem;
+  border-top: 1px solid #edf2f7;
+}
+.user-row:hover {
+  background-color: #f8fafc;
+}
 
-.name-column { width: 20%; }
-.email-column { width: 22%; }
-.role-column { width: 10%; }
-.vac-col { width: 6%; }
-.actions-column { width: 20%; }
-.text-right { text-align: right; }
+.name-column {
+  width: 20%;
+}
+.email-column {
+  width: 22%;
+}
+.role-column {
+  width: 10%;
+}
+.vac-col {
+  width: 6%;
+}
+.actions-column {
+  width: 20%;
+}
+.text-right {
+  text-align: right;
+}
 
-.user-info { display: flex; flex-direction: column; gap: 0.25rem; }
-.user-name { font-weight: 500; color: #1a202c; }
-.user-status { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 9999px; display: inline-block; width: fit-content; }
-.user-status.active { background-color: #f0fff4; color: #38a169; }
-.user-status.inactive { background-color: #fff5f5; color: #e53e3e; }
-.verified-badge { font-size: 0.75rem; color: #4299e1; background-color: #ebf8ff; padding: 0.125rem 0.5rem; border-radius: 9999px; display: inline-block; width: fit-content; }
+.user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.user-name {
+  font-weight: 500;
+  color: #1a202c;
+}
+.user-status {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  display: inline-block;
+  width: fit-content;
+}
+.user-status.active {
+  background-color: #f0fff4;
+  color: #38a169;
+}
+.user-status.inactive {
+  background-color: #fff5f5;
+  color: #e53e3e;
+}
+.verified-badge {
+  font-size: 0.75rem;
+  color: #4299e1;
+  background-color: #ebf8ff;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  display: inline-block;
+  width: fit-content;
+}
 
-.role-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 500; }
-.role-badge.admin { background-color: #ebf4ff; color: #667eea; }
-.role-badge.user  { background-color: #f0fff4; color: #48bb78; }
+.role-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.role-badge.admin {
+  background-color: #ebf4ff;
+  color: #667eea;
+}
+.role-badge.user {
+  background-color: #f0fff4;
+  color: #48bb78;
+}
 
-.actions-cell { display: flex; gap: 0.5rem; }
-.edit-btn, .delete-btn, .vac-btn { padding: 0.5rem; border-radius: 0.375rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-.edit-btn { color: #4299e1; background-color: #ebf8ff; } .edit-btn:hover { background-color: #bee3f8; }
-.vac-btn { color: #2b6cb0; background-color: #ebf8ff; } .vac-btn:hover { background-color: #bee3f8; }
-.delete-btn { color: #f56565; background-color: #fff5f5; } .delete-btn:hover { background-color: #fed7d7; }
-.icon { width: 1.25rem; height: 1.25rem; fill: currentColor; }
-.empty-state { padding: 2rem; text-align: center; color: #718096; }
+.actions-cell {
+  display: flex;
+  gap: 0.5rem;
+}
+.edit-btn,
+.delete-btn,
+.vac-btn {
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.edit-btn {
+  color: #4299e1;
+  background-color: #ebf8ff;
+}
+.edit-btn:hover {
+  background-color: #bee3f8;
+}
+.vac-btn {
+  color: #2b6cb0;
+  background-color: #ebf8ff;
+}
+.vac-btn:hover {
+  background-color: #bee3f8;
+}
+.delete-btn {
+  color: #f56565;
+  background-color: #fff5f5;
+}
+.delete-btn:hover {
+  background-color: #fed7d7;
+}
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: currentColor;
+}
+.empty-state {
+  padding: 2rem;
+  text-align: center;
+  color: #718096;
+}
 
 /* estilos del resto de modales y tablas idénticos a los tuyos */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(0,0,0,.5);
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1366,7 +1673,7 @@ function closeWindowsModal() {
   border-radius: 0.5rem;
   width: 100%;
   max-width: 620px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
   max-height: 92vh;
   display: flex;
   flex-direction: column;
@@ -1379,23 +1686,57 @@ function closeWindowsModal() {
   align-items: center;
   flex-shrink: 0;
 }
-.modal-header h3 { font-size: 1.1rem; font-weight: 600; color: #1a202c; }
-.close-btn { color: #a0aec0; background: none; border: none; cursor: pointer; padding: 0.25rem; }
-.close-btn:hover { color: #718096; }
+.modal-header h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1a202c;
+}
+.close-btn {
+  color: #a0aec0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+.close-btn:hover {
+  color: #718096;
+}
 
-.modal-body { padding: 1.5rem; overflow: auto; }
-.form-group { margin-bottom: 1rem; }
-.form-group label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 500; color: #4a5568; }
-.form-group input, .form-group select {
+.modal-body {
+  padding: 1.5rem;
+  overflow: auto;
+}
+.form-group {
+  margin-bottom: 1rem;
+}
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #4a5568;
+}
+.form-group input,
+.form-group select {
   width: 100%;
   padding: 0.625rem;
   border: 1px solid #e2e8f0;
   border-radius: 0.375rem;
   transition: border-color 0.2s;
 }
-.form-group input:focus, .form-group select:focus { outline: none; border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66,153,225,0.2); }
-.input-error { border-color: #e53e3e !important; }
-.error-text { color: #e53e3e; font-size: 0.85rem; }
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #4299e1;
+  box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.2);
+}
+.input-error {
+  border-color: #e53e3e !important;
+}
+.error-text {
+  color: #e53e3e;
+  font-size: 0.85rem;
+}
 
 .modal-footer {
   padding: 1.25rem 1.5rem;
@@ -1408,62 +1749,144 @@ function closeWindowsModal() {
   background: #fff;
   flex-shrink: 0;
 }
-.cancel-btn, .save-btn { padding: 0.625rem 1.25rem; border-radius: 0.375rem; font-weight: 500; transition: all 0.2s; }
-.cancel-btn { background-color: #edf2f7; color: #4a5568; } .cancel-btn:hover { background-color: #e2e8f0; }
-.save-btn { background-color: #4299e1; color: white; } .save-btn:hover { background-color: #3182ce; }
-.save-btn[disabled], .save-btn:disabled { background-color: #a0aec0; cursor: not-allowed; }
+.cancel-btn,
+.save-btn {
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.cancel-btn {
+  background-color: #edf2f7;
+  color: #4a5568;
+}
+.cancel-btn:hover {
+  background-color: #e2e8f0;
+}
+.save-btn {
+  background-color: #4299e1;
+  color: white;
+}
+.save-btn:hover {
+  background-color: #3182ce;
+}
+.save-btn[disabled],
+.save-btn:disabled {
+  background-color: #a0aec0;
+  cursor: not-allowed;
+}
 
-.modal-error { margin: .75rem 1.5rem 1.25rem; padding: 0.75rem; background-color: #fff5f5; color: #e53e3e; border-radius: 0.375rem; font-size: 0.875rem; }
-.modal-info { margin: .5rem 0 1rem; padding: 0.75rem; background-color: #f0fff4; color: #2f855a; border-radius: 0.375rem; font-size: 0.875rem; }
+.modal-error {
+  margin: 0.75rem 1.5rem 1.25rem;
+  padding: 0.75rem;
+  background-color: #fff5f5;
+  color: #e53e3e;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
+.modal-info {
+  margin: 0.5rem 0 1rem;
+  padding: 0.75rem;
+  background-color: #f0fff4;
+  color: #2f855a;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+}
 
-.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; margin-bottom: .75rem; }
-.stat { background: #f7fafc; border: 1px solid #edf2f7; padding: .5rem .75rem; border-radius: .375rem; }
-.stat.full { grid-column: 1 / -1; }
-.stat .label { font-size: .75rem; color: #4a5568; }
-.stat .value { font-weight: 600; color: #1a202c; }
-.text-warn { color: #c05621; }
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.stat {
+  background: #f7fafc;
+  border: 1px solid #edf2f7;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+}
+.stat.full {
+  grid-column: 1 / -1;
+}
+.stat .label {
+  font-size: 0.75rem;
+  color: #4a5568;
+}
+.stat .value {
+  font-weight: 600;
+  color: #1a202c;
+}
+.text-warn {
+  color: #c05621;
+}
 
 /* Única acción de bono */
-.bonus-row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-.bonus-input { max-width: 120px; }
+.bonus-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.bonus-input {
+  max-width: 120px;
+}
 
-.window-column { width: 18%; }
-.window-cell { white-space: nowrap; }
+.window-column {
+  width: 18%;
+}
+.window-cell {
+  white-space: nowrap;
+}
 .win-btn {
-  padding: .375rem .75rem;
-  border-radius: .375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.375rem;
   background: #edf2f7;
   color: #2d3748;
   font-weight: 600;
 }
-.win-btn:hover { background: #e2e8f0; }
+.win-btn:hover {
+  background: #e2e8f0;
+}
 
 /* Chips y pill del modal de ventanas */
 .badge {
-  display:inline-block;
-  padding:.2rem .55rem;
-  border-radius:9999px;
-  font-size:.775rem;
-  font-weight:600;
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.775rem;
+  font-weight: 600;
 }
-.badge-gold { background:#fffaf0; color:#b7791f; border:1px solid #fbd38d; }
-.badge-blue { background:#ebf8ff; color:#2b6cb0; border:1px solid #bee3f8; }
-.subtle { font-size:.8rem; color:#718096; }
+.badge-gold {
+  background: #fffaf0;
+  color: #b7791f;
+  border: 1px solid #fbd38d;
+}
+.badge-blue {
+  background: #ebf8ff;
+  color: #2b6cb0;
+  border: 1px solid #bee3f8;
+}
+.subtle {
+  font-size: 0.8rem;
+  color: #718096;
+}
 
 .pill.total-pill {
-  background:#edf2f7;
-  border:1px solid #cbd5e0;
-  border-radius:9999px;
-  padding:.35rem .7rem;
-  font-weight:700;
-  color:#2d3748;
+  background: #edf2f7;
+  border: 1px solid #cbd5e0;
+  border-radius: 9999px;
+  padding: 0.35rem 0.7rem;
+  font-weight: 700;
+  color: #2d3748;
 }
 
 /* Ojitos dentro del input */
-.cp-input-wrap { position: relative; }
-.cp-eye{
+.cp-input-wrap {
+  position: relative;
+}
+.cp-eye {
   position: absolute;
-  right: .5rem;
+  right: 0.5rem;
   top: 50%;
   transform: translateY(-50%);
   background: transparent;
@@ -1473,25 +1896,53 @@ function closeWindowsModal() {
   display: grid;
   place-items: center;
 }
-.cp-eye svg { width: 20px; height: 20px; opacity: .85; }
-.cp-eye:hover svg { opacity: 1; }
+.cp-eye svg {
+  width: 20px;
+  height: 20px;
+  opacity: 0.85;
+}
+.cp-eye:hover svg {
+  opacity: 1;
+}
 
 /* Reglas de contraseña en vivo */
-.pwd-rules{
+.pwd-rules {
   list-style: none;
   padding-left: 0;
   margin: 8px 0 0;
-  font-size: .85rem;
+  font-size: 0.85rem;
   color: #6b7280;
 }
-.pwd-rules li{
+.pwd-rules li {
   display: flex;
   align-items: center;
-  gap: .4rem;
+  gap: 0.4rem;
   margin: 2px 0;
 }
-.pwd-rules li::before{ content: "●"; font-size: .6rem; }
-.pwd-rules li.ok{ color:#065f46; }
-.pwd-rules li.ok::before{ content:"✔"; font-size:.8rem; }
+.pwd-rules li::before {
+  content: '●';
+  font-size: 0.6rem;
+}
+.pwd-rules li.ok {
+  color: #065f46;
+}
+.pwd-rules li.ok::before {
+  content: '✔';
+  font-size: 0.8rem;
+}
 
+@media (max-width: 960px) {
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-wrap {
+    max-width: 100%;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
+  }
+}
 </style>
