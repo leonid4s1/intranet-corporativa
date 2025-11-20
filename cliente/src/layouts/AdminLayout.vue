@@ -1,3 +1,18 @@
+<template>
+  <div
+    class="admin-shell"
+    :style="{
+      gridTemplateColumns: isMobile ? '1fr' : `${sidebarWidth} minmax(0, 1fr)`
+    }"
+  >
+    <AdminSidebar />
+
+    <main class="admin-main">
+      <slot />
+    </main>
+  </div>
+</template>
+
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import AdminSidebar from '@/components/layout/AdminSidebar.vue';
@@ -5,12 +20,12 @@ import { useUiStore } from '@/stores/ui.store';
 
 const ui = useUiStore();
 
-/* Detectar móvil por ancho de ventana (mismo breakpoint que el sidebar) */
+/* Detectar móvil (mismo breakpoint que usas en el sidebar) */
 const isMobile = ref(false);
 
 const handleResize = () => {
   if (typeof window === 'undefined') return;
-  isMobile.value = window.innerWidth < 992;
+  isMobile.value = window.innerWidth < 960;
 };
 
 onMounted(() => {
@@ -22,48 +37,27 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
 });
 
-/* En desktop usamos el colapsado del store, en móvil no se “colapsa” */
-const collapsed = computed(() => !isMobile.value && ui.sidebarCollapsed);
-
-/**
- * Offset del contenido principal:
- * - Desktop: 240px cuando el menú está abierto
- * - Desktop colapsado: 72px
- * - Móvil: 0 (el sidebar se monta encima)
- */
-const contentOffset = computed(() => {
-  if (isMobile.value) return '0px';
-  return collapsed.value ? '72px' : '240px';
-});
+/* Ancho de la columna del sidebar en desktop:
+   - 240px abierto
+   - 72px colapsado  (ui.sidebarCollapsed lo maneja el sidebar) */
+const sidebarWidth = computed(() => (ui.sidebarCollapsed ? '72px' : '240px'));
 </script>
 
-<template>
-  <div class="admin-layout">
-    <AdminSidebar />
-
-    <main class="admin-layout__main" :style="{ marginLeft: contentOffset }">
-      <slot />
-    </main>
-  </div>
-</template>
-
 <style scoped>
-.admin-layout {
+.admin-shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr); /* valor por defecto */
   min-height: 100vh;
 }
 
-/* Zona principal del panel admin */
-.admin-layout__main {
-  min-height: 100vh;
-  /* El fondo y el padding ya los manejan tus clases .page / .page-head,
-     así que aquí solo gestionamos el desplazamiento horizontal */
-  transition: margin-left 0.18s ease-out;
-}
-
-/* En móvil el contenido siempre ocupa todo el ancho */
-@media (max-width: 991px) {
-  .admin-layout__main {
-    margin-left: 0 !important;
+/* En móvil el layout es una sola columna; el sidebar se monta encima */
+@media (max-width: 960px) {
+  .admin-shell {
+    grid-template-columns: 1fr;
   }
+}
+
+.admin-main {
+  padding: 24px 24px 32px;
 }
 </style>
