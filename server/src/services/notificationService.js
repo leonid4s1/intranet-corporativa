@@ -1,49 +1,28 @@
-// server/src/services/notificationService.js
-import User from '../models/User.js';
-import Holiday from '../models/Holiday.js';
-import DailyLock from '../models/DailyLock.js';
+// server/src/controllers/newsController.js (ESM)
 import News from '../models/News.js';
-import { sendEmail } from './emailService.js';
-import { startOfDay, subDays, addDays, differenceInCalendarDays } from 'date-fns';
+import Holiday from '../models/Holiday.js';
+import User from '../models/User.js';
+import { startOfDay, addDays, isAfter, differenceInCalendarDays } from 'date-fns';
+import { notifyAllUsersAboutAnnouncement } from '../services/notificationService.js'; // ⬅️ mails anuncio
 
 const MX_TZ = 'America/Mexico_City';
 
-/* ===============================
- *   Helpers de zona horaria MX
- * =============================== */
+/* =========================
+ *        Helpers MX
+ * ========================= */
+
+// "Hoy" a las 00:00 en MX
 function startOfDayInMX(date = new Date()) {
   const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
   return startOfDay(local);
 }
+
+// Fecha/hora actual en MX
 function nowInMX(d = new Date()) {
   return new Date(new Date(d).toLocaleString('en-US', { timeZone: MX_TZ }));
 }
-function dayKeyMX(date = new Date()) {
-  const y = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, year: 'numeric' });
-  const m = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
-  const d = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
-  return `${y}-${m}-${d}`;
-}
-function yyyymmddMX(date = new Date()) {
-  const y = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, year: 'numeric' });
-  const m = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
-  const d = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
-  return `${y}${m}${d}`;
-}
-function prettyDateMX(d) {
-  return new Date(d).toLocaleDateString('es-MX', {
-    timeZone: MX_TZ,
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  });
-}
 
-/**
- * Día/mes de HOY en México (mm-dd)
- * Esto se usa para comparar contra birthDate (UTC) de los usuarios.
- */
+// mm-dd HOY en MX
 function mmddTodayMX() {
   const now = nowInMX();
   const mm = now.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
@@ -51,7 +30,7 @@ function mmddTodayMX() {
   return `${mm}-${dd}`;
 }
 
-// Día/mes de una fecha de nacimiento almacenada (usamos UTC para que no cambie)
+// mm-dd de una fecha de nacimiento (UTC)
 function mmddFromBirthDate(date) {
   const d = new Date(date);
   const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -59,480 +38,486 @@ function mmddFromBirthDate(date) {
   return `${mm}-${dd}`;
 }
 
-// Día/mes en MX genérico (aún se usa en algunas partes)
+// mm-dd en zona MX (para cumpleaños)
 function mmddMX(date = new Date()) {
   const n = nowInMX(date);
   const mm = n.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
   const dd = n.toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
   return `${mm}-${dd}`;
 }
-// (Aún se usa en funciones legadas)
-function mmddUTC(date) {
-  const d = new Date(date);
-  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(d.getUTCDate()).padStart(2, '0');
-  return `${mm}-${dd}`;
+
+function toISO(d) {
+  return new Date(d).toISOString();
 }
 
-/* ===============================
- *   Helpers de envío de correo
- * =============================== */
-const SIMPLE_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+// Parse robusto de Holiday.date -> Date
+function toDate(value) {
+  if (value instanceof Date) return value;
+  return new Date(value);
+}
 
-async function collectRecipientEmails() {
-  const users = await User.find(
-    { isActive: { $ne: false }, email: { $exists: true, $ne: null } },
-    { email: 1 }
-  ).lean();
+// Ancla Y-M-D (UTC) al mediodía UTC y lo lleva a 00:00 MX del mismo día
+function mxMidnightOfUTCDate(d) {
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const atNoonUTC = new Date(Date.UTC(y, m, day, 12));
+  return startOfDayInMX(atNoonUTC);
+}
 
-  const set = new Set(
-    (users || [])
-      .map((u) => (u?.email || '').trim())
-      .filter((e) => e && SIMPLE_EMAIL_RE.test(e))
+// Detecta si es recurrente: true | "recurring" | "recurrente" | "recurrencia" | etc.
+function isRecurringFlag(h) {
+  if (h?.recurring === true) return true;
+  const t = String(h?.type || '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim();
+  return (
+    t === 'recurring' ||
+    t === 'recurrente' ||
+    t === 'recurrent' ||
+    t === 'recurrencia'
   );
-  return Array.from(set);
 }
 
-async function safeSendEmail({ to, subject, html }) {
-  if (!Array.isArray(to) || to.length === 0) {
-    console.warn('⚠ safeSendEmail: lista de destinatarios vacía');
-    return false;
+/**
+ * Próxima ocurrencia (00:00 MX):
+ * - Único: respeta el año guardado
+ * - Recurrente: misma mm-dd este año o siguiente si ya pasó (robusto a TZ)
+ */
+function nextOccurrenceMX(holidayDate, isRecurring) {
+  const base = toDate(holidayDate);
+  const todayMX = startOfDayInMX();
+
+  if (!isRecurring) {
+    return mxMidnightOfUTCDate(base);
   }
 
-  try {
-    // Enviar UN correo por destinatario para no exponer la lista completa
-    await Promise.all(
-      to.map((email) =>
-        sendEmail({
-          to: email,
-          subject,
-          html,
-        })
-      )
-    );
+  const mm = base.getUTCMonth();
+  const dd = base.getUTCDate();
 
-    return true;
-  } catch (err) {
-    console.error(
-      '✉️  Error enviando correo:',
-      err?.response?.body || err?.message || err
-    );
-    return false;
+  const occThisUTCNoon = new Date(Date.UTC(todayMX.getUTCFullYear(), mm, dd, 12));
+  let occMX = startOfDayInMX(occThisUTCNoon);
+
+  if (isAfter(todayMX, occMX)) {
+    const occNextUTCNoon = new Date(Date.UTC(todayMX.getUTCFullYear() + 1, mm, dd, 12));
+    occMX = startOfDayInMX(occNextUTCNoon);
   }
+  return occMX;
 }
 
-/* ========================================
- *   CREAR NOTIFICACIÓN EN LA INTRANET
- * ======================================== */
-async function createHolidayNotification(holiday, daysLeft) {
-  try {
-    const notificationTitle = `Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para ${holiday.name}`;
-    const notificationBody = `Se acerca ${holiday.name} el ${prettyDateMX(
-      holiday.date
-    )}. Considera este descanso en tu planificación.`;
-
-    const existingNotification = await News.findOne({
-      title: notificationTitle,
-      type: 'holiday_notice',
-    });
-
-    if (existingNotification) {
-      console.log(`📢 Notificación ya existe en intranet: ${notificationTitle}`);
-      return existingNotification;
-    }
-
-    const today = new Date();
-    const visibleUntil = new Date(holiday.date);
-    visibleUntil.setDate(visibleUntil.getDate() + 1); // Visible hasta el día después del festivo
-
-    const newsItem = await News.create({
-      title: notificationTitle,
-      body: notificationBody,
-      excerpt: `Recordatorio: ${holiday.name} está próximo`,
-      date: today,
-      department: 'General',
-      status: 'published',
-      visibleFrom: today,
-      visibleUntil: visibleUntil,
-      type: 'holiday_notice',
-      isActive: true,
-      priority: daysLeft <= 3 ? 'high' : 'medium',
-    });
-
-    console.log(`📢 Notificación creada en intranet: ${notificationTitle}`);
-    return newsItem;
-  } catch (error) {
-    console.error('❌ Error creando notificación en intranet:', error);
-    return null;
-  }
+// Ventana 08:00–19:00 MX
+function isBetween8and19MX(d = new Date()) {
+  const h = nowInMX(d).getHours(); // 0–23
+  return h >= 8 && h < 19;
 }
 
-/* =========================================================
- *  NUEVO: Email masivo por "Comunicado" (announcement)
- *  - Usa imageUrl/excerpt/body/cta*
- * ========================================================= */
-export async function notifyAllUsersAboutAnnouncement(recipientsOrNull, news) {
+function eightAMMX(d = new Date()) {
+  const n = startOfDayInMX(d);
+  n.setHours(8, 0, 0, 0);
+  return n;
+}
+function sevenPMMX(d = new Date()) {
+  const n = startOfDayInMX(d);
+  n.setHours(19, 0, 0, 0);
+  return n;
+}
+
+/* =========================
+ *      Controller Home
+ * ========================= */
+
+// Renombrado: getHomeFeed -> getHomeNews
+export const getHomeNews = async (req, res, next) => {
   try {
-    const to =
-      Array.isArray(recipientsOrNull) && recipientsOrNull.length
-        ? recipientsOrNull
-            .map((r) => (typeof r === 'string' ? r : r?.email))
-            .filter((e) => e && SIMPLE_EMAIL_RE.test(e))
-        : await collectRecipientEmails();
+    const user = req.user;
+    const today = startOfDayInMX();
 
-    if (!to.length) {
-      console.warn('⚠ notifyAllUsersAboutAnnouncement: no hay destinatarios válidos');
-      return false;
-    }
+    // 🔒 Anti-cache
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+    res.set('ETag', `homefeed-${today.toISOString().slice(0, 10)}`);
 
-    const subject = `📰 Nuevo comunicado: ${news?.title || 'Comunicación interna'}`;
+    // 1) Noticias publicadas (mínimo) - EXCLUYENDO holiday_notification (solo usamos holiday_notice)
+    const published = await News.find(
+      { status: 'published', type: { $ne: 'holiday_notification' } },
+      {
+        title: 1,
+        body: 1,
+        excerpt: 1,
+        visibleFrom: 1,
+        visibleUntil: 1,
+        createdAt: 1,
+        type: 1,
+        imageUrl: 1,
+        ctaText: 1,
+        ctaTo: 1,
+      }
+    )
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
 
-    const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
-    const absImage = news?.imageUrl
-      ? news.imageUrl.startsWith('http')
-        ? news.imageUrl
-        : `${base}${news.imageUrl}`
-      : null;
+    const items = (published || []).map((n) => ({
+      id: String(n._id),
+      type: n.type || 'static',
+      title: n.title || 'Aviso',
+      body: n.body || '',
+      excerpt: n.excerpt || '',
+      imageUrl: n.imageUrl || null,
+      ctaText: n.ctaText || null,
+      ctaTo: n.ctaTo || null,
+      visibleFrom: n.visibleFrom ? toISO(n.visibleFrom) : undefined,
+      visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined,
+    }));
 
-    const html = `
-      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
-        <h2 style="margin:0 0 8px">Nuevo comunicado</h2>
-        <h3 style="margin:0 0 16px">${news?.title || ''}</h3>
-        ${absImage ? `<img src="${absImage}" alt="" style="max-width:100%;border-radius:8px;margin:8px 0" />` : ''}
-        ${news?.excerpt ? `<p>${news.excerpt}</p>` : ''}
-        ${news?.body ? `<div style="white-space:pre-wrap">${news.body}</div>` : ''}
-        ${
-          news?.ctaTo
-            ? `<p style="margin-top:16px"><a href="${news.ctaTo}" style="background:#111;color:#fff;padding:10px 14px;border-radius:8px;text-decoration:none">${news?.ctaText || 'Ver más'}</a></p>`
-            : ''
+    // 2) Días festivos: ventana 7d + fallback por proximidad
+    const holidays = await Holiday.find(
+      {},
+      { name: 1, date: 1, recurring: 1, type: 1 }
+    ).lean();
+
+    for (const h of holidays) {
+      if (!h?.date || !h?.name) continue;
+
+      const recurring = isRecurringFlag(h);
+      const occStart = nextOccurrenceMX(h.date, recurring); // 00:00 MX del día de la ocurrencia
+      const windowStart = addDays(occStart, -7);
+      const windowEndExclusive = addDays(occStart, 1);
+
+      const inWindow = today >= windowStart && today < windowEndExclusive;
+
+      // Fallback: si faltan de 0 a 7 días, mostrarlo igual (cubrir edge TZ)
+      const diff = differenceInCalendarDays(occStart, today); // MX vs MX
+      const fallbackHit = !inWindow && diff >= 0 && diff <= 7;
+
+      if (inWindow || fallbackHit) {
+        // Evita duplicar si ya existe una notificación para este festivo
+        const existingHolidayNotification = items.find(
+          (item) =>
+            item.type === 'holiday_notice' && item.title.includes(h.name)
+        );
+
+        if (!existingHolidayNotification) {
+          items.unshift({
+            id: `holiday-${String(h._id)}-${occStart.getFullYear()}`,
+            type: 'holiday_notice',
+            title: `Próximo día festivo: ${h.name}`,
+            body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
+              timeZone: 'UTC',
+              weekday: 'long',
+              day: '2-digit',
+              month: 'long',
+              year: 'numeric',
+            })}.`,
+            visibleFrom: toISO(windowStart),
+            visibleUntil: toISO(windowEndExclusive),
+          });
+
+          // Email único al entrar a la ventana de 7 días
+          try {
+            const svc = await import('../services/notificationService.js');
+            const fn = svc?.sendUpcomingHolidayEmailIfSevenDaysBefore;
+            if (typeof fn === 'function') {
+              await fn({ ...h, date: occStart });
+            } else {
+              console.warn(
+                '[holiday_notice] sendUpcomingHolidayEmailIfSevenDaysBefore no está exportada.'
+              );
+            }
+          } catch (errMail) {
+            console.error(
+              '[holiday_notice 7d] error enviando correo:',
+              errMail?.message || errMail
+            );
+          }
         }
-      </div>
-    `;
+      }
+    }
 
-    const ok = await safeSendEmail({ to, subject, html });
-    if (ok) console.log(`📨 Comunicado enviado a ${to.length} cuentas`);
-    else console.warn('⚠ Comunicado NO enviado');
-    return ok;
+    // 3) Cumpleaños (digest + self) — independiente de login y SOLO 08–19 MX
+    {
+      const todayMMDD_MX = mmddMX(today);
+
+      // Calcular cumpleañeros de HOY en MX
+      const all = await User.find(
+        { birthDate: { $ne: null } },
+        { name: 1, email: 1, birthDate: 1 }
+      ).lean();
+
+      const birthdayTodayUsers = all.filter(
+        (u) => u.birthDate && mmddMX(u.birthDate) === todayMMDD_MX
+      );
+
+      // Disparar correos únicos (a las 08:00 lo hace el cron; aquí es respaldo idempotente)
+      if (birthdayTodayUsers.length > 0) {
+        try {
+          const svc = await import('../services/notificationService.js');
+
+          const sendPersonal = svc?.sendBirthdayEmailsIfDue; // idempotente por DailyLock
+          if (typeof sendPersonal === 'function') {
+            await sendPersonal();
+          }
+
+          const sendDigest = svc?.sendBirthdayDigestToAllIfDue; // idempotente por DailyLock
+          if (typeof sendDigest === 'function') {
+            await sendDigest();
+          }
+        } catch (errMail) {
+          console.error(
+            '[birthdays] error enviando correos:',
+            errMail?.message || errMail
+          );
+        }
+      }
+
+      // Pintar tarjetas SOLO entre 08:00–19:00 MX
+      if (isBetween8and19MX()) {
+        // Card personal si ES su cumpleaños y está logueado
+        if (user) {
+          const me = await User.findById(user.id).lean();
+          const isMyBirthday =
+            !!me?.birthDate && mmddMX(me.birthDate) === todayMMDD_MX;
+
+          if (isMyBirthday) {
+            const first = (me?.name || 'colaborador').split(' ')[0];
+            items.unshift({
+              id: `birthday-self-${String(me._id)}-${todayMMDD_MX}`,
+              type: 'birthday_self',
+              title: `¡Feliz cumpleaños, ${first}!`,
+              body: 'Te deseamos un día increíble. 🎉',
+              visibleFrom: toISO(eightAMMX(today)),
+              visibleUntil: toISO(sevenPMMX(today)),
+            });
+          }
+        }
+
+        // Digest visible para TODOS (no depende de que el cumpleañero inicie sesión)
+        if (birthdayTodayUsers.length > 0) {
+          const names = birthdayTodayUsers
+            .map((u) => u.name || u.email)
+            .join(', ');
+          items.unshift({
+            id: `birthday-digest-${todayMMDD_MX}`,
+            type: 'birthday_digest_info',
+            title: 'Cumpleaños de hoy',
+            body: `Hoy celebramos a: ${names}. ¡Felicítenl@s! 🎂`,
+            visibleFrom: toISO(eightAMMX(today)),
+            visibleUntil: toISO(sevenPMMX(today)),
+          });
+        }
+      }
+    }
+
+    return res.json({ items });
   } catch (err) {
-    console.error('❌ notifyAllUsersAboutAnnouncement error:', err?.message || err);
-    return false;
+    next(err);
   }
-}
-
-/* ==========================================
- *  DIGEST DE CUMPLEAÑOS (legacy por parámetros)
- * ========================================== */
-export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
-  const day = startOfDayInMX(date);
-  const dayKey = dayKeyMX(day);
-
-  if (!Array.isArray(birthdayUsers) || birthdayUsers.length === 0) return false;
-
-  const existed = await DailyLock.findOneAndUpdate(
-    { type: 'birthday_digest', dateKey: dayKey },
-    { $setOnInsert: { createdAt: new Date() } },
-    { upsert: true, new: false }
-  ).lean();
-  if (existed) return false;
-
-  const toList = await collectRecipientEmails();
-  if (toList.length === 0) {
-    console.warn('⚠ No hay destinatarios para el digest de cumpleaños');
-    return false;
-  }
-
-  const names = birthdayUsers.map((u) => u?.name || u?.email).join(', ');
-  const subject = '🎂 Cumpleaños de hoy en la empresa';
-  const html = `
-    <h2>🎂 Cumpleaños de hoy en la empresa</h2>
-    <p>Hoy celebramos a: <strong>${names}</strong>.</p>
-    <p>¡Envíales tus buenos deseos! 🎉</p>
- `;
-  const ok = await safeSendEmail({ to: toList, subject, html });
-  if (ok) {
-    console.log(
-      `📨 Digest de cumpleaños ENVIADO a ${toList.length} cuentas (dayKey=${dayKey})`
-    );
-  } else {
-    console.warn(`⚠ Digest de cumpleaños NO enviado (dayKey=${dayKey})`);
-  }
-  return ok;
 };
 
-/* =========================================================
- *  CUMPLEAÑOS: CORREO PERSONAL 08:00 MX (idempotente)
- *  -> un correo por cumpleañero
- * ========================================================= */
-export async function sendBirthdayEmailsIfDue() {
-  const lockKey = `bday_emails_v2_${yyyymmddMX()}`;
-  const existed = await DailyLock.findOne({ key: lockKey });
-  if (existed) return { sent: false, reason: 'already-sent' };
+// Alias para compatibilidad
+export const getHomeFeed = getHomeNews;
 
-  const all = await User.find(
-    {
-      birthDate: { $exists: true, $ne: null },
-      isActive: { $ne: false },
-      email: { $exists: true, $ne: null },
-    },
-    { name: 1, email: 1, birthDate: 1 }
-  ).lean();
+/* =========================
+ *   ADMIN: Comunicados
+ * ========================= */
 
-  const tagToday = mmddTodayMX();
-  const birthdayUsers = all.filter(
-    (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === tagToday
-  );
-
-  console.log(
-    '[birthdays][cron-personal] todayMMDD',
-    tagToday,
-    'count',
-    birthdayUsers.length
-  );
-
-  if (!birthdayUsers.length) {
-    await DailyLock.create({ key: lockKey, at: new Date(), type: 'bday_personal_v2' });
-    return { sent: false, reason: 'no-birthdays' };
-  }
-
-  await Promise.all(
-    birthdayUsers.map((u) => {
-      const html = `
-        <h2>🎂 ¡Feliz cumpleaños, ${u.name || 'colaborador/a'}!</h2>
-        <p>Te deseamos un gran día de parte de todo el equipo.</p>
-      `;
-      return sendEmail({ to: u.email, subject: '🎉 ¡Feliz cumpleaños!', html });
-    })
-  );
-
-  await DailyLock.create({ key: lockKey, at: new Date(), type: 'bday_personal_v2' });
-  return { sent: true, count: birthdayUsers.length };
-}
-
-/* =========================================================
- *  CUMPLEAÑOS: DIGEST A TODA LA EMPRESA 08:00 MX (idempotente)
- *  -> correo grupal con la lista del día
- * ========================================================= */
-export async function sendBirthdayDigestToAllIfDue() {
-  const dayKey = dayKeyMX(startOfDayInMX(new Date()));
-  const existed = await DailyLock.findOneAndUpdate(
-    { type: 'birthday_digest_v2', dateKey: dayKey },
-    { $setOnInsert: { createdAt: new Date() } },
-    { upsert: true, new: false }
-  ).lean();
-  if (existed) return { sent: false, reason: 'already-sent' };
-
-  const tagToday = mmddTodayMX();
-  const users = await User.find(
-    { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false } },
-    { name: 1, email: 1, birthDate: 1 }
-  ).lean();
-
-  const birthdayUsers = users.filter(
-    (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === tagToday
-  );
-
-  console.log(
-    '[birthdays][cron-digest] todayMMDD',
-    tagToday,
-    'count',
-    birthdayUsers.length
-  );
-
-  if (!birthdayUsers.length) {
-    await DailyLock.create({
-      type: 'birthday_digest_v2',
-      dateKey: dayKey,
-      at: new Date(),
-    });
-    return { sent: false, reason: 'no-birthdays' };
-  }
-
-  const toList = await collectRecipientEmails();
-  if (!toList.length) return { sent: false, reason: 'no-recipients' };
-
-  const names = birthdayUsers.map((u) => u?.name || u?.email).join(', ');
-  const subject = '🎂 Cumpleaños de hoy en la empresa';
-  const html = `
-    <h2>🎂 Cumpleaños de hoy en la empresa</h2>
-    <p>Hoy celebramos a: <strong>${names}</strong>.</p>
-    <p>¡Envíales tus buenos deseos! 🎉</p>
-  `;
-
-  await safeSendEmail({ to: toList, subject, html });
-  await DailyLock.create({
-    type: 'birthday_digest_v2',
-    dateKey: dayKey,
-    at: new Date(),
-  });
-  return { sent: true, count: toList.length };
-}
-
-/* =======================================
- *   CUMPLEAÑEROS HOY (campo birthDate)
- * ======================================= */
-export async function getTodayBirthdayUsersMX() {
-  const tagToday = mmddTodayMX();
-  const users = await User.find(
-    { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false } },
-    { name: 1, email: 1, birthDate: 1 }
-  ).lean();
-
-  return users.filter(
-    (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === tagToday
-  );
-}
-
-/* ====================================================
- *   AVISO DE FESTIVO (7 días antes, con DailyLock)
- * ==================================================== */
-export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
-  if (!holiday?.date || !holiday?.name || !holiday?._id) return false;
-
-  const todayMX = startOfDayInMX(new Date());
-  const holidayDateStart = startOfDayInMX(holiday.date);
-  const windowStart = subDays(holidayDateStart, 7);
-  const windowEndExclusive = addDays(holidayDateStart, 1);
-
-  if (todayMX < windowStart || todayMX >= windowEndExclusive) return false;
-
-  const dateKey = dayKeyMX(windowStart);
-  const existed = await DailyLock.findOneAndUpdate(
-    { type: 'holiday_upcoming_7d', dateKey, holidayId: String(holiday._id) },
-    { $setOnInsert: { createdAt: new Date() } },
-    { upsert: true, new: false }
-  ).lean();
-  if (existed) return false;
-
-  const toList = await collectRecipientEmails();
-  if (toList.length === 0) {
-    console.warn('⚠ No hay destinatarios para el aviso de festivo (7d)');
-    return false;
-  }
-
-  const daysLeft = Math.max(0, differenceInCalendarDays(holidayDateStart, todayMX));
-
-  const subject = `Recordatorio: faltan ${daysLeft} ${
-    daysLeft === 1 ? 'día' : 'días'
-  } para ${holiday.name} (${prettyDateMX(holiday.date)})`;
-  const html = `
-    <h2>⏳ Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}</h2>
-    <p>Se acerca <strong>${holiday.name}</strong> el <strong>${prettyDateMX(
-    holiday.date
-  )}</strong>.</p>
-    <p>Considera este descanso en tu planificación.</p>
-  `;
-
-  const notificationCreated = await createHolidayNotification(holiday, daysLeft);
-
-  const ok = await safeSendEmail({ to: toList, subject, html });
-  if (ok) {
-    console.log(
-      `📨 Aviso 7d de festivo ENVIADO a ${toList.length} cuentas (holidayId=${holiday._id}, dateKey=${dateKey})`
-    );
-    if (notificationCreated) {
-      console.log(`📢 Notificación interna creada para: ${holiday.name}`);
-    }
-  } else {
-    console.warn(
-      `⚠ Aviso 7d de festivo NO enviado (holidayId=${holiday._id}, dateKey=${dateKey})`
-    );
-  }
-  return ok;
-}
-
-/* ========================================
- *   JOB PROGRAMADO: Verificar festivos
- * ======================================== */
-export async function checkAllUpcomingHolidays() {
+/**
+ * Crea un comunicado de tipo "announcement".
+ * - Acepta imagen (multer la deja en req.file)
+ * - Envía correo a toda la empresa
+ */
+export const createAnnouncement = async (req, res, next) => {
   try {
-    console.log('🔍 Buscando festivos próximos para notificación...');
+    const {
+      title,
+      body,
+      excerpt,
+      ctaText,
+      ctaTo,
+      visibleFrom,
+      visibleUntil,
+      status = 'published',
+      isActive = true,
+      priority = 'medium',
+    } = req.body;
 
-    const today = new Date();
-    const futureDate = new Date(today);
-    futureDate.setDate(today.getDate() + 30);
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
 
-    const upcomingHolidays = await Holiday.find({
-      date: { $gte: today, $lte: futureDate },
+    const news = await News.create({
+      type: 'announcement',
+      title: String(title || '').trim(),
+      body: String(body || excerpt || title || '').trim(),
+      excerpt: excerpt ? String(excerpt).trim() : undefined,
+      imageUrl,
+      ctaText: ctaText ? String(ctaText).trim() : null,
+      ctaTo: ctaTo ? String(ctaTo).trim() : null,
+      visibleFrom: visibleFrom ? new Date(visibleFrom) : new Date(),
+      visibleUntil: visibleUntil ? new Date(visibleUntil) : null, // exclusivo
+      status,
+      isActive,
+      priority,
+      createdBy: req.user?._id || null,
+    });
+
+    // correos a toda la empresa (fire-and-forget)
+    try {
+      const recipients = await User.find({
+        email: { $ne: null },
+      })
+        .select('email name')
+        .lean();
+      await notifyAllUsersAboutAnnouncement(recipients, news);
+    } catch (mailErr) {
+      console.error('[announcement email] error:', mailErr?.message || mailErr);
+    }
+
+    res.status(201).json({ ok: true, data: news });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Lista comunicados (para Admin o vista de gestión).
+ * Query opcional:
+ *   - ?all=true  -> devuelve todos (ignora ventana de visibilidad)
+ *
+ * Cada item incluye:
+ *   - published: boolean => si está actualmente publicado / visible
+ */
+export const listAnnouncements = async (req, res, next) => {
+  try {
+    const all = req.query.all === 'true';
+    const now = new Date();
+
+    const filter = { type: 'announcement' };
+
+    if (!all) {
+      // Solo los visibles y activos para vista pública
+      filter.$or = [
+        { visibleUntil: null, visibleFrom: { $lte: now } },
+        { visibleFrom: { $lte: now }, visibleUntil: { $gt: now } },
+      ];
+      filter.status = 'published';
+      filter.isActive = true;
+    }
+
+    const raw = await News.find(filter).sort({ visibleFrom: -1 }).lean();
+
+    const items = raw.map((n) => {
+      const visibleFrom = n.visibleFrom ? new Date(n.visibleFrom) : null;
+      const visibleUntil = n.visibleUntil ? new Date(n.visibleUntil) : null;
+
+      const isCurrentlyPublished =
+        n.status === 'published' &&
+        (n.isActive ?? true) &&
+        (!visibleFrom || visibleFrom <= now) &&
+        (!visibleUntil || visibleUntil > now);
+
+      return {
+        ...n,
+        id: String(n._id),
+        published: isCurrentlyPublished,
+      };
+    });
+
+    res.json({ ok: true, data: items });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Actualiza un comunicado existente.
+ * Se limita a campos permitidos.
+ * Si viene archivo (req.file) se actualiza imageUrl.
+ */
+export const updateAnnouncement = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const {
+      title,
+      body,
+      excerpt,
+      ctaText,
+      ctaTo,
+      visibleFrom,
+      visibleUntil,
+      status,
+      isActive,
+      priority,
+    } = req.body;
+
+    const updateData = {};
+
+    if (title !== undefined) updateData.title = String(title).trim();
+    if (body !== undefined) updateData.body = String(body).trim();
+    if (excerpt !== undefined) updateData.excerpt = String(excerpt).trim();
+    if (ctaText !== undefined)
+      updateData.ctaText = ctaText ? String(ctaText).trim() : null;
+    if (ctaTo !== undefined)
+      updateData.ctaTo = ctaTo ? String(ctaTo).trim() : null;
+
+    if (visibleFrom !== undefined) {
+      updateData.visibleFrom = visibleFrom ? new Date(visibleFrom) : null;
+    }
+    if (visibleUntil !== undefined) {
+      updateData.visibleUntil = visibleUntil ? new Date(visibleUntil) : null;
+    }
+
+    if (status !== undefined) updateData.status = status;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (priority !== undefined) updateData.priority = priority;
+
+    // Si suben nueva imagen
+    if (req.file) {
+      updateData.imageUrl = `/uploads/${req.file.filename}`;
+    }
+
+    const updated = await News.findOneAndUpdate(
+      { _id: id, type: 'announcement' },
+      updateData,
+      { new: true, runValidators: true }
+    ).lean();
+
+    if (!updated) {
+      return res
+        .status(404)
+        .json({ ok: false, message: 'Comunicado no encontrado' });
+    }
+
+    res.json({ ok: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Elimina (despublica definitivamente) un comunicado.
+ */
+export const deleteAnnouncement = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const deleted = await News.findOneAndDelete({
+      _id: id,
+      type: 'announcement',
     }).lean();
 
-    console.log(
-      `📅 Festivos encontrados en los próximos 30 días: ${upcomingHolidays.length}`
-    );
-
-    let notificationsSent = 0;
-    for (const holiday of upcomingHolidays) {
-      const sent = await sendUpcomingHolidayEmailIfSevenDaysBefore(holiday);
-      if (sent) notificationsSent++;
+    if (!deleted) {
+      return res
+        .status(404)
+        .json({ ok: false, message: 'Comunicado no encontrado' });
     }
 
-    console.log(`📨 Notificaciones de festivos enviadas: ${notificationsSent}`);
-    return notificationsSent;
-  } catch (error) {
-    console.error('❌ Error en checkAllUpcomingHolidays:', error);
-    return 0;
+    // 204: No Content
+    res.status(204).end();
+  } catch (err) {
+    next(err);
   }
-}
-
-/* ========================================
- *   FUNCIÓN PARA TESTING MANUAL
- * ======================================== */
-export async function testHolidayNotifications() {
-  try {
-    console.log('🧪 Iniciando prueba manual de notificaciones de festivos...');
-    const result = await checkAllUpcomingHolidays();
-    console.log(`✅ Prueba completada. Notificaciones enviadas: ${result}`);
-    return result;
-  } catch (error) {
-    console.error('❌ Error en prueba manual:', error);
-    throw error;
-  }
-}
-
-/* ===========================================================
- *   CORREO A ADMINs: nueva solicitud de vacaciones (inmediato)
- * =========================================================== */
-export async function notifyAdminsAboutNewRequest(vacationRequest, user) {
-  const admins = await User.find(
-    { role: 'admin', isActive: { $ne: false }, email: { $exists: true, $ne: null } },
-    { email: 1, name: 1 }
-  ).lean();
-
-  const to = (admins || [])
-    .map((a) => (a?.email || '').trim())
-    .filter((e) => e && SIMPLE_EMAIL_RE.test(e));
-
-  if (!to.length) {
-    console.warn('⚠ notifyAdminsAboutNewRequest: no hay admins con email válido');
-    return false;
-  }
-
-  const employee = user?.name || user?.email || 'Empleado';
-  const start = prettyDateMX(vacationRequest?.startDate);
-  const end = prettyDateMX(
-    vacationRequest?.endDate || vacationRequest?.startDate
-  );
-  const days = vacationRequest?.days ?? vacationRequest?.totalDays ?? 1;
-
-  const subject = `📅 Nueva solicitud de vacaciones: ${employee} (${start} – ${end})`;
-  const html = `
-    <h2>📅 Nueva solicitud de vacaciones</h2>
-    <p><strong>Empleado:</strong> ${employee}</p>
-    <p><strong>Período:</strong> ${start} – ${end}</p>
-    <p><strong>Días solicitados:</strong> ${days}</p>
-    ${
-      vacationRequest?.reason
-        ? `<p><strong>Motivo:</strong> ${vacationRequest.reason}</p>`
-        : ''
-    }
-  `;
-
-  const ok = await safeSendEmail({ to, subject, html });
-  if (ok) {
-    console.log(
-      `📨 notifyAdminsAboutNewRequest: ENVIADO a ${to.length} admins`
-    );
-  } else {
-    console.warn('⚠ notifyAdminsAboutNewRequest: NO enviado');
-  }
-  return ok;
-}
+};
