@@ -2,8 +2,17 @@
 import News from '../models/News.js';
 import Holiday from '../models/Holiday.js';
 import User from '../models/User.js';
-import { startOfDay, addDays, isAfter, differenceInCalendarDays } from 'date-fns';
-import { notifyAllUsersAboutAnnouncement } from '../services/notificationService.js'; // ⬅️ mails anuncio
+import {
+  startOfDay,
+  addDays,
+  isAfter,
+  differenceInCalendarDays,
+} from 'date-fns';
+import {
+  notifyAllUsersAboutAnnouncement,
+  sendUpcomingHolidayEmailIfSevenDaysBefore,
+  sendBirthdayEmailsIfDue,
+} from '../services/notificationService.js'; // ⬅️ mails / avisos
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -13,7 +22,9 @@ const MX_TZ = 'America/Mexico_City';
 
 // "Hoy" a las 00:00 en MX
 function startOfDayInMX(date = new Date()) {
-  const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
+  const local = new Date(
+    new Date(date).toLocaleString('en-US', { timeZone: MX_TZ })
+  );
   return startOfDay(local);
 }
 
@@ -97,11 +108,15 @@ function nextOccurrenceMX(holidayDate, isRecurring) {
   const mm = base.getUTCMonth();
   const dd = base.getUTCDate();
 
-  const occThisUTCNoon = new Date(Date.UTC(todayMX.getUTCFullYear(), mm, dd, 12));
+  const occThisUTCNoon = new Date(
+    Date.UTC(todayMX.getUTCFullYear(), mm, dd, 12)
+  );
   let occMX = startOfDayInMX(occThisUTCNoon);
 
   if (isAfter(todayMX, occMX)) {
-    const occNextUTCNoon = new Date(Date.UTC(todayMX.getUTCFullYear() + 1, mm, dd, 12));
+    const occNextUTCNoon = new Date(
+      Date.UTC(todayMX.getUTCFullYear() + 1, mm, dd, 12)
+    );
     occMX = startOfDayInMX(occNextUTCNoon);
   }
   return occMX;
@@ -134,7 +149,10 @@ export const getHomeNews = async (req, res, next) => {
     const today = startOfDayInMX();
 
     // 🔒 Anti-cache
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set(
+      'Cache-Control',
+      'no-store, no-cache, must-revalidate, proxy-revalidate'
+    );
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
     res.set('Surrogate-Control', 'no-store');
@@ -204,28 +222,26 @@ export const getHomeNews = async (req, res, next) => {
             id: `holiday-${String(h._id)}-${occStart.getFullYear()}`,
             type: 'holiday_notice',
             title: `Próximo día festivo: ${h.name}`,
-            body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
-              timeZone: MX_TZ,
-              weekday: 'long',
-              day: '2-digit',
-              month: 'long',
-              year: 'numeric',
-            })}.`,
+            body: `Se celebra el ${new Date(occStart).toLocaleDateString(
+              'es-MX',
+              {
+                timeZone: MX_TZ,
+                weekday: 'long',
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric',
+              }
+            )}.`,
             visibleFrom: toISO(windowStart),
             visibleUntil: toISO(windowEndExclusive),
           });
 
           // Email único al entrar a la ventana de 7 días
           try {
-            const svc = await import('../services/notificationService.js');
-            const fn = svc?.sendUpcomingHolidayEmailIfSevenDaysBefore;
-            if (typeof fn === 'function') {
-              await fn({ ...h, date: occStart });
-            } else {
-              console.warn(
-                '[holiday_notice] sendUpcomingHolidayEmailIfSevenDaysBefore no está exportada.'
-              );
-            }
+            await sendUpcomingHolidayEmailIfSevenDaysBefore({
+              ...h,
+              date: occStart,
+            });
           } catch (errMail) {
             console.error(
               '[holiday_notice 7d] error enviando correo:',
@@ -262,11 +278,7 @@ export const getHomeNews = async (req, res, next) => {
       if (birthdayTodayUsers.length > 0) {
         // Disparar correo único (a las 08:00 lo hace el cron; aquí es respaldo idempotente)
         try {
-          const svc = await import('../services/notificationService.js');
-          const fn = svc?.sendBirthdayEmailsIfDue; // idempotente por DailyLock v2
-          if (typeof fn === 'function') {
-            await fn();
-          }
+          await sendBirthdayEmailsIfDue(); // ⬅️ ahora import directo
         } catch (errMail) {
           console.error(
             '[birthdays] error enviando correos:',
@@ -291,6 +303,8 @@ export const getHomeNews = async (req, res, next) => {
         }
       }
     }
+
+    console.log('[home] items devueltos:', items.length);
 
     return res.json({ items });
   } catch (err) {
