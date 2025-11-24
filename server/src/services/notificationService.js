@@ -260,25 +260,30 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
 
 /* =========================================================
  *  CUMPLEAÑOS: CORREO PERSONAL 08:00 MX (idempotente)
- *  -> un correo por cumpleañero
+ *  -> un correo por cumpleañero (no a toda la empresa)
  * ========================================================= */
 export async function sendBirthdayEmailsIfDue() {
-  const lockKey = `bday_emails_v2_${yyyymmddMX()}`;
-  console.log('[birthdays][personal] sendBirthdayEmailsIfDue llamado', { lockKey });
+  // usamos mismo esquema de locks que el digest_v2: type + dateKey
+  const todayMX = startOfDayInMX(new Date());
+  const dayKey = dayKeyMX(todayMX);
 
-  // Lock por día (aunque no haya cumpleañeros, para no recalcular en bucles)
+  // si ya existe lock para hoy, no volvemos a enviar
   const existed = await DailyLock.findOneAndUpdate(
-    { key: lockKey, type: 'bday_personal_v2' },
-    { $setOnInsert: { at: new Date(), createdAt: new Date() } },
+    { type: 'bday_personal_v2', dateKey: dayKey },
+    { $setOnInsert: { createdAt: new Date() } },
     { upsert: true, new: false }
   ).lean();
 
+  console.log('[birthdays][personal] sendBirthdayEmailsIfDue llamado', {
+    dayKey,
+    existed: !!existed,
+  });
+
   if (existed) {
-    console.log('[birthdays][personal] lock ya existía, se omite envío');
     return { sent: false, reason: 'already-sent' };
   }
 
-  // Buscar cumpleañeros HOY
+  // Cumpleañeros HOY
   const all = await User.find(
     {
       birthDate: { $exists: true, $ne: null },
@@ -294,42 +299,29 @@ export async function sendBirthdayEmailsIfDue() {
   );
 
   console.log(
-    '[birthdays][personal] todayMMDD',
+    '[birthdays][cron-personal] todayMMDD',
     tagToday,
     'count',
-    birthdayUsers.length,
-    'users',
-    birthdayUsers.map((u) => `${u.name} <${u.email}>`)
+    birthdayUsers.length
   );
 
   if (!birthdayUsers.length) {
-    // No hay cumpleañeros hoy, solo dejamos el lock creado
+    // ya dejamos el lock arriba, solo salimos
     return { sent: false, reason: 'no-birthdays' };
   }
 
-  // Enviar un correo personal a cada cumpleañero
-  try {
-    await Promise.all(
-      birthdayUsers.map((u) => {
-        const html = `
-          <h2>🎂 ¡Feliz cumpleaños, ${u.name || 'colaborador/a'}!</h2>
-          <p>Te deseamos un gran día de parte de todo el equipo.</p>
-        `;
-        return sendEmail({ to: u.email, subject: '🎉 ¡Feliz cumpleaños!', html });
-      })
-    );
+  // un correo a cada cumpleañero
+  await Promise.all(
+    birthdayUsers.map((u) => {
+      const html = `
+        <h2>🎂 ¡Feliz cumpleaños, ${u.name || 'colaborador/a'}!</h2>
+        <p>Te deseamos un gran día de parte de todo el equipo.</p>
+      `;
+      return sendEmail({ to: u.email, subject: '🎉 ¡Feliz cumpleaños!', html });
+    })
+  );
 
-    console.log(
-      `[birthdays][personal] Correos personales enviados a ${birthdayUsers.length} cumpleañer@s`
-    );
-    return { sent: true, count: birthdayUsers.length };
-  } catch (err) {
-    console.error(
-      '[birthdays][personal] Error enviando correos personales:',
-      err?.response?.body || err?.message || err
-    );
-    return { sent: false, reason: 'send-error' };
-  }
+  return { sent: true, count: birthdayUsers.length };
 }
 
 /* =========================================================
