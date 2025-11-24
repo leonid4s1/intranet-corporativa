@@ -22,11 +22,11 @@ function nowInMX(d = new Date()) {
   return new Date(new Date(d).toLocaleString('en-US', { timeZone: MX_TZ }));
 }
 
-// mm-dd HOY en MX
+// mm-dd HOY (usamos UTC, alineado a cómo se guardan las fechas de nacimiento)
 function mmddTodayMX() {
-  const now = nowInMX();
-  const mm = now.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
-  const dd = now.toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
+  const now = new Date();
+  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(now.getUTCDate()).padStart(2, '0');
   return `${mm}-${dd}`;
 }
 
@@ -131,7 +131,6 @@ function sevenPMMX(d = new Date()) {
 // Renombrado: getHomeFeed -> getHomeNews
 export const getHomeNews = async (req, res, next) => {
   try {
-    const user = req.user;
     const today = startOfDayInMX();
 
     // 🔒 Anti-cache
@@ -197,8 +196,7 @@ export const getHomeNews = async (req, res, next) => {
       if (inWindow || fallbackHit) {
         // Evita duplicar si ya existe una notificación para este festivo
         const existingHolidayNotification = items.find(
-          (item) =>
-            item.type === 'holiday_notice' && item.title.includes(h.name)
+          (item) => item.type === 'holiday_notice' && item.title.includes(h.name)
         );
 
         if (!existingHolidayNotification) {
@@ -238,11 +236,11 @@ export const getHomeNews = async (req, res, next) => {
       }
     }
 
-        // 3) Cumpleaños (digest) — NO depende de que el cumpleañero inicie sesión
+    // 3) Cumpleaños (solo digest, no requiere login del cumpleañero)
     {
       const todayMMDD_MX = mmddTodayMX();
 
-      // Calcular cumpleañeros de HOY (por fecha de nacimiento, no por login)
+      // Calcular cumpleañeros de HOY (por fecha de nacimiento)
       const all = await User.find(
         { birthDate: { $ne: null } },
         { name: 1, email: 1, birthDate: 1 }
@@ -252,11 +250,20 @@ export const getHomeNews = async (req, res, next) => {
         (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === todayMMDD_MX
       );
 
+      console.log(
+        '[birthdays][home] todayMMDD',
+        todayMMDD_MX,
+        'count',
+        birthdayTodayUsers.length,
+        'users',
+        birthdayTodayUsers.map((u) => `${u.name} <${u.email}>`)
+      );
+
       if (birthdayTodayUsers.length > 0) {
-        // Disparar correo único (cron lo hace a las 08:00; aquí es respaldo idempotente)
+        // Disparar correo único (a las 08:00 lo hace el cron; aquí es respaldo idempotente)
         try {
           const svc = await import('../services/notificationService.js');
-          const fn = svc?.sendBirthdayEmailsIfDue; // idempotente por DailyLock
+          const fn = svc?.sendBirthdayEmailsIfDue; // idempotente por DailyLock v2
           if (typeof fn === 'function') {
             await fn();
           }
@@ -284,6 +291,7 @@ export const getHomeNews = async (req, res, next) => {
         }
       }
     }
+
     return res.json({ items });
   } catch (err) {
     next(err);
