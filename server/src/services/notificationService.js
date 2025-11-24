@@ -40,11 +40,14 @@ function prettyDateMX(d) {
   });
 }
 
-// Día/mes de HOY (usamos UTC para que coincida con cómo se guardan las fechas)
+/**
+ * Día/mes de HOY en México (mm-dd)
+ * Esto se usa para comparar contra birthDate (UTC) de los usuarios.
+ */
 function mmddTodayMX() {
-  const now = new Date();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(now.getUTCDate()).padStart(2, '0');
+  const now = nowInMX();
+  const mm = now.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
+  const dd = now.toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
   return `${mm}-${dd}`;
 }
 
@@ -56,7 +59,7 @@ function mmddFromBirthDate(date) {
   return `${mm}-${dd}`;
 }
 
-// Día/mes en MX genérico (puede seguir usándose en otras partes si hace falta)
+// Día/mes en MX genérico (aún se usa en algunas partes)
 function mmddMX(date = new Date()) {
   const n = nowInMX(date);
   const mm = n.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
@@ -82,7 +85,6 @@ async function collectRecipientEmails() {
     { email: 1 }
   ).lean();
 
-  // dedup + validación simple
   const set = new Set(
     (users || [])
       .map((u) => (u?.email || '').trim())
@@ -129,7 +131,6 @@ async function createHolidayNotification(holiday, daysLeft) {
       holiday.date
     )}. Considera este descanso en tu planificación.`;
 
-    // Verificar si ya existe una notificación similar para evitar duplicados
     const existingNotification = await News.findOne({
       title: notificationTitle,
       type: 'holiday_notice',
@@ -140,12 +141,10 @@ async function createHolidayNotification(holiday, daysLeft) {
       return existingNotification;
     }
 
-    // Calcular fechas de visibilidad
     const today = new Date();
     const visibleUntil = new Date(holiday.date);
     visibleUntil.setDate(visibleUntil.getDate() + 1); // Visible hasta el día después del festivo
 
-    // Crear notificación
     const newsItem = await News.create({
       title: notificationTitle,
       body: notificationBody,
@@ -188,7 +187,6 @@ export async function notifyAllUsersAboutAnnouncement(recipientsOrNull, news) {
 
     const subject = `📰 Nuevo comunicado: ${news?.title || 'Comunicación interna'}`;
 
-    // Construir URL absoluta para imagen si hay PUBLIC_BASE_URL
     const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
     const absImage = news?.imageUrl
       ? news.imageUrl.startsWith('http')
@@ -223,7 +221,6 @@ export async function notifyAllUsersAboutAnnouncement(recipientsOrNull, news) {
 
 /* ==========================================
  *  DIGEST DE CUMPLEAÑOS (legacy por parámetros)
- *  -> útil si llamas manualmente desde el controller
  * ========================================== */
 export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
   const day = startOfDayInMX(date);
@@ -231,7 +228,6 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
 
   if (!Array.isArray(birthdayUsers) || birthdayUsers.length === 0) return false;
 
-  // Evita enviar dos veces en el mismo día
   const existed = await DailyLock.findOneAndUpdate(
     { type: 'birthday_digest', dateKey: dayKey },
     { $setOnInsert: { createdAt: new Date() } },
@@ -252,7 +248,6 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
     <p>Hoy celebramos a: <strong>${names}</strong>.</p>
     <p>¡Envíales tus buenos deseos! 🎉</p>
  `;
-
   const ok = await safeSendEmail({ to: toList, subject, html });
   if (ok) {
     console.log(
@@ -266,15 +261,13 @@ export const sendBirthdayEmailsIfNeeded = async (date, birthdayUsers) => {
 
 /* =========================================================
  *  CUMPLEAÑOS: CORREO PERSONAL 08:00 MX (idempotente)
- *  -> un correo por cumpleañero (no a toda la empresa)
+ *  -> un correo por cumpleañero
  * ========================================================= */
 export async function sendBirthdayEmailsIfDue() {
-  // v2: nuevo key para ignorar locks viejos que se crearon sin cumpleaños
   const lockKey = `bday_emails_v2_${yyyymmddMX()}`;
   const existed = await DailyLock.findOne({ key: lockKey });
   if (existed) return { sent: false, reason: 'already-sent' };
 
-  // Cumpleañeros HOY
   const all = await User.find(
     {
       birthDate: { $exists: true, $ne: null },
@@ -328,7 +321,6 @@ export async function sendBirthdayDigestToAllIfDue() {
   ).lean();
   if (existed) return { sent: false, reason: 'already-sent' };
 
-  // Cumpleañeros hoy
   const tagToday = mmddTodayMX();
   const users = await User.find(
     { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false } },
@@ -401,10 +393,8 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   const windowStart = subDays(holidayDateStart, 7);
   const windowEndExclusive = addDays(holidayDateStart, 1);
 
-  // Solo si HOY está dentro de la ventana [–7, +1)
   if (todayMX < windowStart || todayMX >= windowEndExclusive) return false;
 
-  // Candado único por festivo y por inicio de ventana
   const dateKey = dayKeyMX(windowStart);
   const existed = await DailyLock.findOneAndUpdate(
     { type: 'holiday_upcoming_7d', dateKey, holidayId: String(holiday._id) },
@@ -419,7 +409,6 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
     return false;
   }
 
-  // Días restantes (solo informativo en el copy)
   const daysLeft = Math.max(0, differenceInCalendarDays(holidayDateStart, todayMX));
 
   const subject = `Recordatorio: faltan ${daysLeft} ${
@@ -433,7 +422,6 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
     <p>Considera este descanso en tu planificación.</p>
   `;
 
-  // ⬇️ Crear notificación en la intranet ANTES de enviar el correo
   const notificationCreated = await createHolidayNotification(holiday, daysLeft);
 
   const ok = await safeSendEmail({ to: toList, subject, html });
@@ -461,7 +449,7 @@ export async function checkAllUpcomingHolidays() {
 
     const today = new Date();
     const futureDate = new Date(today);
-    futureDate.setDate(today.getDate() + 30); // Buscar en los próximos 30 días
+    futureDate.setDate(today.getDate() + 30);
 
     const upcomingHolidays = await Holiday.find({
       date: { $gte: today, $lte: futureDate },
@@ -504,7 +492,6 @@ export async function testHolidayNotifications() {
  *   CORREO A ADMINs: nueva solicitud de vacaciones (inmediato)
  * =========================================================== */
 export async function notifyAdminsAboutNewRequest(vacationRequest, user) {
-  // 1) Obtener admins activos con email válido
   const admins = await User.find(
     { role: 'admin', isActive: { $ne: false }, email: { $exists: true, $ne: null } },
     { email: 1, name: 1 }
@@ -519,7 +506,6 @@ export async function notifyAdminsAboutNewRequest(vacationRequest, user) {
     return false;
   }
 
-  // 2) Armar contenido
   const employee = user?.name || user?.email || 'Empleado';
   const start = prettyDateMX(vacationRequest?.startDate);
   const end = prettyDateMX(
@@ -540,7 +526,6 @@ export async function notifyAdminsAboutNewRequest(vacationRequest, user) {
     }
   `;
 
-  // 3) Enviar
   const ok = await safeSendEmail({ to, subject, html });
   if (ok) {
     console.log(
