@@ -12,7 +12,7 @@ import {
   notifyAllUsersAboutAnnouncement,
   sendUpcomingHolidayEmailIfSevenDaysBefore,
   sendBirthdayEmailsIfDue,
-} from '../services/notificationService.js'; // ⬅️ mails / avisos
+} from '../services/notificationService.js'; // mails / avisos
 
 const MX_TZ = 'America/Mexico_City';
 
@@ -143,7 +143,6 @@ function sevenPMMX(d = new Date()) {
  *      Controller Home
  * ========================= */
 
-// Renombrado: getHomeFeed -> getHomeNews
 export const getHomeNews = async (req, res, next) => {
   try {
     const today = startOfDayInMX();
@@ -191,7 +190,7 @@ export const getHomeNews = async (req, res, next) => {
       visibleUntil: n.visibleUntil ? toISO(n.visibleUntil) : undefined,
     }));
 
-    // 2) Días festivos: ventana 7d + fallback por proximidad
+    // 2) Días festivos
     const holidays = await Holiday.find(
       {},
       { name: 1, date: 1, recurring: 1, type: 1 }
@@ -207,12 +206,10 @@ export const getHomeNews = async (req, res, next) => {
 
       const inWindow = today >= windowStart && today < windowEndExclusive;
 
-      // Fallback: si faltan de 0 a 7 días, mostrarlo igual (cubrir edge TZ)
       const diff = differenceInCalendarDays(occStart, today); // MX vs MX
       const fallbackHit = !inWindow && diff >= 0 && diff <= 7;
 
       if (inWindow || fallbackHit) {
-        // Evita duplicar si ya existe una notificación para este festivo
         const existingHolidayNotification = items.find(
           (item) => item.type === 'holiday_notice' && item.title.includes(h.name)
         );
@@ -236,7 +233,6 @@ export const getHomeNews = async (req, res, next) => {
             visibleUntil: toISO(windowEndExclusive),
           });
 
-          // Email único al entrar a la ventana de 7 días
           try {
             await sendUpcomingHolidayEmailIfSevenDaysBefore({
               ...h,
@@ -252,11 +248,10 @@ export const getHomeNews = async (req, res, next) => {
       }
     }
 
-    // 3) Cumpleaños (solo digest, no requiere login del cumpleañero)
+    // 3) Cumpleaños (digest visual + correos)
     {
       const todayMMDD_MX = mmddTodayMX();
 
-      // Calcular cumpleañeros de HOY (por fecha de nacimiento)
       const all = await User.find(
         { birthDate: { $ne: null } },
         { name: 1, email: 1, birthDate: 1 }
@@ -276,17 +271,18 @@ export const getHomeNews = async (req, res, next) => {
       );
 
       if (birthdayTodayUsers.length > 0) {
-        // Disparar correo único (a las 08:00 lo hace el cron; aquí es respaldo idempotente)
+        // disparar correos (personal + lock)
         try {
-          await sendBirthdayEmailsIfDue(); // ⬅️ ahora import directo
+          const result = await sendBirthdayEmailsIfDue();
+          console.log('[birthdays][home] sendBirthdayEmailsIfDue result:', result);
         } catch (errMail) {
           console.error(
             '[birthdays] error enviando correos:',
-            errMail?.message || errMail
+            errMail?.response?.body || errMail?.message || errMail
           );
         }
 
-        // Mostrar tarjeta SOLO entre 08:00–19:00 MX
+        // Tarjeta visual SOLO entre 08:00–19:00 MX
         if (isBetween8and19MX()) {
           const names = birthdayTodayUsers
             .map((u) => u.name || u.email)
@@ -319,11 +315,6 @@ export const getHomeFeed = getHomeNews;
  *   ADMIN: Comunicados
  * ========================= */
 
-/**
- * Crea un comunicado de tipo "announcement".
- * - Acepta imagen (multer la deja en req.file)
- * - Envía correo a toda la empresa
- */
 export const createAnnouncement = async (req, res, next) => {
   try {
     const {
@@ -350,14 +341,13 @@ export const createAnnouncement = async (req, res, next) => {
       ctaText: ctaText ? String(ctaText).trim() : null,
       ctaTo: ctaTo ? String(ctaTo).trim() : null,
       visibleFrom: visibleFrom ? new Date(visibleFrom) : new Date(),
-      visibleUntil: visibleUntil ? new Date(visibleUntil) : null, // exclusivo
+      visibleUntil: visibleUntil ? new Date(visibleUntil) : null,
       status,
       isActive,
       priority,
       createdBy: req.user?._id || null,
     });
 
-    // correos a toda la empresa (fire-and-forget)
     try {
       const recipients = await User.find({
         email: { $ne: null },
@@ -375,14 +365,6 @@ export const createAnnouncement = async (req, res, next) => {
   }
 };
 
-/**
- * Lista comunicados (para Admin o vista de gestión).
- * Query opcional:
- *   - ?all=true  -> devuelve todos (ignora ventana de visibilidad)
- *
- * Cada item incluye:
- *   - published: boolean => si está actualmente publicado / visible
- */
 export const listAnnouncements = async (req, res, next) => {
   try {
     const all = req.query.all === 'true';
@@ -391,7 +373,6 @@ export const listAnnouncements = async (req, res, next) => {
     const filter = { type: 'announcement' };
 
     if (!all) {
-      // Solo los visibles y activos para vista pública
       filter.$or = [
         { visibleUntil: null, visibleFrom: { $lte: now } },
         { visibleFrom: { $lte: now }, visibleUntil: { $gt: now } },
@@ -425,11 +406,6 @@ export const listAnnouncements = async (req, res, next) => {
   }
 };
 
-/**
- * Actualiza un comunicado existente.
- * Se limita a campos permitidos.
- * Si viene archivo (req.file) se actualiza imageUrl.
- */
 export const updateAnnouncement = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -468,7 +444,6 @@ export const updateAnnouncement = async (req, res, next) => {
     if (isActive !== undefined) updateData.isActive = isActive;
     if (priority !== undefined) updateData.priority = priority;
 
-    // Si suben nueva imagen
     if (req.file) {
       updateData.imageUrl = `/uploads/${req.file.filename}`;
     }
@@ -491,9 +466,6 @@ export const updateAnnouncement = async (req, res, next) => {
   }
 };
 
-/**
- * Elimina (despublica definitivamente) un comunicado.
- */
 export const deleteAnnouncement = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -509,7 +481,6 @@ export const deleteAnnouncement = async (req, res, next) => {
         .json({ ok: false, message: 'Comunicado no encontrado' });
     }
 
-    // 204: No Content
     res.status(204).end();
   } catch (err) {
     next(err);
