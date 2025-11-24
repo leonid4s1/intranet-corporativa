@@ -22,7 +22,23 @@ function nowInMX(d = new Date()) {
   return new Date(new Date(d).toLocaleString('en-US', { timeZone: MX_TZ }));
 }
 
-// mm-dd en zona MX (para cumpleaños)
+// mm-dd HOY en MX
+function mmddTodayMX() {
+  const now = nowInMX();
+  const mm = now.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
+  const dd = now.toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
+  return `${mm}-${dd}`;
+}
+
+// mm-dd de una fecha de nacimiento (UTC)
+function mmddFromBirthDate(date) {
+  const d = new Date(date);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${mm}-${dd}`;
+}
+
+// mm-dd en zona MX genérico (queda por si lo necesitas en el futuro)
 function mmddMX(date = new Date()) {
   const n = nowInMX(date);
   const mm = n.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
@@ -125,7 +141,7 @@ export const getHomeNews = async (req, res, next) => {
     res.set('Surrogate-Control', 'no-store');
     res.set('ETag', `homefeed-${today.toISOString().slice(0, 10)}`);
 
-    // 1) Noticias publicadas (mínimo) - INCLUYENDO holiday_notification
+    // 1) Noticias publicadas (mínimo) — excluye tipo legacy holiday_notification
     const published = await News.find(
       { status: 'published', type: { $ne: 'holiday_notification' } },
       {
@@ -191,7 +207,7 @@ export const getHomeNews = async (req, res, next) => {
             type: 'holiday_notice',
             title: `Próximo día festivo: ${h.name}`,
             body: `Se celebra el ${new Date(occStart).toLocaleDateString('es-MX', {
-              timeZone: 'UTC',
+              timeZone: MX_TZ,
               weekday: 'long',
               day: '2-digit',
               month: 'long',
@@ -224,7 +240,7 @@ export const getHomeNews = async (req, res, next) => {
 
     // 3) Cumpleaños (digest + self) — independiente de login y SOLO 08–19 MX
     {
-      const todayMMDD_MX = mmddMX(today);
+      const todayMMDD_MX = mmddTodayMX();
 
       // Calcular cumpleañeros de HOY en MX
       const all = await User.find(
@@ -233,7 +249,7 @@ export const getHomeNews = async (req, res, next) => {
       ).lean();
 
       const birthdayTodayUsers = all.filter(
-        (u) => u.birthDate && mmddMX(u.birthDate) === todayMMDD_MX
+        (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === todayMMDD_MX
       );
 
       // Disparar correo único (a las 08:00 lo hace el cron; aquí es respaldo idempotente)
@@ -258,7 +274,7 @@ export const getHomeNews = async (req, res, next) => {
         if (user) {
           const me = await User.findById(user.id).lean();
           const isMyBirthday =
-            !!me?.birthDate && mmddMX(me.birthDate) === todayMMDD_MX;
+            !!me?.birthDate && mmddFromBirthDate(me.birthDate) === todayMMDD_MX;
 
           if (isMyBirthday) {
             const first = (me?.name || 'colaborador').split(' ')[0];

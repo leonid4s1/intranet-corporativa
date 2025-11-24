@@ -39,7 +39,24 @@ function prettyDateMX(d) {
     year: 'numeric',
   });
 }
-// Día/mes en MX (para cumpleaños)
+
+// Día/mes de HOY en MX (para comparar contra cumpleaños)
+function mmddTodayMX() {
+  const now = nowInMX();
+  const mm = now.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
+  const dd = now.toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
+  return `${mm}-${dd}`;
+}
+
+// Día/mes de una fecha de nacimiento almacenada (usamos UTC para que no cambie)
+function mmddFromBirthDate(date) {
+  const d = new Date(date);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${mm}-${dd}`;
+}
+
+// Día/mes en MX genérico (puede seguir usándose en otras partes si hace falta)
 function mmddMX(date = new Date()) {
   const n = nowInMX(date);
   const mm = n.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
@@ -113,7 +130,7 @@ async function createHolidayNotification(holiday, daysLeft) {
     // Verificar si ya existe una notificación similar para evitar duplicados
     const existingNotification = await News.findOne({
       title: notificationTitle,
-      type: 'holiday_notification'
+      type: 'holiday_notice'
     });
 
     if (existingNotification) {
@@ -136,7 +153,7 @@ async function createHolidayNotification(holiday, daysLeft) {
       status: 'published',
       visibleFrom: today,
       visibleUntil: visibleUntil,
-      type: 'holiday_notification',
+      type: 'holiday_notice',
       isActive: true,
       priority: daysLeft <= 3 ? 'high' : 'medium'
     });
@@ -247,25 +264,33 @@ export async function sendBirthdayEmailsIfDue() {
 
   // Cumpleañeros HOY en MX
   const all = await User.find(
-    { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false }, email: { $exists: true, $ne: null } },
+    {
+      birthDate: { $exists: true, $ne: null },
+      isActive: { $ne: false },
+      email: { $exists: true, $ne: null }
+    },
     { name: 1, email: 1, birthDate: 1 }
   ).lean();
 
-  const tagToday = mmddMX();
-  const birthdayUsers = all.filter(u => u.birthDate && mmddMX(u.birthDate) === tagToday);
+  const tagToday = mmddTodayMX();
+  const birthdayUsers = all.filter(
+    (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === tagToday
+  );
 
   if (!birthdayUsers.length) {
     await DailyLock.create({ key: lockKey, at: new Date(), type: 'bday_personal' });
     return { sent: false, reason: 'no-birthdays' };
   }
 
-  await Promise.all(birthdayUsers.map(u => {
-    const html = `
-      <h2>🎂 ¡Feliz cumpleaños, ${u.name || 'colaborador/a'}!</h2>
-      <p>Te deseamos un gran día de parte de todo el equipo.</p>
-    `;
-    return sendEmail({ to: u.email, subject: '🎉 ¡Feliz cumpleaños!', html });
-  }));
+  await Promise.all(
+    birthdayUsers.map(u => {
+      const html = `
+        <h2>🎂 ¡Feliz cumpleaños, ${u.name || 'colaborador/a'}!</h2>
+        <p>Te deseamos un gran día de parte de todo el equipo.</p>
+      `;
+      return sendEmail({ to: u.email, subject: '🎉 ¡Feliz cumpleaños!', html });
+    })
+  );
 
   await DailyLock.create({ key: lockKey, at: new Date(), type: 'bday_personal' });
   return { sent: true, count: birthdayUsers.length };
@@ -285,12 +310,15 @@ export async function sendBirthdayDigestToAllIfDue() {
   if (existed) return { sent: false, reason: 'already-sent' };
 
   // Cumpleañeros hoy (en MX)
-  const tagToday = mmddMX(new Date());
+  const tagToday = mmddTodayMX();
   const users = await User.find(
     { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false } },
     { name: 1, email: 1, birthDate: 1 }
   ).lean();
-  const birthdayUsers = users.filter(u => u.birthDate && mmddMX(u.birthDate) === tagToday);
+
+  const birthdayUsers = users.filter(
+    (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === tagToday
+  );
 
   if (!birthdayUsers.length) {
     await DailyLock.create({ type: 'birthday_digest', dateKey: dayKey, at: new Date() });
@@ -318,12 +346,15 @@ export async function sendBirthdayDigestToAllIfDue() {
  *   -> ahora por día MX (no UTC)
  * ======================================= */
 export async function getTodayBirthdayUsersMX() {
-  const tagToday = mmddMX(new Date());
+  const tagToday = mmddTodayMX();
   const users = await User.find(
     { birthDate: { $exists: true, $ne: null }, isActive: { $ne: false } },
     { name: 1, email: 1, birthDate: 1 }
   ).lean();
-  return users.filter(u => u.birthDate && mmddMX(u.birthDate) === tagToday);
+
+  return users.filter(
+    (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === tagToday
+  );
 }
 
 /* ====================================================
