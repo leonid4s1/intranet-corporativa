@@ -1,5 +1,5 @@
 // cliente/src/services/news.service.ts
-import api, { UPLOADS_BASE_URL } from './api';  // 👈 añadimos UPLOADS_BASE_URL
+import api, { UPLOADS_BASE_URL } from './api'; // 👈 añadimos UPLOADS_BASE_URL
 
 /* ===== Tipos permitidos ===== */
 export const allowedTypes = [
@@ -10,7 +10,7 @@ export const allowedTypes = [
   'birthday_digest',
   'announcement',
 ] as const;
-export type AllowedType = typeof allowedTypes[number];
+export type AllowedType = (typeof allowedTypes)[number];
 
 /* ===== Modelos base ===== */
 export type NewsItem = {
@@ -42,7 +42,7 @@ type HomeFeedResponse = { items: ServerNewsItem[] };
 
 /* ===== Helpers base ===== */
 function isAllowedType(t: string): t is AllowedType {
-  return (allowedTypes as readonly string[]).includes(t);
+  return (allowedTypes as readonly string[]).includes(t as AllowedType);
 }
 
 function isWithinWindow(now: Date, from?: string, until?: string): boolean {
@@ -65,7 +65,9 @@ export function makeNoNewsItem(): NewsItem {
 }
 
 function normalize(raw: ServerNewsItem): NewsItem {
-  const safeType: AllowedType = isAllowedType(raw.type) ? (raw.type as AllowedType) : 'static';
+  const safeType: AllowedType = isAllowedType(raw.type)
+    ? (raw.type as AllowedType)
+    : 'static';
   if (safeType === 'static' && raw.type && raw.type !== 'static') {
     console.warn('[news.service] Tipo no permitido recibido:', raw.type);
   }
@@ -99,13 +101,18 @@ function normalize(raw: ServerNewsItem): NewsItem {
 
 function priorityScore(it: NewsItem): number {
   switch (it.type) {
-    case 'holiday_notice': return 120;
-    case 'birthday_self': return 100;
+    case 'holiday_notice':
+      return 120;
+    case 'birthday_self':
+      return 100;
     case 'birthday_digest_info':
-    case 'birthday_digest': return 80;
-    case 'announcement': return 70;
+    case 'birthday_digest':
+      return 80;
+    case 'announcement':
+      return 70;
     case 'static':
-    default: return 50;
+    default:
+      return 50;
   }
 }
 
@@ -116,17 +123,26 @@ export async function getHomeNews(): Promise<NewsItem[]> {
     const items = data?.items ?? [];
     const now = new Date();
 
-    const normalized = items
-      .map(normalize)
-      .filter((it) => isWithinWindow(now, it.visibleFrom, it.visibleUntil));
+    // 1) Normalizar TODO lo que viene del backend
+    const normalized = items.map(normalize);
 
-    const hasSelf = normalized.some((it) => it.type === 'birthday_self');
+    // 2) Aplicar ventana de visibilidad (from / until)
+    const windowFiltered = normalized.filter((it) =>
+      isWithinWindow(now, it.visibleFrom, it.visibleUntil)
+    );
+
+    // 3) Si existe tarjeta "birthday_self", ocultar el digest para no duplicar,
+    //    pero SOLO en ese caso (tu escenario actual no tiene birthday_self).
+    const hasSelf = windowFiltered.some((it) => it.type === 'birthday_self');
     const filtered = hasSelf
-      ? normalized.filter(
-          (it) => it.type !== 'birthday_digest_info' && it.type !== 'birthday_digest'
+      ? windowFiltered.filter(
+          (it) =>
+            it.type !== 'birthday_digest_info' &&
+            it.type !== 'birthday_digest'
         )
-      : normalized;
+      : windowFiltered;
 
+    // 4) Deduplicar por id
     const seen = new Set<string>();
     const deduped = filtered.filter((it) => {
       if (seen.has(it.id)) return false;
@@ -134,7 +150,8 @@ export async function getHomeNews(): Promise<NewsItem[]> {
       return true;
     });
 
-    return deduped.sort((a, b) => {
+    // 5) Ordenar por prioridad y fecha
+    let result = deduped.sort((a, b) => {
       const pa = priorityScore(a);
       const pb = priorityScore(b);
       if (pb !== pa) return pb - pa;
@@ -149,6 +166,22 @@ export async function getHomeNews(): Promise<NewsItem[]> {
       const tb = b.visibleFrom ? new Date(b.visibleFrom).getTime() : 0;
       return tb - ta;
     });
+
+    // 🔁 Fallback importante:
+    // Si después de todos los filtros queda vacío PERO el backend mandó items,
+    // devolvemos la lista normalizada sin filtros para no ocultar nada (como tu digest).
+    if (!result.length && normalized.length) {
+      console.warn(
+        '[news.service] resultado vacío tras filtros; usando normalized sin filtros',
+        {
+          backendItems: items.length,
+          normalizedItems: normalized.length,
+        }
+      );
+      result = normalized;
+    }
+
+    return result;
   } catch (err) {
     console.error('[news.service] Error obteniendo /news/home', err);
     return [];
@@ -162,7 +195,7 @@ export type CreateAnnouncementPayload = {
   excerpt?: string;
   ctaText?: string;
   ctaTo?: string;
-  visibleFrom?: string | Date;   // aceptamos Date o string
+  visibleFrom?: string | Date; // aceptamos Date o string
   visibleUntil?: string | Date;
   image?: File | null;
 };
@@ -236,7 +269,9 @@ type AdminOneResponse = {
   data: ServerAnnouncement;
 };
 
-function normalizeAdminAnnouncement(raw: ServerAnnouncement): AdminAnnouncement {
+function normalizeAdminAnnouncement(
+  raw: ServerAnnouncement
+): AdminAnnouncement {
   const base = normalize(raw); // reaprovechamos normalización (tipos, imagen, excerpt...)
   return {
     ...base,
@@ -290,7 +325,8 @@ export async function updateAnnouncement(
   if (payload.title !== undefined) fd.append('title', payload.title ?? '');
   if (payload.body !== undefined) fd.append('body', payload.body ?? '');
   if (payload.excerpt !== undefined) fd.append('excerpt', payload.excerpt ?? '');
-  if (payload.ctaText !== undefined) fd.append('ctaText', payload.ctaText ?? '');
+  if (payload.ctaText !== undefined)
+    fd.append('ctaText', payload.ctaText ?? '');
   if (payload.ctaTo !== undefined) fd.append('ctaTo', payload.ctaTo ?? '');
 
   if (payload.visibleFrom !== undefined) {
