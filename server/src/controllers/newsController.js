@@ -238,11 +238,11 @@ export const getHomeNews = async (req, res, next) => {
       }
     }
 
-    // 3) Cumpleaños (digest + self) — independiente de login y SOLO 08–19 MX
+        // 3) Cumpleaños (digest) — NO depende de que el cumpleañero inicie sesión
     {
       const todayMMDD_MX = mmddTodayMX();
 
-      // Calcular cumpleañeros de HOY en MX
+      // Calcular cumpleañeros de HOY (por fecha de nacimiento, no por login)
       const all = await User.find(
         { birthDate: { $ne: null } },
         { name: 1, email: 1, birthDate: 1 }
@@ -252,8 +252,8 @@ export const getHomeNews = async (req, res, next) => {
         (u) => u.birthDate && mmddFromBirthDate(u.birthDate) === todayMMDD_MX
       );
 
-      // Disparar correo único (a las 08:00 lo hace el cron; aquí es respaldo idempotente)
       if (birthdayTodayUsers.length > 0) {
+        // Disparar correo único (cron lo hace a las 08:00; aquí es respaldo idempotente)
         try {
           const svc = await import('../services/notificationService.js');
           const fn = svc?.sendBirthdayEmailsIfDue; // idempotente por DailyLock
@@ -266,34 +266,13 @@ export const getHomeNews = async (req, res, next) => {
             errMail?.message || errMail
           );
         }
-      }
 
-      // Pintar tarjetas SOLO entre 08:00–19:00 MX
-      if (isBetween8and19MX()) {
-        // Card personal si ES su cumpleaños y está logueado
-        if (user) {
-          const me = await User.findById(user.id).lean();
-          const isMyBirthday =
-            !!me?.birthDate && mmddFromBirthDate(me.birthDate) === todayMMDD_MX;
-
-          if (isMyBirthday) {
-            const first = (me?.name || 'colaborador').split(' ')[0];
-            items.unshift({
-              id: `birthday-self-${String(me._id)}-${todayMMDD_MX}`,
-              type: 'birthday_self',
-              title: `¡Feliz cumpleaños, ${first}!`,
-              body: 'Te deseamos un día increíble. 🎉',
-              visibleFrom: toISO(eightAMMX(today)),
-              visibleUntil: toISO(sevenPMMX(today)),
-            });
-          }
-        }
-
-        // Digest visible para TODOS (no depende de que el cumpleañero inicie sesión)
-        if (birthdayTodayUsers.length > 0) {
+        // Mostrar tarjeta SOLO entre 08:00–19:00 MX
+        if (isBetween8and19MX()) {
           const names = birthdayTodayUsers
             .map((u) => u.name || u.email)
             .join(', ');
+
           items.unshift({
             id: `birthday-digest-${todayMMDD_MX}`,
             type: 'birthday_digest_info',
@@ -305,7 +284,6 @@ export const getHomeNews = async (req, res, next) => {
         }
       }
     }
-
     return res.json({ items });
   } catch (err) {
     next(err);
