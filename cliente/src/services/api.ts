@@ -32,7 +32,7 @@ const api: AxiosInstance = axios.create({
   timeout: 10000,
   withCredentials: true,
   headers: {
-    'Content-Type': 'application/json',
+    // 👇 Dejamos solo Accept. Content-Type lo decide Axios según el body.
     Accept: 'application/json',
     // ❌ No enviar Cache-Control desde el cliente (evita preflight bloqueado)
   },
@@ -42,6 +42,7 @@ const api: AxiosInstance = axios.create({
  * - Forzar URL absoluta si base es absoluta y config.url empieza con '/'
  * - Añadir Authorization si hay access token
  * - Cache-busting de perfil vía query param (sin headers)
+ * - 👇 NUEVO: si el body es FormData, eliminar Content-Type para que el navegador ponga multipart/form-data
  */
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
@@ -69,6 +70,17 @@ api.interceptors.request.use(
     // Cache-busting de perfil SIN tocar headers
     if (config.url?.includes('/auth/me') || config.url?.includes('/auth/profile')) {
       config.params = { ...(config.params ?? {}), _t: Date.now() };
+    }
+
+    // 👇 MUY IMPORTANTE: si el cuerpo es FormData, no forzamos Content-Type
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      const h = headers as AxiosHeaders;
+
+      // AxiosHeaders tiene .delete
+      if (h.delete) {
+        h.delete('Content-Type');
+        h.delete('content-type');
+      }
     }
 
     return config;
@@ -170,3 +182,4 @@ export const apiService = {
 };
 
 export default api;
+
