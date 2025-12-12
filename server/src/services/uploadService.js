@@ -23,7 +23,19 @@ export const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (_req, file, cb) => {
-    const ok = /image\/(png|jpe?g|gif|webp|svg\+xml)/i.test(file.mimetype)
-    cb(ok ? null : new Error('Tipo de imagen no permitido'))
+    // 🔍 Log para ver qué llega
+    console.log('[uploadService] recibido archivo:', {
+      fieldname: file.fieldname,
+      mimetype: file.mimetype,
+      originalname: file.originalname,
+      size: file.size,
+    })
+
+    // ✅ Acepta cualquier image/*
+    if (/^image\//i.test(file.mimetype)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Tipo de archivo no permitido (se esperaba image/*)'))
+    }
   },
 })
