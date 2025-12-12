@@ -1,5 +1,5 @@
 // cliente/src/services/news.service.ts
-import api, { UPLOADS_BASE_URL } from './api'; // 👈 añadimos UPLOADS_BASE_URL
+import api, { UPLOADS_BASE_URL } from './api' // 👈 añadimos UPLOADS_BASE_URL
 
 /* ===== Tipos permitidos ===== */
 export const allowedTypes = [
@@ -9,47 +9,47 @@ export const allowedTypes = [
   'birthday_digest_info',
   'birthday_digest',
   'announcement',
-] as const;
-export type AllowedType = (typeof allowedTypes)[number];
+] as const
+export type AllowedType = (typeof allowedTypes)[number]
 
 /* ===== Modelos base ===== */
 export type NewsItem = {
-  id: string;
-  type: AllowedType;
-  title: string;
-  excerpt?: string;
-  imageUrl?: string | null;
-  ctaText?: string | null;
-  ctaTo?: string | null;
-  visibleFrom?: string;
-  visibleUntil?: string;
-};
+  id: string
+  type: AllowedType
+  title: string
+  excerpt?: string
+  imageUrl?: string | null
+  ctaText?: string | null
+  ctaTo?: string | null
+  visibleFrom?: string
+  visibleUntil?: string
+}
 
 type ServerNewsItem = {
-  id: string | number;
-  type: string;
-  title?: string;
-  body?: string;
-  excerpt?: string;
-  imageUrl?: string | null;
-  ctaText?: string | null;
-  ctaTo?: string | null;
-  visibleFrom?: string;
-  visibleUntil?: string;
-};
+  id: string | number
+  type: string
+  title?: string
+  body?: string
+  excerpt?: string
+  imageUrl?: string | null
+  ctaText?: string | null
+  ctaTo?: string | null
+  visibleFrom?: string
+  visibleUntil?: string
+}
 
-type HomeFeedResponse = { items: ServerNewsItem[] };
+type HomeFeedResponse = { items: ServerNewsItem[] }
 
 /* ===== Helpers base ===== */
 function isAllowedType(t: string): t is AllowedType {
-  return (allowedTypes as readonly string[]).includes(t as AllowedType);
+  return (allowedTypes as readonly string[]).includes(t as AllowedType)
 }
 
 function isWithinWindow(now: Date, from?: string, until?: string): boolean {
-  const n = now.getTime();
-  const f = from ? new Date(from).getTime() : -Infinity;
-  const u = until ? new Date(until).getTime() : Infinity;
-  return n >= f && n < u;
+  const n = now.getTime()
+  const f = from ? new Date(from).getTime() : -Infinity
+  const u = until ? new Date(until).getTime() : Infinity
+  return n >= f && n < u
 }
 
 export function makeNoNewsItem(): NewsItem {
@@ -61,30 +61,30 @@ export function makeNoNewsItem(): NewsItem {
     imageUrl: null,
     ctaText: null,
     ctaTo: null,
-  };
+  }
 }
 
 function normalize(raw: ServerNewsItem): NewsItem {
   const safeType: AllowedType = isAllowedType(raw.type)
     ? (raw.type as AllowedType)
-    : 'static';
+    : 'static'
   if (safeType === 'static' && raw.type && raw.type !== 'static') {
-    console.warn('[news.service] Tipo no permitido recibido:', raw.type);
+    console.warn('[news.service] Tipo no permitido recibido:', raw.type)
   }
 
-  const title = (raw.title ?? 'Aviso').toString().trim();
-  const baseExcerpt = (raw.excerpt ?? raw.body ?? '').toString().trim();
+  const title = (raw.title ?? 'Aviso').toString().trim()
+  const baseExcerpt = (raw.excerpt ?? raw.body ?? '').toString().trim()
 
   const excerpt =
     baseExcerpt ||
-    (safeType === 'holiday_notice' ? `Próximo día festivo: ${title}` : '');
+    (safeType === 'holiday_notice' ? `Próximo día festivo: ${title}` : '')
 
   // 👇 si viene ruta relativa (/uploads/...), prepende el dominio del backend
-  const rawImg = raw.imageUrl ?? null;
+  const rawImg = raw.imageUrl ?? null
   const imageUrl =
     rawImg && rawImg.startsWith('/uploads/')
       ? `${UPLOADS_BASE_URL}${rawImg}`
-      : rawImg;
+      : rawImg
 
   return {
     id: String(raw.id),
@@ -96,80 +96,71 @@ function normalize(raw: ServerNewsItem): NewsItem {
     ctaTo: raw.ctaTo ?? null,
     visibleFrom: raw.visibleFrom,
     visibleUntil: raw.visibleUntil,
-  };
+  }
 }
 
 function priorityScore(it: NewsItem): number {
   switch (it.type) {
     case 'holiday_notice':
-      return 120;
+      return 120
     case 'birthday_self':
-      return 100;
+      return 100
     case 'birthday_digest_info':
     case 'birthday_digest':
-      return 80;
+      return 80
     case 'announcement':
-      return 70;
+      return 70
     case 'static':
     default:
-      return 50;
+      return 50
   }
 }
 
 /* ===== API: Home feed ===== */
 export async function getHomeNews(): Promise<NewsItem[]> {
   try {
-    const { data } = await api.get<HomeFeedResponse>('/news/home');
-    const items = data?.items ?? [];
-    const now = new Date();
+    const { data } = await api.get<HomeFeedResponse>('/news/home')
+    const items = data?.items ?? []
+    const now = new Date()
 
-    // 1) Normalizar TODO lo que viene del backend
-    const normalized = items.map(normalize);
+    const normalized = items.map(normalize)
 
-    // 2) Aplicar ventana de visibilidad (from / until)
     const windowFiltered = normalized.filter((it) =>
       isWithinWindow(now, it.visibleFrom, it.visibleUntil)
-    );
+    )
 
-    // 3) Si existe tarjeta "birthday_self", ocultar el digest para no duplicar,
-    //    pero SOLO en ese caso (tu escenario actual no tiene birthday_self).
-    const hasSelf = windowFiltered.some((it) => it.type === 'birthday_self');
+    const hasSelf = windowFiltered.some((it) => it.type === 'birthday_self')
     const filtered = hasSelf
       ? windowFiltered.filter(
           (it) =>
             it.type !== 'birthday_digest_info' &&
             it.type !== 'birthday_digest'
         )
-      : windowFiltered;
+      : windowFiltered
 
-    // 4) Deduplicar por id
-    const seen = new Set<string>();
+    const seen = new Set<string>()
     const deduped = filtered.filter((it) => {
-      if (seen.has(it.id)) return false;
-      seen.add(it.id);
-      return true;
-    });
+      if (seen.has(it.id)) return false
+      seen.add(it.id)
+      return true
+    })
 
-    // 5) Ordenar por prioridad y fecha
     let result = deduped.sort((a, b) => {
-      const pa = priorityScore(a);
-      const pb = priorityScore(b);
-      if (pb !== pa) return pb - pa;
+      const pa = priorityScore(a)
+      const pb = priorityScore(b)
+      if (pb !== pa) return pb - pa
 
       if (a.type === 'holiday_notice' && b.type === 'holiday_notice') {
-        const ua = a.visibleUntil ? new Date(a.visibleUntil).getTime() : Infinity;
-        const ub = b.visibleUntil ? new Date(b.visibleUntil).getTime() : Infinity;
-        if (ua !== ub) return ua - ub;
+        const ua = a.visibleUntil ? new Date(a.visibleUntil).getTime() : Infinity
+        const ub = b.visibleUntil ? new Date(b.visibleUntil).getTime() : Infinity
+        if (ua !== ub) return ua - ub
       }
 
-      const ta = a.visibleFrom ? new Date(a.visibleFrom).getTime() : 0;
-      const tb = b.visibleFrom ? new Date(b.visibleFrom).getTime() : 0;
-      return tb - ta;
-    });
+      const ta = a.visibleFrom ? new Date(a.visibleFrom).getTime() : 0
+      const tb = b.visibleFrom ? new Date(b.visibleFrom).getTime() : 0
+      return tb - ta
+    })
 
-    // 🔁 Fallback importante:
-    // Si después de todos los filtros queda vacío PERO el backend mandó items,
-    // devolvemos la lista normalizada sin filtros para no ocultar nada (como tu digest).
     if (!result.length && normalized.length) {
       console.warn(
         '[news.service] resultado vacío tras filtros; usando normalized sin filtros',
@@ -177,61 +168,69 @@ export async function getHomeNews(): Promise<NewsItem[]> {
           backendItems: items.length,
           normalizedItems: normalized.length,
         }
-      );
-      result = normalized;
+      )
+      result = normalized
     }
 
-    return result;
+    return result
   } catch (err) {
-    console.error('[news.service] Error obteniendo /news/home', err);
-    return [];
+    console.error('[news.service] Error obteniendo /news/home', err)
+    return []
   }
 }
 
 /* ===== API: Crear Comunicado ===== */
 export type CreateAnnouncementPayload = {
-  title: string;
-  body?: string;
-  excerpt?: string;
-  ctaText?: string;
-  ctaTo?: string;
-  visibleFrom?: string | Date; // aceptamos Date o string
-  visibleUntil?: string | Date;
-  image?: File | null;
-};
-
-function toIsoIfDate(v: unknown): string | undefined {
-  if (v instanceof Date) return v.toISOString();
-  if (typeof v === 'string' && v.trim() !== '') return v;
-  return undefined;
+  title: string
+  body?: string | null
+  excerpt?: string | null
+  ctaText?: string | null
+  ctaTo?: string | null
+  visibleFrom?: string | Date | null
+  visibleUntil?: string | Date | null
+  image?: File | null
 }
 
-export async function createAnnouncement(payload: CreateAnnouncementPayload) {
-  const fd = new FormData();
+function toIsoIfDate(v: unknown): string | undefined {
+  if (v instanceof Date) return v.toISOString()
+  if (typeof v === 'string' && v.trim() !== '') return v
+  return undefined
+}
+
+export async function createAnnouncement(
+  payload: CreateAnnouncementPayload
+) {
+  const fd = new FormData()
 
   // Campos texto/fecha (sin undefined/empty)
-  if (payload.title) fd.append('title', payload.title);
-  if (payload.body) fd.append('body', payload.body);
-  if (payload.excerpt) fd.append('excerpt', payload.excerpt);
-  if (payload.ctaText) fd.append('ctaText', payload.ctaText);
-  if (payload.ctaTo) fd.append('ctaTo', payload.ctaTo);
+  if (payload.title) fd.append('title', payload.title)
+  if (payload.body) fd.append('body', payload.body)
+  if (payload.excerpt) fd.append('excerpt', payload.excerpt)
+  if (payload.ctaText) fd.append('ctaText', payload.ctaText)
+  if (payload.ctaTo) fd.append('ctaTo', payload.ctaTo)
 
-  const vf = toIsoIfDate(payload.visibleFrom);
-  const vu = toIsoIfDate(payload.visibleUntil);
-  if (vf) fd.append('visibleFrom', vf);
-  if (vu) fd.append('visibleUntil', vu);
+  const vf = toIsoIfDate(payload.visibleFrom ?? undefined)
+  const vu = toIsoIfDate(payload.visibleUntil ?? undefined)
+  if (vf) fd.append('visibleFrom', vf)
+  if (vu) fd.append('visibleUntil', vu)
 
   // Imagen (nombre de campo EXACTO: 'image')
   if (payload.image instanceof File) {
-    fd.append('image', payload.image, payload.image.name);
+    fd.append('image', payload.image, payload.image.name)
   }
 
   try {
-    const { data } = await api.post('/news/announcements', fd);
-    return data;
+    const { data } = await api.post('/news/announcements', fd, {
+      withCredentials: true,
+      headers: {
+        // dejamos que el navegador ponga el boundary correcto
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+    return data
   } catch (err) {
-    console.error('[Announcement] create error', err);
-    throw err;
+    console.error('[Announcement] create error', err)
+    throw err
   }
 }
 
@@ -240,39 +239,39 @@ export async function createAnnouncement(payload: CreateAnnouncementPayload) {
  * ======================================================= */
 
 export type AdminAnnouncement = NewsItem & {
-  body?: string;
-  status?: string;
-  isActive?: boolean;
-  priority?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  body?: string
+  status?: string
+  isActive?: boolean
+  priority?: string
+  createdAt?: string
+  updatedAt?: string
   /** true si actualmente está publicado y dentro de ventana de visibilidad */
-  published: boolean;
-};
+  published: boolean
+}
 
 type ServerAnnouncement = ServerNewsItem & {
-  status?: string;
-  isActive?: boolean;
-  priority?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  published?: boolean;
-};
+  status?: string
+  isActive?: boolean
+  priority?: string
+  createdAt?: string
+  updatedAt?: string
+  published?: boolean
+}
 
 type AdminListResponse = {
-  ok: boolean;
-  data: ServerAnnouncement[];
-};
+  ok: boolean
+  data: ServerAnnouncement[]
+}
 
 type AdminOneResponse = {
-  ok: boolean;
-  data: ServerAnnouncement;
-};
+  ok: boolean
+  data: ServerAnnouncement
+}
 
 function normalizeAdminAnnouncement(
   raw: ServerAnnouncement
 ): AdminAnnouncement {
-  const base = normalize(raw); // reaprovechamos normalización (tipos, imagen, excerpt...)
+  const base = normalize(raw)
   return {
     ...base,
     body: raw.body,
@@ -282,100 +281,93 @@ function normalizeAdminAnnouncement(
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     published: Boolean(raw.published),
-  };
+  }
 }
 
-/**
- * Obtiene la lista de comunicados para el administrador.
- * @param all true => ignora ventana de visibilidad (usa ?all=true)
- */
 export async function fetchAdminAnnouncements(
   all: boolean = true
 ): Promise<AdminAnnouncement[]> {
   try {
     const { data } = await api.get<AdminListResponse>('/news/announcements', {
       params: all ? { all: 'true' } : {},
-    });
+    })
 
-    const items: ServerAnnouncement[] = data?.data ?? [];
-    return items.map(normalizeAdminAnnouncement);
+    const items: ServerAnnouncement[] = data?.data ?? []
+    return items.map(normalizeAdminAnnouncement)
   } catch (err) {
-    console.error('[Announcement] admin list error', err);
-    throw err;
+    console.error('[Announcement] admin list error', err)
+    throw err
   }
 }
 
-/**
- * Payload para actualizar comunicado.
- * Todos los campos son opcionales.
- */
 export type UpdateAnnouncementPayload = Partial<CreateAnnouncementPayload> & {
-  status?: string;
-  isActive?: boolean;
-  priority?: string;
-};
+  status?: string
+  isActive?: boolean
+  priority?: string
+}
 
 export async function updateAnnouncement(
   id: string,
   payload: UpdateAnnouncementPayload
 ): Promise<AdminAnnouncement> {
-  const fd = new FormData();
+  const fd = new FormData()
 
-  // Solo agregamos campos que vengan definidos (permitimos limpiar algunos con null/string vacía)
-  if (payload.title !== undefined) fd.append('title', payload.title ?? '');
-  if (payload.body !== undefined) fd.append('body', payload.body ?? '');
-  if (payload.excerpt !== undefined) fd.append('excerpt', payload.excerpt ?? '');
-  if (payload.ctaText !== undefined)
-    fd.append('ctaText', payload.ctaText ?? '');
-  if (payload.ctaTo !== undefined) fd.append('ctaTo', payload.ctaTo ?? '');
+  if (payload.title !== undefined) fd.append('title', payload.title ?? '')
+  if (payload.body !== undefined) fd.append('body', payload.body ?? '')
+  if (payload.excerpt !== undefined) fd.append('excerpt', payload.excerpt ?? '')
+  if (payload.ctaText !== undefined) fd.append('ctaText', payload.ctaText ?? '')
+  if (payload.ctaTo !== undefined) fd.append('ctaTo', payload.ctaTo ?? '')
 
   if (payload.visibleFrom !== undefined) {
-    const vf = toIsoIfDate(payload.visibleFrom);
-    if (vf) fd.append('visibleFrom', vf);
-    else fd.append('visibleFrom', '');
+    const vf = toIsoIfDate(payload.visibleFrom)
+    if (vf) fd.append('visibleFrom', vf)
+    else fd.append('visibleFrom', '')
   }
 
   if (payload.visibleUntil !== undefined) {
-    const vu = toIsoIfDate(payload.visibleUntil);
-    if (vu) fd.append('visibleUntil', vu);
-    else fd.append('visibleUntil', '');
+    const vu = toIsoIfDate(payload.visibleUntil)
+    if (vu) fd.append('visibleUntil', vu)
+    else fd.append('visibleUntil', '')
   }
 
   if (payload.status !== undefined) {
-    fd.append('status', payload.status);
+    fd.append('status', payload.status)
   }
   if (payload.isActive !== undefined) {
-    fd.append('isActive', String(payload.isActive));
+    fd.append('isActive', String(payload.isActive))
   }
   if (payload.priority !== undefined) {
-    fd.append('priority', payload.priority);
+    fd.append('priority', payload.priority)
   }
 
   if (payload.image instanceof File) {
-    fd.append('image', payload.image, payload.image.name);
+    fd.append('image', payload.image, payload.image.name)
   }
 
   try {
     const { data } = await api.put<AdminOneResponse>(
       `/news/announcements/${id}`,
-      fd
-    );
-    const raw = data.data;
-    return normalizeAdminAnnouncement(raw);
+      fd,
+      {
+        withCredentials: true,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    )
+    const raw = data.data
+    return normalizeAdminAnnouncement(raw)
   } catch (err) {
-    console.error('[Announcement] update error', err);
-    throw err;
+    console.error('[Announcement] update error', err)
+    throw err
   }
 }
 
-/**
- * Elimina (quitar) un comunicado por id.
- */
 export async function deleteAnnouncement(id: string): Promise<void> {
   try {
-    await api.delete(`/news/announcements/${id}`);
+    await api.delete(`/news/announcements/${id}`, { withCredentials: true })
   } catch (err) {
-    console.error('[Announcement] delete error', err);
-    throw err;
+    console.error('[Announcement] delete error', err)
+    throw err
   }
 }
