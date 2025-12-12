@@ -19,14 +19,14 @@ import { fileURLToPath } from 'url'
 import { verifyEmailTransport } from './services/emailService.js'
 import cron from 'node-cron'
 
-// ⬇️ IMPORTS ACTUALIZADOS (correos de cumpleaños)
+// ⬇️ IMPORTS ACTUALIZADOS (correos de cumpleaños y festivos)
 import {
   sendBirthdayEmailsIfDue,
   sendBirthdayDigestToAllIfDue,
   checkAllUpcomingHolidays,
 } from './services/notificationService.js'
 
-import schedule from 'node-schedule' // job de festivos (lo mantengo)
+import schedule from 'node-schedule' // job de festivos
 
 dotenv.config()
 
@@ -137,7 +137,7 @@ app.use(compression())
 
 /* ===== /uploads estático (ÚNICO y alineado con uploadService) ===== */
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/tmp/uploads'
-console.log('📂 UPLOAD_DIR estático:', UPLOAD_DIR) // 👈 para depurar en local/Render
+console.log('📂 UPLOAD_DIR estático:', UPLOAD_DIR)
 app.use('/uploads', express.static(UPLOAD_DIR))
 
 /** Health */
@@ -161,11 +161,10 @@ verifyEmailTransport().catch(() => {})
 
 /** ==================== JOBS PROGRAMADOS ==================== */
 
-// ... (todo lo de cron y jobs lo dejo igual que lo tienes)
-
-const CRON_ENABLED = process.env.CRON_ENABLED !== 'false'
-const CRON_SPEC = process.env.CRON_BDAY_SPEC || '0 8 * * *'
-const CRON_TZ = 'America/Mexico_City'
+/** Cron: correos de cumpleaños diario (08:00 MX por defecto) */
+const CRON_ENABLED = process.env.CRON_ENABLED !== 'false'            // default: true
+const CRON_SPEC    = process.env.CRON_BDAY_SPEC || '0 8 * * *'       // 08:00 todos los días
+const CRON_TZ      = 'America/Mexico_City'
 
 if (CRON_ENABLED) {
   cron.schedule(
@@ -173,7 +172,10 @@ if (CRON_ENABLED) {
     async () => {
       try {
         console.log('[cron] Ejecutando correos de cumpleaños…')
-        await Promise.all([sendBirthdayEmailsIfDue(), sendBirthdayDigestToAllIfDue()])
+        await Promise.all([
+          sendBirthdayEmailsIfDue(),        // correo personal a cada cumpleañero
+          sendBirthdayDigestToAllIfDue(),   // digest a toda la empresa
+        ])
         console.log('[cron] Cumpleaños OK')
       } catch (err) {
         console.error('[cron] Error en correos de cumpleaños:', err)
@@ -185,7 +187,41 @@ if (CRON_ENABLED) {
   console.log(`[cron] Programado cumpleaños: "${CRON_SPEC}" TZ=${CRON_TZ}`)
 }
 
-// ... resto del código igual (job de festivos, rutas, error handler, etc.)
+/** Job: Verificación de festivos próximos (09:00 MX por defecto) */
+const HOLIDAY_JOB_ENABLED = process.env.HOLIDAY_JOB_ENABLED !== 'false' // default: true
+const HOLIDAY_JOB_SPEC    = process.env.HOLIDAY_JOB_SPEC || '0 9 * * *'  // 09:00 todos los días
+
+const startHolidayNotificationJob = () => {
+  if (HOLIDAY_JOB_ENABLED) {
+    // Job programado diario
+    schedule.scheduleJob(HOLIDAY_JOB_SPEC, async () => {
+      try {
+        console.log('🕘 [job] Ejecutando verificación diaria de festivos...')
+        const notificationsSent = await checkAllUpcomingHolidays()
+        console.log(`📨 [job] Verificación completada. Notificaciones enviadas: ${notificationsSent}`)
+      } catch (error) {
+        console.error('❌ [job] Error en verificación de festivos:', error)
+      }
+    })
+
+    // Ejecutar inmediatamente al iniciar (útil en pruebas)
+    setTimeout(async () => {
+      try {
+        console.log('🚀 [job] Verificación inicial de festivos al iniciar...')
+        const notificationsSent = await checkAllUpcomingHolidays()
+        console.log(`📨 [job] Verificación inicial completada. Notificaciones enviadas: ${notificationsSent}`)
+      } catch (error) {
+        console.error('❌ [job] Error en verificación inicial de festivos:', error)
+      }
+    }, 10000)
+
+    console.log(`[job] Programada verificación de festivos: "${HOLIDAY_JOB_SPEC}"`)
+  } else {
+    console.log('[job] Verificación de festivos deshabilitada (HOLIDAY_JOB_ENABLED=false)')
+  }
+}
+
+/** ==================== FIN JOBS PROGRAMADOS ==================== */
 
 /** Rutas API */
 app.use('/api/auth', authRoutes)
@@ -199,6 +235,10 @@ app.use('/api/*', (_req, res) => {
   res.status(404).json({ success: false, message: 'Endpoint no encontrado' })
 })
 
+/**
+ * (Opcional) Servir frontend build local sólo si quieres monolito.
+ * Para Render + Vercel, déjalo apagado (SERVE_STATIC != 'true').
+ */
 if (process.env.SERVE_STATIC === 'true') {
   app.use(express.static(path.join(__dirname, '../../cliente/dist')))
   app.get('*', (_req, res) => {
@@ -219,8 +259,9 @@ const server = app.listen(port, () => {
       originRegex ? originRegex.source : 'N/A'
     }`
   )
-  console.log(`🌐 PUBLIC_BASE_URL (para correos): ${process.env.PUBLIC_BASE_URL || '(no definido)'}`) // 👈 clave para imágenes en email
+  console.log(`🌐 PUBLIC_BASE_URL (para correos): ${process.env.PUBLIC_BASE_URL || '(no definido)'}`)
 
+  // Iniciar job de festivos una vez que el server está listo
   startHolidayNotificationJob()
 })
 
