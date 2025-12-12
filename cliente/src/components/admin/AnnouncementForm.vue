@@ -7,7 +7,11 @@
     </label>
 
     <label>Resumen (se ve en el carrusel)
-      <input v-model.trim="form.excerpt" maxlength="140" placeholder="Máx. 140 caracteres" />
+      <input
+        v-model.trim="form.excerpt"
+        maxlength="140"
+        placeholder="Máx. 140 caracteres"
+      />
     </label>
 
     <label>Contenido (opcional)
@@ -33,7 +37,11 @@
     </div>
 
     <label>Imagen (opcional)
-      <input type="file" accept="image/*" @change="onFile" />
+      <input
+        type="file"
+        accept="image/*"
+        @change="onFile"
+      />
     </label>
 
     <button class="btn primary" :disabled="isDisabled">
@@ -46,6 +54,11 @@
 import { ref, computed } from 'vue'
 import { createAnnouncement } from '@/services/news.service'
 import type { CreateAnnouncementPayload } from '@/services/news.service'
+
+// Emit para avisar al padre que se creó un anuncio
+const emit = defineEmits<{
+  (e: 'created'): void
+}>()
 
 const form = ref<CreateAnnouncementPayload>({
   title: '',
@@ -63,6 +76,20 @@ const loading = ref<boolean>(false)
 function onFile(e: Event): void {
   const input = e.target as HTMLInputElement | null
   const file = input?.files?.[0] ?? null
+
+  if (!file) {
+    form.value.image = null
+    return
+  }
+
+  // Validar que realmente sea imagen
+  if (!file.type.startsWith('image/')) {
+    alert('El archivo debe ser una imagen')
+    input!.value = ''
+    form.value.image = null
+    return
+  }
+
   form.value.image = file
 }
 
@@ -88,11 +115,14 @@ function resetForm(): void {
 }
 
 async function submit(): Promise<void> {
+  if (isDisabled.value) return
+
   loading.value = true
   try {
     await createAnnouncement(form.value)
     alert('Comunicado publicado y enviado por correo ✅')
     resetForm()
+    emit('created')
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Error desconocido'
     console.error('[AnnouncementForm] Error al publicar:', err)
