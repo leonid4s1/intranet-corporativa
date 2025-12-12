@@ -172,12 +172,16 @@ watch(
   box-shadow: 0 6px 24px rgba(0,0,0,.08);
 }
 
-/* Imagen */
+/* Imagen: modo "poster" (no recorta) */
 .card__image {
-  width: 100%;
-  max-height: 220px;
-  object-fit: cover;
+  display: block;
+  max-width: 100%;
+  max-height: 320px;      /* desktop */
+  margin: 10px auto 0;
+
+  object-fit: contain;    /* 👈 se ve completa */
   border-radius: 12px;
+  background: #f9fafb;    /* relleno suave si sobran lados */
   outline: 1px solid rgba(0,0,0,.05);
 }
 
@@ -291,5 +295,17 @@ watch(
   .card{ min-height: 140px; }
   .card__title{ font-size: 18px; }
   .card .card__body{ font-size: .95rem; }
+
+  /* imagen un poco más compacta en móvil */
+  .card__image{
+    max-height: 240px;
+  }
+}
+
+/* Más alto en pantallas grandes si hace falta */
+@media (min-width: 1024px){
+  .card__image{
+    max-height: 380px;
+  }
 }
 </style>
