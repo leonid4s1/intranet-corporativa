@@ -1,7 +1,5 @@
 // server/src/routes/news.js
 import { Router } from 'express';
-// OJO: usa la forma de export real de tu middleware.
-// Si en middleware/auth.js exportas named => { auth }, si es default => auth
 import auth from '../middleware/auth.js';
 import admin from '../middleware/admin.js';
 
@@ -14,12 +12,12 @@ import {
 } from '../controllers/newsController.js';
 
 import News from '../models/News.js';
-import { upload } from '../services/uploadService.js'; // ← usa el servicio central
+import { upload } from '../services/uploadService.js'; // 👈 servicio central de uploads
 
 const router = Router();
 
 /* =========================
- * HOME FEED
+ * HOME FEED (usuario)
  * ========================= */
 router.get('/home', auth, getHomeNews);
 
@@ -32,24 +30,24 @@ router.post(
   '/announcements',
   auth,
   admin,
-  upload.single('image'), // ← campo DEBE ser 'image'
+  upload.single('image'),   // 👈 el campo del form debe llamarse 'image'
   createAnnouncement
 );
 
 // Listar comunicados para el admin
-// Puedes usar query ?all=true para ver TODOS, o sin query para solo visibles
+// ?all=true => todos, sin filtrar por ventana de visibilidad
 router.get('/announcements', auth, admin, listAnnouncements);
 
-// Actualizar comunicado existente
+// Actualizar comunicado existente (también puede cambiar imagen)
 router.put(
   '/announcements/:id',
   auth,
   admin,
-  upload.single('image'), // también permite cambiar imagen
+  upload.single('image'),   // 👈 permite reemplazar la imagen
   updateAnnouncement
 );
 
-// Eliminar (quitar) comunicado
+// Eliminar comunicado
 router.delete('/announcements/:id', auth, admin, deleteAnnouncement);
 
 /* =========================
