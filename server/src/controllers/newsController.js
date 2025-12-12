@@ -345,6 +345,17 @@ export const getHomeFeed = getHomeNews;
  */
 export const createAnnouncement = async (req, res, next) => {
   try {
+    console.log('[announcement] CT:', req.headers['content-type']);
+    console.log(
+      '[announcement] body keys:',
+      Object.keys(req.body || {})
+    );
+    console.log(
+      '[announcement] file:',
+      !!req.file,
+      req.file?.mimetype,
+      req.file?.size
+    );
     const {
       title,
       body,

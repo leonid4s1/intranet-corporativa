@@ -222,10 +222,6 @@ export async function createAnnouncement(
   try {
     const { data } = await api.post('/news/announcements', fd, {
       withCredentials: true,
-      headers: {
-        // dejamos que el navegador ponga el boundary correcto
-        'Content-Type': 'multipart/form-data',
-      },
     })
     return data
   } catch (err) {
@@ -350,9 +346,6 @@ export async function updateAnnouncement(
       fd,
       {
         withCredentials: true,
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
       }
     )
     const raw = data.data
