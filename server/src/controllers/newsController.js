@@ -160,8 +160,25 @@ export const getHomeNews = async (req, res, next) => {
     res.set('ETag', `homefeed-${today.toISOString().slice(0, 10)}`);
 
     // 1) Noticias publicadas (mínimo) — excluye tipo legacy holiday_notification
+    const userId = req.user?._id;
+
+    const baseFilter = { status: 'published', type: { $ne: 'holiday_notification' } };
+
+    // Audiencias (si hay usuario logueado)
+    if (userId) {
+      baseFilter.$and = baseFilter.$and || [];
+      baseFilter.$and.push({
+        $or: [
+          { targetUserIds: { $exists: false } },
+          { targetUserIds: { $size: 0 } },
+          { targetUserIds: userId },
+        ],
+      });
+      baseFilter.excludeUserIds = { $ne: userId };
+    }
+
     const published = await News.find(
-      { status: 'published', type: { $ne: 'holiday_notification' } },
+      baseFilter,
       {
         title: 1,
         body: 1,
@@ -415,22 +432,47 @@ export const createAnnouncement = async (req, res, next) => {
  */
 export const listAnnouncements = async (req, res, next) => {
   try {
-    const all = req.query.all === 'true';
+    const isAdmin = req.user?.role === 'admin';
+    const all = isAdmin && req.query.all === 'true'; // 👈 SOLO admin puede all=true
     const now = new Date();
 
     const filter = { type: 'announcement' };
 
     if (!all) {
-      // Solo los visibles y activos para vista pública
+      // Solo los visibles y activos para usuarios normales
       filter.$or = [
         { visibleUntil: null, visibleFrom: { $lte: now } },
         { visibleFrom: { $lte: now }, visibleUntil: { $gt: now } },
       ];
       filter.status = 'published';
       filter.isActive = true;
+
+      // ==========================
+      // AUDIENCIAS (personalización)
+      // ==========================
+      const userId = req.user?._id;
+
+      if (userId) {
+        // (A) Si targetUserIds tiene valores:
+        //     - SOLO lo ven los incluidos
+        //     - Si está vacío/no existe => público
+        filter.$and = filter.$and || [];
+        filter.$and.push({
+          $or: [
+            { targetUserIds: { $exists: false } },
+            { targetUserIds: { $size: 0 } },
+            { targetUserIds: userId },
+          ],
+        });
+
+        // (B) Si el usuario está excluido, NO lo ve
+        filter.excludeUserIds = { $ne: userId };
+      }
     }
 
-    const raw = await News.find(filter).sort({ visibleFrom: -1 }).lean();
+    const raw = await News.find(filter)
+      .sort({ visibleFrom: -1 })
+      .lean();
 
     const items = raw.map((n) => {
       const visibleFrom = n.visibleFrom ? new Date(n.visibleFrom) : null;

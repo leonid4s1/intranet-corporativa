@@ -40,6 +40,13 @@ const NewsSchema = new mongoose.Schema(
     ctaText: { type: String, default: null },    // “Ver más”
     ctaTo: { type: String, default: null },      // URL absoluta/relativa
 
+    /* === Audiencias (personalización intranet) ===
+     * - Si targetUserIds tiene elementos: SOLO esos usuarios ven el comunicado.
+     * - Si targetUserIds está vacío: lo ve cualquiera, excepto los de excludeUserIds.
+     */
+    targetUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', default: [] }],
+    excludeUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', default: [] }],
+
     /* === Auditoría === */
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }
   },
@@ -50,6 +57,10 @@ const NewsSchema = new mongoose.Schema(
 NewsSchema.index({ type: 1, status: 1, isActive: 1, visibleFrom: -1 });
 NewsSchema.index({ visibleFrom: 1 });
 NewsSchema.index({ visibleUntil: 1 });
+
+// Nuevos: para filtrar por usuario rápidamente
+NewsSchema.index({ targetUserIds: 1, visibleFrom: -1 });
+NewsSchema.index({ excludeUserIds: 1, visibleFrom: -1 });
 
 /* === Normalizaciones y compatibilidad === */
 NewsSchema.pre('save', function (next) {

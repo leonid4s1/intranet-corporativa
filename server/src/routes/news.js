@@ -36,7 +36,7 @@ router.post(
 
 // Listar comunicados para el admin
 // ?all=true => todos, sin filtrar por ventana de visibilidad
-router.get('/announcements', auth, admin, listAnnouncements);
+router.get('/announcements', auth, listAnnouncements);
 
 // Actualizar comunicado existente (también puede cambiar imagen)
 router.put(
