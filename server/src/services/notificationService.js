@@ -74,6 +74,18 @@ function mmddUTC(date) {
   return `${mm}-${dd}`;
 }
 
+function eightAMMX(d = new Date()) {
+  const n = startOfDayInMX(d);
+  n.setHours(8, 0, 0, 0);
+  return n;
+}
+
+function tomorrowEightAMMX(d = new Date()) {
+  const n = addDays(startOfDayInMX(d), 1);
+  n.setHours(8, 0, 0, 0);
+  return n;
+}
+
 /* ===============================
  *   Helpers de envío de correo
  * =============================== */
@@ -345,14 +357,44 @@ export async function sendBirthdayEmailsIfDue() {
     return { sent: false, reason: "no-birthdays" };
   }
 
-  // ====== envío 1:1 con batches (anti-límite Gmail) ======
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const chunkArray = (arr, size) => {
-    const out = [];
-    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-    return out;
-  };
+  // ✅ Crear comunicado PERSONAL en intranet (solo cumpleañero)
+  const visibleFrom = eightAMMX(new Date());
+  const visibleUntil = tomorrowEightAMMX(new Date());
+  // ⛔ NO redeclares dayKey aquí: ya existe arriba en la función
 
+  await Promise.allSettled(
+    birthdayUsers.map(async (u) => {
+      const title = `🎂 ¡Feliz cumpleaños, ${u.name || 'colaborador/a'}!`;
+      const marker = `birthday_self:${dayKey}:${String(u._id)}`;
+
+      // Evitar duplicados (idempotente por día y usuario)
+      const exists = await News.findOne({
+        type: 'birthday_self',
+        excerpt: marker,
+      }).lean();
+
+      if (exists) return;
+
+      await News.create({
+        type: 'birthday_self',
+        title,
+        body: '¡Que tengas un excelente día! 🎉',
+        excerpt: marker, // 👈 clave única diaria
+        date: new Date(),
+        department: 'General',
+        status: 'published',
+        isActive: true,
+        priority: 'high',
+        visibleFrom,
+        visibleUntil,
+
+        targetUserIds: [u._id], // 👈 SOLO el cumpleañero
+        excludeUserIds: [],
+      });
+    })
+  );
+
+  // ====== envío 1:1 con batches (anti-límite Gmail) ======
   const batchSize = Number(process.env.EMAIL_BATCH_SIZE || 5);
   const batchDelayMs = Number(process.env.EMAIL_BATCH_DELAY_MS || 1200);
 
@@ -378,7 +420,6 @@ export async function sendBirthdayEmailsIfDue() {
       })
     );
 
-    // sendEmail regresa { ok: true/false, ... }
     for (const r of results) {
       if (r.status === "fulfilled" && r.value?.ok === true) sentOk++;
       else failed++;
@@ -409,11 +450,13 @@ export async function sendBirthdayEmailsIfDue() {
  * ========================================================= */
 export async function sendBirthdayDigestToAllIfDue() {
   const dayKey = dayKeyMX(startOfDayInMX(new Date()));
+
   const existed = await DailyLock.findOneAndUpdate(
     { type: 'birthday_digest_v2', dateKey: dayKey },
     { $setOnInsert: { createdAt: new Date() } },
     { upsert: true, new: false }
   ).lean();
+
   if (existed) return { sent: false, reason: 'already-sent' };
 
   const tagToday = mmddTodayMX();
@@ -442,6 +485,42 @@ export async function sendBirthdayDigestToAllIfDue() {
     return { sent: false, reason: 'no-birthdays' };
   }
 
+  // ✅ Crear comunicado EMPRESA (todos menos cumpleañeros)
+  {
+    const visibleFrom = eightAMMX(new Date());
+    const visibleUntil = tomorrowEightAMMX(new Date());
+
+    const names = birthdayUsers.map((u) => u?.name || u?.email).join(', ');
+    const title = '🎂 Cumpleaños de hoy';
+    const body = `Hoy celebramos a: ${names}. ¡Felicítenl@s! 🎂`;
+
+    const marker = `birthday_digest_info:${dayKey}`;
+
+    const exists = await News.findOne({
+      type: 'birthday_digest_info',
+      excerpt: marker,
+    }).lean();
+
+    if (!exists) {
+      await News.create({
+        type: 'birthday_digest_info',
+        title,
+        body,
+        excerpt: marker,
+        date: new Date(),
+        department: 'General',
+        status: 'published',
+        isActive: true,
+        priority: 'medium',
+        visibleFrom,
+        visibleUntil,
+
+        targetUserIds: [], // público
+        excludeUserIds: birthdayUsers.map((u) => u._id), // excepto cumpleañeros
+      });
+    }
+  }
+
   const toList = await collectRecipientEmails();
   if (!toList.length) return { sent: false, reason: 'no-recipients' };
 
@@ -454,11 +533,13 @@ export async function sendBirthdayDigestToAllIfDue() {
   `;
 
   await safeSendEmail({ to: toList, subject, html });
+
   await DailyLock.create({
     type: 'birthday_digest_v2',
     dateKey: dayKey,
     at: new Date(),
   });
+
   return { sent: true, count: toList.length };
 }
 
