@@ -93,16 +93,37 @@ async function collectRecipientEmails() {
   return Array.from(set);
 }
 
-async function safeSendEmail({ to, subject, html }) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function chunkArray(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+async function safeSendEmail(
+  { to, subject, html },
+  {
+    batchSize = Number(process.env.EMAIL_BATCH_SIZE || 5),     // 5 por lote
+    batchDelayMs = Number(process.env.EMAIL_BATCH_DELAY_MS || 1200), // 1.2s entre lotes
+  } = {}
+) {
   if (!Array.isArray(to) || to.length === 0) {
-    console.warn('⚠ safeSendEmail: lista de destinatarios vacía');
-    return false;
+    console.warn("⚠ safeSendEmail: lista de destinatarios vacía");
+    return { ok: false, sent: 0, failed: 0, total: 0 };
   }
 
-  try {
-    // Enviar UN correo por destinatario para no exponer la lista completa
-    await Promise.all(
-      to.map((email) =>
+  const batches = chunkArray(to, Math.max(1, batchSize));
+
+  let sent = 0;
+  let failed = 0;
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+
+    // 1 correo por persona => no expones la lista completa
+    const results = await Promise.allSettled(
+      batch.map((email) =>
         sendEmail({
           to: email,
           subject,
@@ -111,14 +132,23 @@ async function safeSendEmail({ to, subject, html }) {
       )
     );
 
-    return true;
-  } catch (err) {
-    console.error(
-      '✉️  Error enviando correo:',
-      err?.response?.body || err?.message || err
+    // sendEmail regresa { ok: true/false, ... }
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value?.ok === true) sent++;
+      else failed++;
+    }
+
+    console.log(
+      `[email] batch ${i + 1}/${batches.length}: sent=${sent} failed=${failed} (+${batch.length})`
     );
-    return false;
+
+    // pausa entre lotes (menos la última)
+    if (i < batches.length - 1) await sleep(batchDelayMs);
   }
+
+  if (failed > 0) console.warn(`[email] algunos correos fallaron: ${failed}`);
+
+  return { ok: failed === 0, sent, failed, total: to.length };
 }
 
 /* ========================================
@@ -208,10 +238,15 @@ export async function notifyAllUsersAboutAnnouncement(recipientsOrNull, news) {
       </div>
     `;
 
-    const ok = await safeSendEmail({ to, subject, html });
-    if (ok) console.log(`📨 Comunicado enviado a ${to.length} cuentas`);
-    else console.warn('⚠ Comunicado NO enviado');
-    return ok;
+    const result = await safeSendEmail({ to, subject, html });
+
+    console.log(
+      `[email] comunicado: sent=${result.sent} failed=${result.failed} total=${result.total}`
+    );
+
+    if (result.failed > 0) console.warn("⚠ Comunicado: algunos correos fallaron");
+
+    return result.ok;
   } catch (err) {
     console.error('❌ notifyAllUsersAboutAnnouncement error:', err?.message || err);
     return false;
@@ -269,18 +304,18 @@ export async function sendBirthdayEmailsIfDue() {
 
   // si ya existe lock para hoy, no volvemos a enviar
   const existed = await DailyLock.findOneAndUpdate(
-    { type: 'bday_personal_v2', dateKey: dayKey },
+    { type: "bday_personal_v2", dateKey: dayKey },
     { $setOnInsert: { createdAt: new Date() } },
     { upsert: true, new: false }
   ).lean();
 
-  console.log('[birthdays][personal] sendBirthdayEmailsIfDue llamado', {
+  console.log("[birthdays][personal] sendBirthdayEmailsIfDue llamado", {
     dayKey,
     existed: !!existed,
   });
 
   if (existed) {
-    return { sent: false, reason: 'already-sent' };
+    return { sent: false, reason: "already-sent" };
   }
 
   // Cumpleañeros HOY
@@ -299,29 +334,73 @@ export async function sendBirthdayEmailsIfDue() {
   );
 
   console.log(
-    '[birthdays][cron-personal] todayMMDD',
+    "[birthdays][cron-personal] todayMMDD",
     tagToday,
-    'count',
+    "count",
     birthdayUsers.length
   );
 
   if (!birthdayUsers.length) {
     // ya dejamos el lock arriba, solo salimos
-    return { sent: false, reason: 'no-birthdays' };
+    return { sent: false, reason: "no-birthdays" };
   }
 
-  // un correo a cada cumpleañero
-  await Promise.all(
-    birthdayUsers.map((u) => {
-      const html = `
-        <h2>🎂 ¡Feliz cumpleaños, ${u.name || 'colaborador/a'}!</h2>
-        <p>Te deseamos un gran día de parte de todo el equipo.</p>
-      `;
-      return sendEmail({ to: u.email, subject: '🎉 ¡Feliz cumpleaños!', html });
-    })
-  );
+  // ====== envío 1:1 con batches (anti-límite Gmail) ======
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const chunkArray = (arr, size) => {
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+  };
 
-  return { sent: true, count: birthdayUsers.length };
+  const batchSize = Number(process.env.EMAIL_BATCH_SIZE || 5);
+  const batchDelayMs = Number(process.env.EMAIL_BATCH_DELAY_MS || 1200);
+
+  let sentOk = 0;
+  let failed = 0;
+
+  const batches = chunkArray(birthdayUsers, Math.max(1, batchSize));
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+
+    const results = await Promise.allSettled(
+      batch.map((u) => {
+        const html = `
+          <h2>🎂 ¡Feliz cumpleaños, ${u.name || "colaborador/a"}!</h2>
+          <p>Te deseamos un gran día de parte de todo el equipo.</p>
+        `;
+        return sendEmail({
+          to: u.email,
+          subject: "🎉 ¡Feliz cumpleaños!",
+          html,
+        });
+      })
+    );
+
+    // sendEmail regresa { ok: true/false, ... }
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value?.ok === true) sentOk++;
+      else failed++;
+    }
+
+    console.log(
+      `[birthdays][personal] batch ${i + 1}/${batches.length}: sentOk=${sentOk} failed=${failed}`
+    );
+
+    if (i < batches.length - 1) await sleep(batchDelayMs);
+  }
+
+  if (failed > 0) {
+    console.warn(`[birthdays][personal] algunos correos fallaron: ${failed}`);
+  }
+
+  return {
+    sent: true,
+    count: birthdayUsers.length,
+    sentOk,
+    failed,
+  };
 }
 
 /* =========================================================

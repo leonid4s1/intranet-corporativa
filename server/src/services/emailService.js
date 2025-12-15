@@ -1,151 +1,102 @@
 // server/src/services/emailService.js
-import nodemailer from 'nodemailer';
-import sgMail from '@sendgrid/mail';            // ← API HTTP (recomendada)
-import { Resend } from 'resend';                // ← opcional: otro API HTTP
+import nodemailer from "nodemailer";
 
 const {
-  // API keys (usa al menos una)
-  SENDGRID_API_KEY,
-  RESEND_API_KEY,
-
-  // SMTP (fallback)
-  EMAIL_USER,
-  EMAIL_PASSWORD,
+  SMTP_HOST = "smtp.gmail.com",
+  SMTP_PORT = "587",          // recomendado Gmail
+  SMTP_USER,
+  SMTP_PASS,                 // App Password (16 chars)
   MAIL_FROM,
-  SMTP_HOST = 'smtp.gmail.com',
 } = process.env;
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Transports SMTP (solo fallback, Render los bloquea actualmente)
-const tx465 = nodemailer.createTransport({
-  host: SMTP_HOST, port: 465, secure: true,
-  auth: { user: EMAIL_USER, pass: EMAIL_PASSWORD },
-  pool: true, maxConnections: 3, maxMessages: 50,
-  connectionTimeout: 30000, greetingTimeout: 30000, socketTimeout: 45000,
-});
+function createTransport() {
+  const port = Number(SMTP_PORT || 587);
 
-const tx587 = nodemailer.createTransport({
-  host: SMTP_HOST, port: 587, secure: false, requireTLS: true,
-  auth: { user: EMAIL_USER, pass: EMAIL_PASSWORD },
-  pool: true, maxConnections: 3, maxMessages: 50,
-  connectionTimeout: 30000, greetingTimeout: 30000, socketTimeout: 45000,
-});
+  // Gmail recomendado: 587 con STARTTLS
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port,
+    secure: false,      // 587 => false
+    requireTLS: true,
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    },
+    // timeouts para que no se quede colgado
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 45000,
+  });
+}
 
 async function sendWithTimeout(promise, ms) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('email-timeout')), ms)),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("email-timeout")), ms)
+    ),
   ]);
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-/** Llamada en el arranque: loguea qué proveedor usaremos */
+/** Llamada en el arranque: valida SMTP y loguea estado */
 export async function verifyEmailTransport() {
   try {
-    if (SENDGRID_API_KEY) {
-      sgMail.setApiKey(SENDGRID_API_KEY);
-      console.log('[email] SendGrid listo (API)');
-      return true;
+    if (!SMTP_USER || !SMTP_PASS) {
+      console.error("[email] faltan SMTP_USER/SMTP_PASS en variables de entorno");
+      return false;
     }
-    if (RESEND_API_KEY) {
-      // No hay verify explícito; si hay key asumimos OK
-      console.log('[email] Resend listo (API)');
-      return true;
-    }
-    // Fallback SMTP (no recomendado en Render, normalmente bloqueado)
-    try {
-      await tx465.verify(); console.log('[email] SMTP listo (465)'); return true;
-    } catch (e1) {
-      console.error('[email] verify 465 falló:', e1?.message || e1);
-      await tx587.verify(); console.log('[email] SMTP listo (587)'); return true;
-    }
-  } catch (e2) {
-    console.error('[email] verify 587 falló:', e2?.message || e2);
+    const tx = createTransport();
+    await tx.verify();
+    console.log(`[email] SMTP listo (Gmail ${SMTP_HOST}:${SMTP_PORT})`);
+    return true;
+  } catch (e) {
+    console.error("[email] SMTP verify falló:", e?.message || e);
     return false;
   }
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
-/** Envía correo sin romper el flujo HTTP; prioriza API HTTP, luego SMTP. */
+/**
+ * Envía correo sin romper el flujo HTTP.
+ * Regresa un objeto {ok, messageId?, error?} para que puedas contar éxitos reales.
+ */
 export async function sendMailSafe(mail, timeoutMs = 45000) {
-  const from = mail.from || MAIL_FROM || EMAIL_USER;
+  const from = mail.from || MAIL_FROM || SMTP_USER;
 
-  // 1) SendGrid (recomendado)
-  if (SENDGRID_API_KEY) {
-    try {
-      sgMail.setApiKey(SENDGRID_API_KEY);
-      const msg = {
-        to: mail.to,
-        from,                                  // Debe estar verificado en SendGrid (Single Sender o dominio)
-        subject: mail.subject,
-        // si llega html usamos html; si no, text
-        html: mail.html,
-        text: mail.text || undefined,
-      };
-      await sendWithTimeout(sgMail.send(msg), timeoutMs);
-      console.log('[email] enviado (SendGrid)');
-      return;
-    } catch (e) {
-      console.error('[email] SendGrid fallo:', e?.message || e);
-      // seguimos a otros providers
-    }
+  if (!SMTP_USER || !SMTP_PASS) {
+    const msg = "SMTP_USER/SMTP_PASS no configurados";
+    console.error("[email] " + msg);
+    return { ok: false, error: msg };
   }
 
-  // 2) Resend (opcional)
-  if (RESEND_API_KEY) {
-    try {
-      const resend = new Resend(RESEND_API_KEY);
-      await sendWithTimeout(
-        resend.emails.send({
-          from,                                 // Requiere dominio verificado en Resend
-          to: Array.isArray(mail.to) ? mail.to : [mail.to],
-          subject: mail.subject,
-          html: mail.html,
-          text: mail.text || undefined,
-        }),
-        timeoutMs
-      );
-      console.log('[email] enviado (Resend)');
-      return;
-    } catch (e) {
-      console.error('[email] Resend fallo:', e?.message || e);
-      // seguimos a SMTP
-    }
-  }
-
-  // 3) Fallback SMTP (probablemente bloqueado en Render)
   try {
-    const info = await sendWithTimeout(tx465.sendMail({ ...mail, from }), timeoutMs);
-    console.log('[email] enviado (SMTP 465):', info?.messageId || 'sin-id');
-    return;
-  } catch (e1) {
-    console.error('[email] 465 fallo:', e1?.message || e1);
-    try {
-      const info = await sendWithTimeout(tx587.sendMail({ ...mail, from }), timeoutMs);
-      console.log('[email] enviado (SMTP 587):', info?.messageId || 'sin-id');
-    } catch (e2) {
-      console.error('[email] 587 fallo:', e2?.message || e2);
-      // NO relanzamos: no debe romper el flujo HTTP
-    }
+    const tx = createTransport();
+    const info = await sendWithTimeout(tx.sendMail({ ...mail, from }), timeoutMs);
+    console.log("[email] enviado (SMTP Gmail):", info?.messageId || "sin-id");
+    return { ok: true, messageId: info?.messageId || null };
+  } catch (e) {
+    console.error("[email] SMTP fallo:", e?.message || e);
+    return { ok: false, error: e?.message || String(e) };
   }
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
 export async function sendVerificationEmail({ to, name, link }) {
-  const from = MAIL_FROM || EMAIL_USER;
+  const from = MAIL_FROM || SMTP_USER;
   const html = `
-    <p>Hola ${name ?? ''},</p>
+    <p>Hola ${name ?? ""},</p>
     <p>Haz clic para verificar tu correo:</p>
     <p><a href="${link}">${link}</a></p>
     <p style="color:#718096;font-size:12px">Si no fuiste tú, ignora este mensaje.</p>
   `;
-  await sendMailSafe({ to, from, subject: 'Verifica tu email', html });
+  return sendMailSafe({ to, from, subject: "Verifica tu email", html });
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Helpers de formateo locales (MX)
 const fmtMX = (date) =>
-  new Date(date).toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City' });
+  new Date(date).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City" });
 
 /**
  * Envía correo: Vacaciones APROBADAS
@@ -153,28 +104,28 @@ const fmtMX = (date) =>
  */
 export async function sendVacationApprovedEmail(p) {
   const { to, name, startDate, endDate, approverName } = p;
-  const subject = '✅ Vacaciones aprobadas';
+  const subject = "✅ Vacaciones aprobadas";
   const html = `
     <div style="font-family:system-ui,Segoe UI,Arial">
       <h2 style="margin:0 0 8px">✅ Vacaciones aprobadas</h2>
-      <p>Hola <strong>${name ?? ''}</strong>,</p>
+      <p>Hola <strong>${name ?? ""}</strong>,</p>
       <p>Tu solicitud de vacaciones ha sido <strong>APROBADA</strong>.</p>
       <p><strong>Fechas aprobadas:</strong><br>
         ${fmtMX(startDate)} — ${fmtMX(endDate)}
       </p>
-      <p>Aprobado por: <strong>${approverName || 'Recursos Humanos'}</strong></p>
+      <p>Aprobado por: <strong>${approverName || "Recursos Humanos"}</strong></p>
       <p>¡Disfruta tus vacaciones!</p>
     </div>
   `;
-  const text = `Hola ${name ?? ''},
+  const text = `Hola ${name ?? ""},
 Tu solicitud de vacaciones ha sido APROBADA.
 
 Fechas aprobadas:
 ${fmtMX(startDate)} — ${fmtMX(endDate)}
 
-Aprobado por: ${approverName || 'Recursos Humanos'}`;
+Aprobado por: ${approverName || "Recursos Humanos"}`;
 
-  await sendMailSafe({ to, subject, html, text });
+  return sendMailSafe({ to, subject, html, text });
 }
 
 /**
@@ -183,34 +134,33 @@ Aprobado por: ${approverName || 'Recursos Humanos'}`;
  */
 export async function sendVacationRejectedEmail(p) {
   const { to, name, startDate, endDate, reason, approverName } = p;
-  const subject = '❌ Vacaciones rechazadas';
+  const subject = "❌ Vacaciones rechazadas";
   const html = `
     <div style="font-family:system-ui,Segoe UI,Arial">
       <h2 style="margin:0 0 8px">❌ Vacaciones rechazadas</h2>
-      <p>Hola <strong>${name ?? ''}</strong>,</p>
+      <p>Hola <strong>${name ?? ""}</strong>,</p>
       <p>Tu solicitud de vacaciones ha sido <strong>RECHAZADA</strong>.</p>
       <p><strong>Fechas no aprobadas:</strong><br>
         ${fmtMX(startDate)} — ${fmtMX(endDate)}
       </p>
-      <p><strong>Motivo:</strong> ${reason || 'No especificado'}</p>
-      <p>Revisado por: <strong>${approverName || 'Recursos Humanos'}</strong></p>
+      <p><strong>Motivo:</strong> ${reason || "No especificado"}</p>
+      <p>Revisado por: <strong>${approverName || "Recursos Humanos"}</strong></p>
     </div>
   `;
-  const text = `Hola ${name ?? ''},
+  const text = `Hola ${name ?? ""},
 Tu solicitud de vacaciones ha sido RECHAZADA.
 
 Fechas no aprobadas:
 ${fmtMX(startDate)} — ${fmtMX(endDate)}
 
-Motivo: ${reason || 'No especificado'}
-Revisado por: ${approverName || 'Recursos Humanos'}`;
+Motivo: ${reason || "No especificado"}
+Revisado por: ${approverName || "Recursos Humanos"}`;
 
-  await sendMailSafe({ to, subject, html, text });
+  return sendMailSafe({ to, subject, html, text });
 }
 
 // ────────────────────────────────────────────────────────────────────────────────
 // Alias para compatibilidad con notificationService
 export const sendEmail = async (options) => {
-  return sendMailSafe(options)
-}
-
+  return sendMailSafe(options);
+};
