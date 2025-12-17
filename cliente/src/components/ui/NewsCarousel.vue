@@ -5,7 +5,7 @@
       <div class="track" :style="{ transform: `translateX(-${currentIndex * 100}%)` }">
         <article
           v-for="n in displayItems"
-          :key="n.id"
+          :key="(n as any)._id || n.id"
           class="card"
           :class="[`card--${n.type}`, { 'card--empty': n.id === 'no-news' }]"
         >
@@ -30,7 +30,8 @@
             <!-- Imagen destacada -->
             <img
               v-if="n.imageUrl"
-              :src="n.imageUrl"
+              :key="n.imageUrl"
+              :src="absUrl(n.imageUrl)"
               alt=""
               class="card__image"
               loading="lazy"
@@ -126,6 +127,15 @@ function badge(t: NewsItem['type']): string {
     case 'announcement':         return 'Comunicado'
     default:                     return ''
   }
+}
+
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
+
+function absUrl(url?: string | null) {
+  if (!url) return ''
+  if (url.startsWith('http')) return url
+  if (!API_BASE) return url
+  return `${API_BASE}${url}`
 }
 
 /* ======== Ciclo ======== */
