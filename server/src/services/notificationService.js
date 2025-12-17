@@ -86,6 +86,19 @@ function tomorrowEightAMMX(d = new Date()) {
   return n;
 }
 
+function holidayStartMX(holidayDate) {
+  const d = new Date(holidayDate);
+  // Tomamos el YYYY-MM-DD en UTC y lo ponemos a 12:00 UTC
+  // (así en MX sigue siendo el mismo día, nunca se va al día anterior)
+  const noonUTC = new Date(Date.UTC(
+    d.getUTCFullYear(),
+    d.getUTCMonth(),
+    d.getUTCDate(),
+    12, 0, 0
+  ));
+  return startOfDayInMX(noonUTC);
+}
+
 /* ===============================
  *   Helpers de envío de correo
  * =============================== */
@@ -168,7 +181,7 @@ async function safeSendEmail(
  * ======================================== */
 async function createHolidayNotification(holiday, daysLeft) {
   try {
-    const holidayDateStart = startOfDayInMX(holiday.date);
+    const holidayDateStart = holidayStartMX(holiday.date);
 
     const notificationTitle = `Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para ${holiday.name}`;
     const notificationBody = `Se acerca ${holiday.name} el ${prettyDateMX(
@@ -185,7 +198,7 @@ async function createHolidayNotification(holiday, daysLeft) {
       const visibleUntil = addDays(holidayDateStart, 1);
       const updated = await News.findByIdAndUpdate(
         existingNotification._id,
-        { $set: { body: notificationBody, visibleUntil } },
+        { $set: { body: notificationBody, excerpt: `Recordatorio: ${holiday.name} — ${prettyDateMX(holidayDateStart)}`, visibleUntil } },
         { new: true }
       ).lean();
       console.log(`📢 Notificación actualizada en intranet: ${notificationTitle}`);
@@ -198,7 +211,7 @@ async function createHolidayNotification(holiday, daysLeft) {
     const newsItem = await News.create({
       title: notificationTitle,
       body: notificationBody,
-      excerpt: `Recordatorio: ${holiday.name} está próximo`,
+      excerpt: `Recordatorio: ${holiday.name} — ${prettyDateMX(holidayDateStart)}`,
       date: today,
       department: 'General',
       status: 'published',
@@ -573,7 +586,7 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   if (!holiday?.date || !holiday?.name || !holiday?._id) return false;
 
   const todayMX = startOfDayInMX(new Date());
-  const holidayDateStart = startOfDayInMX(holiday.date);
+  const holidayDateStart = holidayStartMX(holiday.date);
   const windowStart = subDays(holidayDateStart, 7);
   const windowEndExclusive = addDays(holidayDateStart, 1);
 
