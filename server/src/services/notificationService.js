@@ -11,19 +11,56 @@ const MX_TZ = 'America/Mexico_City';
 /* ===============================
  *   Helpers de zona horaria MX
  * =============================== */
+
+function ymdPartsInMX(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: MX_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const get = (t) => parts.find(p => p.type === t)?.value;
+  const y = Number(get('year'));
+  const m = Number(get('month'));
+  const d = Number(get('day'));
+  return { y, m, d };
+}
+
+// 00:00 MX expresado en UTC (MX normalmente es UTC-6)
 function startOfDayInMX(date = new Date()) {
-  const local = new Date(new Date(date).toLocaleString('en-US', { timeZone: MX_TZ }));
-  return startOfDay(local);
+  const { y, m, d } = ymdPartsInMX(date);
+
+  // mediodía UTC del "mismo día MX" (evita caer en el día anterior)
+  const noonUTC = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+
+  // offset real MX (minutos) para ese día
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: MX_TZ,
+    hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(noonUTC);
+
+  const get = (t) => parts.find(p => p.type === t)?.value;
+  const mxHour = Number(get('hour'));
+  const utcHour = noonUTC.getUTCHours();
+
+  // diferencia en horas entre UTC y MX en ese instante
+  let diffHours = utcHour - mxHour;
+  // normaliza (por si cruza día)
+  if (diffHours > 12) diffHours -= 24;
+  if (diffHours < -12) diffHours += 24;
+
+  // 00:00 MX expresado en UTC
+  return new Date(Date.UTC(y, m - 1, d, diffHours, 0, 0));
 }
-function nowInMX(d = new Date()) {
-  return new Date(new Date(d).toLocaleString('en-US', { timeZone: MX_TZ }));
-}
+
 function dayKeyMX(date = new Date()) {
-  const y = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, year: 'numeric' });
-  const m = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
-  const d = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
-  return `${y}-${m}-${d}`;
+  const { y, m, d } = ymdPartsInMX(date);
+  return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
+
 function yyyymmddMX(date = new Date()) {
   const y = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, year: 'numeric' });
   const m = new Date(date).toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
@@ -75,13 +112,6 @@ function mmddFromBirthDate(date) {
   return `${mm}-${dd}`;
 }
 
-// Día/mes en MX genérico (aún se usa en algunas partes)
-function mmddMX(date = new Date()) {
-  const n = nowInMX(date);
-  const mm = n.toLocaleString('en-CA', { timeZone: MX_TZ, month: '2-digit' });
-  const dd = n.toLocaleString('en-CA', { timeZone: MX_TZ, day: '2-digit' });
-  return `${mm}-${dd}`;
-}
 // (Aún se usa en funciones legadas)
 function mmddUTC(date) {
   const d = new Date(date);
