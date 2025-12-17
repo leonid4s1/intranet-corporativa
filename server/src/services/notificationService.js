@@ -197,49 +197,48 @@ async function safeSendEmail(
  * ======================================== */
 async function createHolidayNotification(holiday, daysLeft) {
   try {
-    const holidayDateStart = holidayStartMX(holiday.date);
+    const holidayDateStart = holidayStartMX(holiday.date); // ✅ faltaba
+    const holidayPretty = prettyHolidayMX(holiday.date);
 
     const notificationTitle = `Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para ${holiday.name}`;
-    const notificationBody = `Se acerca ${holiday.name} el ${prettyHolidayMX(holiday.date)}. Considera este descanso en tu planificación.`;
+    const notificationBody = `Se acerca ${holiday.name} el ${holidayPretty}. Considera este descanso en tu planificación.`;
+    const excerpt = `Recordatorio: ${holiday.name} — ${holidayPretty}`;
 
     const existingNotification = await News.findOne({
       title: notificationTitle,
       type: 'holiday_notice',
     });
 
+    const visibleUntil = addDays(holidayDateStart, 1);
+
     if (existingNotification) {
-      const visibleUntil = addDays(holidayDateStart, 1);
       const updated = await News.findByIdAndUpdate(
         existingNotification._id,
-        {
-          $set: {
-            body: notificationBody,
-            excerpt: `Recordatorio: ${holiday.name} — ${prettyHolidayMX(holiday.date)}`,
-            visibleUntil,
-          },
-        },
+        { $set: { body: notificationBody, excerpt, visibleUntil } },
         { new: true }
       ).lean();
+
+      console.log(`📢 Notificación actualizada en intranet: ${notificationTitle}`);
       return updated;
     }
 
-    const today = new Date();
-    const visibleUntil = addDays(holidayDateStart, 1);
+    const now = new Date();
 
     const newsItem = await News.create({
       title: notificationTitle,
       body: notificationBody,
-      excerpt: `Recordatorio: ${holiday.name} — ${prettyHolidayMX(holiday.date)}`,
-      date: today,
+      excerpt,
+      date: now,
       department: 'General',
       status: 'published',
-      visibleFrom: today,
+      visibleFrom: now,
       visibleUntil,
       type: 'holiday_notice',
       isActive: true,
       priority: daysLeft <= 3 ? 'high' : 'medium',
     });
 
+    console.log(`📢 Notificación creada en intranet: ${notificationTitle}`);
     return newsItem;
   } catch (error) {
     console.error('❌ Error creando notificación en intranet:', error);
@@ -624,8 +623,7 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
   }
 
   const daysLeft = Math.max(0, differenceInCalendarDays(holidayDateStart, todayMX));
-
-  const subject = `Recordatorio: faltan ${daysLeft} ... para ${holiday.name} (${prettyHolidayMX(holiday.date)})`;
+  const subject = `Recordatorio: faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para ${holiday.name} (${prettyHolidayMX(holiday.date)})`;
   const html = `
     <h2>⏳ Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}</h2>
     <p>Se acerca <strong>${holiday.name}</strong> el <strong>${prettyHolidayMX(holiday.date)}</strong>.</p>
