@@ -168,9 +168,11 @@ async function safeSendEmail(
  * ======================================== */
 async function createHolidayNotification(holiday, daysLeft) {
   try {
+    const holidayDateStart = startOfDayInMX(holiday.date);
+
     const notificationTitle = `Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para ${holiday.name}`;
     const notificationBody = `Se acerca ${holiday.name} el ${prettyDateMX(
-      holiday.date
+      holidayDateStart
     )}. Considera este descanso en tu planificación.`;
 
     const existingNotification = await News.findOne({
@@ -179,13 +181,19 @@ async function createHolidayNotification(holiday, daysLeft) {
     });
 
     if (existingNotification) {
-      console.log(`📢 Notificación ya existe en intranet: ${notificationTitle}`);
-      return existingNotification;
+      // ✅ Actualiza body/ventana por si antes se guardó con fecha corrida
+      const visibleUntil = addDays(holidayDateStart, 1);
+      const updated = await News.findByIdAndUpdate(
+        existingNotification._id,
+        { $set: { body: notificationBody, visibleUntil } },
+        { new: true }
+      ).lean();
+      console.log(`📢 Notificación actualizada en intranet: ${notificationTitle}`);
+      return updated;
     }
 
     const today = new Date();
-    const visibleUntil = new Date(holiday.date);
-    visibleUntil.setDate(visibleUntil.getDate() + 1); // Visible hasta el día después del festivo
+    const visibleUntil = addDays(holidayDateStart, 1);
 
     const newsItem = await News.create({
       title: notificationTitle,
@@ -589,11 +597,11 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
 
   const subject = `Recordatorio: faltan ${daysLeft} ${
     daysLeft === 1 ? 'día' : 'días'
-  } para ${holiday.name} (${prettyDateMX(holiday.date)})`;
+  } para ${holiday.name} (${prettyDateMX(holidayDateStart)})`;
   const html = `
     <h2>⏳ Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}</h2>
     <p>Se acerca <strong>${holiday.name}</strong> el <strong>${prettyDateMX(
-    holiday.date
+    holidayDateStart
   )}</strong>.</p>
     <p>Considera este descanso en tu planificación.</p>
   `;
@@ -623,12 +631,11 @@ export async function checkAllUpcomingHolidays() {
   try {
     console.log('🔍 Buscando festivos próximos para notificación...');
 
-    const today = new Date();
-    const futureDate = new Date(today);
-    futureDate.setDate(today.getDate() + 30);
+    const todayMX = startOfDayInMX(new Date());
+    const futureMX = addDays(todayMX, 30);
 
     const upcomingHolidays = await Holiday.find({
-      date: { $gte: today, $lte: futureDate },
+      date: { $gte: todayMX, $lte: futureMX },
     }).lean();
 
     console.log(
@@ -687,7 +694,11 @@ export async function notifyAdminsAboutNewRequest(vacationRequest, user) {
   const end = prettyDateMX(
     vacationRequest?.endDate || vacationRequest?.startDate
   );
-  const days = vacationRequest?.days ?? vacationRequest?.totalDays ?? 1;
+  const days =
+    vacationRequest?.daysRequested ??
+    vacationRequest?.days ??
+    vacationRequest?.totalDays ??
+    1;
 
   const subject = `📅 Nueva solicitud de vacaciones: ${employee} (${start} – ${end})`;
   const html = `
