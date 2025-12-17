@@ -40,6 +40,22 @@ function prettyDateMX(d) {
   });
 }
 
+// ✅ Para Holiday.date (date-only en UTC): lo “anclamos” a 12:00 UTC
+function dateNoonUTCFromISO(isoOrDate) {
+  const d = new Date(isoOrDate);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0));
+}
+
+function prettyHolidayMX(isoOrDate) {
+  return dateNoonUTCFromISO(isoOrDate).toLocaleDateString('es-MX', {
+    timeZone: MX_TZ,
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 /**
  * Día/mes de HOY (mm-dd) usando **UTC**,
  * alineado a cómo se guardan las birthDate.
@@ -184,9 +200,7 @@ async function createHolidayNotification(holiday, daysLeft) {
     const holidayDateStart = holidayStartMX(holiday.date);
 
     const notificationTitle = `Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'} para ${holiday.name}`;
-    const notificationBody = `Se acerca ${holiday.name} el ${prettyDateMX(
-      holidayDateStart
-    )}. Considera este descanso en tu planificación.`;
+    const notificationBody = `Se acerca ${holiday.name} el ${prettyHolidayMX(holiday.date)}. Considera este descanso en tu planificación.`;
 
     const existingNotification = await News.findOne({
       title: notificationTitle,
@@ -194,14 +208,18 @@ async function createHolidayNotification(holiday, daysLeft) {
     });
 
     if (existingNotification) {
-      // ✅ Actualiza body/ventana por si antes se guardó con fecha corrida
       const visibleUntil = addDays(holidayDateStart, 1);
       const updated = await News.findByIdAndUpdate(
         existingNotification._id,
-        { $set: { body: notificationBody, excerpt: `Recordatorio: ${holiday.name} — ${prettyDateMX(holidayDateStart)}`, visibleUntil } },
+        {
+          $set: {
+            body: notificationBody,
+            excerpt: `Recordatorio: ${holiday.name} — ${prettyHolidayMX(holiday.date)}`,
+            visibleUntil,
+          },
+        },
         { new: true }
       ).lean();
-      console.log(`📢 Notificación actualizada en intranet: ${notificationTitle}`);
       return updated;
     }
 
@@ -211,18 +229,17 @@ async function createHolidayNotification(holiday, daysLeft) {
     const newsItem = await News.create({
       title: notificationTitle,
       body: notificationBody,
-      excerpt: `Recordatorio: ${holiday.name} — ${prettyDateMX(holidayDateStart)}`,
+      excerpt: `Recordatorio: ${holiday.name} — ${prettyHolidayMX(holiday.date)}`,
       date: today,
       department: 'General',
       status: 'published',
       visibleFrom: today,
-      visibleUntil: visibleUntil,
+      visibleUntil,
       type: 'holiday_notice',
       isActive: true,
       priority: daysLeft <= 3 ? 'high' : 'medium',
     });
 
-    console.log(`📢 Notificación creada en intranet: ${notificationTitle}`);
     return newsItem;
   } catch (error) {
     console.error('❌ Error creando notificación en intranet:', error);
@@ -608,14 +625,10 @@ export async function sendUpcomingHolidayEmailIfSevenDaysBefore(holiday) {
 
   const daysLeft = Math.max(0, differenceInCalendarDays(holidayDateStart, todayMX));
 
-  const subject = `Recordatorio: faltan ${daysLeft} ${
-    daysLeft === 1 ? 'día' : 'días'
-  } para ${holiday.name} (${prettyDateMX(holidayDateStart)})`;
+  const subject = `Recordatorio: faltan ${daysLeft} ... para ${holiday.name} (${prettyHolidayMX(holiday.date)})`;
   const html = `
     <h2>⏳ Faltan ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}</h2>
-    <p>Se acerca <strong>${holiday.name}</strong> el <strong>${prettyDateMX(
-    holidayDateStart
-  )}</strong>.</p>
+    <p>Se acerca <strong>${holiday.name}</strong> el <strong>${prettyHolidayMX(holiday.date)}</strong>.</p>
     <p>Considera este descanso en tu planificación.</p>
   `;
 
