@@ -90,9 +90,18 @@ const displayItems = computed<NewsItem[]>(() =>
 /* ======== Métodos ======== */
 /** Muestra excerpt y, si no hay, usa body (sin usar any). */
 function bodyOf(n: NewsItem): string {
-  if (n.excerpt && n.excerpt.trim()) return n.excerpt.trim()
-  const raw = (n as unknown as Record<string, unknown>)['body']
-  return typeof raw === 'string' ? raw.trim() : ''
+  const rawBody = (n as unknown as Record<string, unknown>)['body']
+  const body = typeof rawBody === 'string' ? rawBody.trim() : ''
+  const excerpt = (n.excerpt || '').trim()
+
+  // 👇 En cumpleaños (y similares) "excerpt" se usa como marker técnico
+  if (n.type === 'birthday_digest_info' || n.type === 'birthday_self' || n.type === 'birthday_digest') {
+    return body
+  }
+
+  // Para comunicados normales, sí preferimos excerpt si existe
+  if (excerpt) return excerpt
+  return body
 }
 
 function startAuto(): void {
