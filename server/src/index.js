@@ -1,4 +1,4 @@
-﻿// server/src/index.js 
+﻿// server/src/index.js
 import express from 'express'
 import mongoose from 'mongoose'
 import cors from 'cors'
@@ -6,6 +6,7 @@ import dotenv from 'dotenv'
 import helmet from 'helmet'
 import morgan from 'morgan'
 import compression from 'compression'
+import fs from 'fs'                      // ✅ ADD
 import { connectDB } from './config/db.js'
 import errorHandler from './middleware/errorHandler.js'
 import authRoutes from './routes/auth.js'
@@ -136,8 +137,14 @@ app.use(express.urlencoded({ extended: false }))
 app.use(compression())
 
 /* ===== /uploads estático (ÚNICO y alineado con uploadService) ===== */
-const UPLOAD_DIR = process.env.UPLOAD_DIR || '/tmp/uploads'
+const UPLOAD_DIR = process.env.UPLOAD_DIR || '/var/data/uploads'   // ✅ CHANGE (antes /tmp/uploads)
 console.log('📂 UPLOAD_DIR estático:', UPLOAD_DIR)
+
+// ✅ asegúrate que exista (por si disk está montado pero carpeta no creada)
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true })
+}
+
 app.use('/uploads', express.static(UPLOAD_DIR))
 
 /** Health */
