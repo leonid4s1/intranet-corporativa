@@ -7,7 +7,12 @@
           v-for="n in displayItems"
           :key="(n as any)._id || n.id"
           class="card"
-          :class="[`card--${n.type}`, { 'card--empty': n.id === 'no-news' }]"
+          :data-type="n.type"
+          :class="[
+            `card--${n.type}`,
+            { 'card--empty': n.id === 'no-news' },
+            isHero(n) ? 'card--hero' : 'card--compact',
+          ]"
         >
           <!-- === Estado vacío === -->
           <template v-if="n.id === 'no-news'">
@@ -29,7 +34,7 @@
 
             <!-- Imagen destacada -->
             <img
-              v-if="n.imageUrl"
+              v-if="n.imageUrl && isHero(n)"
               :key="n.imageUrl"
               :src="absUrl(n.imageUrl)"
               alt=""
@@ -87,7 +92,16 @@ const displayItems = computed<NewsItem[]>(() =>
   props.items && props.items.length > 0 ? props.items : [makeNoNewsItem()]
 )
 
-/* ======== Métodos ======== */
+/* ======== UI helpers ======== */
+function hasImage(n: NewsItem): boolean {
+  return Boolean(n.imageUrl)
+}
+
+/** Solo anuncios con imagen se ven grandes */
+function isHero(n: NewsItem): boolean {
+  return n.type === 'announcement' && hasImage(n)
+}
+
 /** Muestra excerpt y, si no hay, usa body (sin usar any). */
 function bodyOf(n: NewsItem): string {
   const rawBody = (n as unknown as Record<string, unknown>)['body']
@@ -95,7 +109,11 @@ function bodyOf(n: NewsItem): string {
   const excerpt = (n.excerpt || '').trim()
 
   // 👇 En cumpleaños (y similares) "excerpt" se usa como marker técnico
-  if (n.type === 'birthday_digest_info' || n.type === 'birthday_self' || n.type === 'birthday_digest') {
+  if (
+    n.type === 'birthday_digest_info' ||
+    n.type === 'birthday_self' ||
+    n.type === 'birthday_digest'
+  ) {
     return body
   }
 
@@ -104,6 +122,7 @@ function bodyOf(n: NewsItem): string {
   return body
 }
 
+/* ======== Métodos ======== */
 function startAuto(): void {
   stopAuto()
   if (displayItems.value.length > 1)
@@ -173,12 +192,12 @@ watch(
   grid-auto-columns: 100%;
   transition: transform .45s ease;
 }
+
 .card {
-  padding: 20px 22px;
+  padding: 18px 20px;
   min-height: 150px;
   display:flex;
   flex-direction:column;
-  justify-content: space-between;
   gap:10px;
   position: relative;
   border-radius: 16px;
@@ -191,16 +210,28 @@ watch(
   box-shadow: 0 6px 24px rgba(0,0,0,.08);
 }
 
+/* ✅ Compacto: evita mega espacios */
+.card--compact {
+  min-height: 160px;
+  justify-content: flex-start;
+}
+
+/* ✅ Hero: más aire cuando hay imagen */
+.card--hero {
+  min-height: 340px;
+  justify-content: flex-start;
+}
+
 /* Imagen: modo "poster" (no recorta) */
 .card__image {
   display: block;
-  max-width: 100%;
-  max-height: 320px;      /* desktop */
-  margin: 10px auto 0;
+  width: min(520px, 100%);
+  max-height: 320px;
+  margin: 8px auto 0;
 
-  object-fit: contain;    /* 👈 se ve completa */
+  object-fit: contain;
   border-radius: 12px;
-  background: #f9fafb;    /* relleno suave si sobran lados */
+  background: #f9fafb;
   outline: 1px solid rgba(0,0,0,.05);
 }
 
@@ -210,17 +241,17 @@ watch(
 
 /* ===== Callout global para el cuerpo ===== */
 .card{
-  /* valores por defecto (neutros) */
   --callout-bg: #F5F7FA;
   --callout-text: #334155;
   --callout-border: #E5E7EB;
   --callout-accent: #CBD5E1;
   --callout-emoji: "📰";
 }
+
+/* ✅ clamp del cuerpo para que NO crezca infinito */
 .card .card__body{
   margin-top: 6px;
   padding: 12px 14px;
-  padding-left: 14px; /* el borde izquierdo actúa como acento */
   display: flex;
   align-items: center;
   gap: 10px;
@@ -235,11 +266,22 @@ watch(
   letter-spacing: .1px;
   line-height: 1.55;
 
-  /* aseguramos que luzca (sin truncar) */
-  -webkit-line-clamp: unset;
-  overflow: visible;
-  padding-right: 16px;
+  /* clamp base */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
+
+/* Compacto: 2 líneas */
+.card--compact .card__body{
+  -webkit-line-clamp: 2;
+}
+
+/* Hero: 4 líneas */
+.card--hero .card__body{
+  -webkit-line-clamp: 4;
+}
+
 .card .card__body::before{
   content: var(--callout-emoji);
   font-size: 20px;
@@ -255,15 +297,15 @@ watch(
 }
 .btn.cta:hover { background:#222; }
 
-/* Badge (base neutra; cada tipo ajusta color) */
+/* Badge */
 .badge {
   font-size: 12px; padding:3px 10px; border-radius: 999px; margin-left:auto;
   background: #eef2ff; color:#3730a3; font-weight:700;
 }
 
-/* ===== Colores por tipo (afectan el callout mediante vars) ===== */
+/* ===== Colores por tipo ===== */
 
-/* Cumpleaños (morado unificado: self + digest) */
+/* Cumpleaños */
 .card--birthday_self,
 .card--birthday_digest_info {
   background: linear-gradient(180deg, rgba(99,102,241,.10), transparent 60%) #fff;
@@ -276,7 +318,7 @@ watch(
   color: #4f46e5;
 }
 
-/* Festivos (naranja) */
+/* Festivos */
 .card--holiday_notice{
   background: linear-gradient(180deg, rgba(251,146,60,.10), transparent 60%) #fff;
   border-color: rgba(251,146,60,.30);
@@ -284,7 +326,7 @@ watch(
 }
 .card--holiday_notice .badge { background:#fff7ed; color:#9a3412; }
 
-/* Comunicados (verde) */
+/* Comunicados */
 .card--announcement{
   background: linear-gradient(180deg, rgba(34,197,94,.10), transparent 60%) #fff;
   border-color: rgba(34,197,94,.30);
@@ -311,20 +353,14 @@ watch(
 
 /* Responsive */
 @media (max-width: 640px){
-  .card{ min-height: 140px; }
+  .card{ min-height: 150px; }
+  .card--hero{ min-height: 300px; }
   .card__title{ font-size: 18px; }
   .card .card__body{ font-size: .95rem; }
-
-  /* imagen un poco más compacta en móvil */
-  .card__image{
-    max-height: 240px;
-  }
+  .card__image{ max-height: 240px; }
 }
 
-/* Más alto en pantallas grandes si hace falta */
 @media (min-width: 1024px){
-  .card__image{
-    max-height: 380px;
-  }
+  .card__image{ max-height: 380px; }
 }
 </style>
