@@ -17,6 +17,7 @@ export type NewsItem = {
   id: string
   type: AllowedType
   title: string
+  body?: string
   excerpt?: string
   imageUrl?: string | null
   ctaText?: string | null
@@ -72,12 +73,15 @@ function normalize(raw: ServerNewsItem): NewsItem {
     console.warn('[news.service] Tipo no permitido recibido:', raw.type)
   }
 
-  const title = (raw.title ?? 'Aviso').toString().trim()
-  const baseExcerpt = (raw.excerpt ?? raw.body ?? '').toString().trim()
+   const title = (raw.title ?? 'Aviso').toString().trim()
+  const body = (raw.body ?? '').toString().trim()
+
+  // Para cards: usamos excerpt si viene; si no, usamos body como preview (excepto cumpleaños digest_info)
+  const rawExcerpt = (raw.excerpt ?? '').toString().trim()
 
   const excerpt =
-    baseExcerpt ||
-    (safeType === 'holiday_notice' ? `Próximo día festivo: ${title}` : '')
+    rawExcerpt ||
+    (safeType === 'holiday_notice' ? `Próximo día festivo: ${title}` : body)
 
   // 👇 si viene ruta relativa (/uploads/...), prepende el dominio del backend
   const rawImg = raw.imageUrl ?? null
@@ -90,6 +94,7 @@ function normalize(raw: ServerNewsItem): NewsItem {
     id: String(raw.id),
     type: safeType,
     title,
+    body,
     excerpt,
     imageUrl,
     ctaText: raw.ctaText ?? null,
