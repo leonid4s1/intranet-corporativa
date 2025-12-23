@@ -26,6 +26,8 @@ const ChangePassword          = () => import('@/views/account/ChangePassword.vue
 const ForbiddenView           = () => import('@/views/errors/ForbiddenView.vue')
 const NotFoundView            = () => import('@/views/errors/NotFoundView.vue')
 
+const DocumentationView       = () => import('@/views/DocumentationView.vue')
+
 const routes: Array<RouteRecordRaw> = [
   // Públicas (solo invitados)
   {
@@ -89,7 +91,12 @@ const routes: Array<RouteRecordRaw> = [
 
       // 👉 aquí puedes añadir más vistas de usuario
       // { path: 'tareas', name: 'tareas', component: () => import('@/views/Tasks.vue'), meta: { title: 'Tareas' } },
-      // { path: 'documentacion', name: 'docs', component: () => import('@/views/Docs.vue'), meta: { title: 'Documentación' } },
+      {
+        path: 'documentacion',
+        name: 'documentation',
+        component: DocumentationView,
+        meta: { title: 'Documentación' },
+      },
       // { path: 'formatos', name: 'formatos', component: () => import('@/views/Formats.vue'), meta: { title: 'Formatos' } },
     ],
   },

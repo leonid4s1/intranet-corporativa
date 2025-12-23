@@ -29,6 +29,8 @@ import {
 
 import schedule from 'node-schedule' // job de festivos
 
+import docsRoutes from './routes/docs.js' // Import documentos
+
 dotenv.config()
 
 const app = express()
@@ -236,6 +238,7 @@ app.use('/api/news', newsRoutes)
 app.use('/api/tasks', tasksRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/vacations', vacationRoutes)
+app.use('/api/docs', docsRoutes)
 
 /** 404 para endpoints API no existentes (antes del error handler) */
 app.use('/api/*', (_req, res) => {

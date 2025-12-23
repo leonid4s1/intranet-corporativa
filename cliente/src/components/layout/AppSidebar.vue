@@ -131,7 +131,7 @@ const brandTitle = 'Ir a inicio';
  * Solo habilitados: /home, /vacaciones, /account/password
  */
 const items = computed(() => {
-  const enabledSet = new Set(['/home', '/vacaciones', '/account/password']);
+  const enabledSet = new Set(['/home', '/vacaciones', '/account/password', '/documentacion']);
 
   const base = [
     { to: '/home',              label: 'Inicio',             emoji: '🏠' },
