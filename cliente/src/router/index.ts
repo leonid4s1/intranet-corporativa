@@ -26,7 +26,7 @@ const ChangePassword          = () => import('@/views/account/ChangePassword.vue
 const ForbiddenView           = () => import('@/views/errors/ForbiddenView.vue')
 const NotFoundView            = () => import('@/views/errors/NotFoundView.vue')
 
-const DocumentationView       = () => import('@/views/DocumentationView.vue')
+const DocumentationView       = () => import('@/views/user/DocumentationView.vue')
 
 const routes: Array<RouteRecordRaw> = [
   // Públicas (solo invitados)
