@@ -148,6 +148,7 @@ function sevenPMMX(d = new Date()) {
 export const getHomeNews = async (req, res, next) => {
   try {
     const today = startOfDayInMX();
+    const now = new Date(); // ✅ referencia para ventana visibleFrom/visibleUntil
 
     // 🔒 Anti-cache
     res.set(
@@ -159,10 +160,23 @@ export const getHomeNews = async (req, res, next) => {
     res.set('Surrogate-Control', 'no-store');
     res.set('ETag', `homefeed-${today.toISOString().slice(0, 10)}`);
 
-    // 1) Noticias publicadas (mínimo) — excluye tipo legacy holiday_notification
+    // 1) Noticias publicadas — excluye tipo legacy holiday_notification
     const userId = req.user?._id;
 
-    const baseFilter = { status: 'published', type: { $ne: 'holiday_notification' } };
+    // ✅ FIX: aplica ventana de visibilidad + isActive para NO mostrar expirados
+    const baseFilter = {
+      status: 'published',
+      isActive: true,
+      type: { $ne: 'holiday_notification' },
+
+      // visibleUntil es EXCLUSIVO:
+      // - si visibleUntil=null => visible si visibleFrom <= now
+      // - si visibleUntil existe => visibleFrom <= now < visibleUntil
+      $or: [
+        { visibleUntil: null, visibleFrom: { $lte: now } },
+        { visibleFrom: { $lte: now }, visibleUntil: { $gt: now } },
+      ],
+    };
 
     // Audiencias (si hay usuario logueado)
     if (userId) {
@@ -363,10 +377,7 @@ export const getHomeFeed = getHomeNews;
 export const createAnnouncement = async (req, res, next) => {
   try {
     console.log('[announcement] CT:', req.headers['content-type']);
-    console.log(
-      '[announcement] body keys:',
-      Object.keys(req.body || {})
-    );
+    console.log('[announcement] body keys:', Object.keys(req.body || {}));
     console.log(
       '[announcement] file:',
       !!req.file,
@@ -470,9 +481,7 @@ export const listAnnouncements = async (req, res, next) => {
       }
     }
 
-    const raw = await News.find(filter)
-      .sort({ visibleFrom: -1 })
-      .lean();
+    const raw = await News.find(filter).sort({ visibleFrom: -1 }).lean();
 
     const items = raw.map((n) => {
       const visibleFrom = n.visibleFrom ? new Date(n.visibleFrom) : null;
