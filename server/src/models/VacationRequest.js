@@ -69,10 +69,25 @@ const vacationRequestSchema = new mongoose.Schema(
       index: true,
     },
 
+    /**
+     * daysRequested = DÍAS HÁBILES (lo que descuenta saldo)
+     * Este valor debe venir calculado desde el controller/service.
+     * El modelo NO debe recalcularlo porque requiere festivos + fines.
+     */
     daysRequested: {
       type: Number,
       required: [true, 'Los días solicitados son requeridos'],
       min: [1, 'Debe solicitar al menos 1 día'],
+    },
+
+    /**
+     * calendarDays = DÍAS NATURALES (informativo)
+     * Se calcula automáticamente en el modelo cuando cambian fechas.
+     */
+    calendarDays: {
+      type: Number,
+      default: null,
+      min: [1, 'Los días naturales deben ser al menos 1 día'],
     },
 
     // Motivo del USUARIO al solicitar
@@ -113,9 +128,7 @@ const vacationRequestSchema = new mongoose.Schema(
       default: Date.now,
     },
 
-    /* ========= SNAPSHOT DEL USUARIO =========
-       Se llena al aprobar para conservar nombre/email
-       aunque el usuario cambie, se desactive o se elimine. */
+    /* ========= SNAPSHOT DEL USUARIO ========= */
     userSnapshot: {
       name: { type: String, default: null },
       email: { type: String, default: null },
@@ -130,7 +143,13 @@ const vacationRequestSchema = new mongoose.Schema(
         ret.endDate = toYMD(doc.endDate);
         if (doc.processedAt) ret.processedAt = toYMD(doc.processedAt);
         if (doc.requestedAt) ret.requestedAt = toYMD(doc.requestedAt);
-        ret.totalDays = doc.daysRequested; // alias útil en el front
+
+        // Alias útil en el front: totalDays = HÁBILES
+        ret.totalDays = doc.daysRequested;
+
+        // Exponer naturales
+        ret.calendarDays = doc.calendarDays ?? null;
+
         ret.rejectReason = doc.rejectReason || '';
         ret.reason = doc.reason || '';
         return ret;
@@ -142,6 +161,7 @@ const vacationRequestSchema = new mongoose.Schema(
         ret.startDate = toYMD(doc.startDate);
         ret.endDate = toYMD(doc.endDate);
         ret.totalDays = doc.daysRequested;
+        ret.calendarDays = doc.calendarDays ?? null;
         return ret;
       },
     },
@@ -150,18 +170,23 @@ const vacationRequestSchema = new mongoose.Schema(
 
 /* ===================== Virtuals ===================== */
 vacationRequestSchema.virtual('totalDays').get(function () {
+  // totalDays = HÁBILES
   return this.daysRequested;
 });
 
 /* ===================== Middlewares ===================== */
 
-// Recalcular días y normalizar fechas antes de guardar si cambian
+// Normalizar fechas y recalcular SOLO calendarDays (naturales) antes de guardar si cambian
 vacationRequestSchema.pre('save', function (next) {
   if (this.isModified('startDate')) this.startDate = toUTC00(this.startDate);
   if (this.isModified('endDate')) this.endDate = toUTC00(this.endDate);
 
   if (this.isModified('startDate') || this.isModified('endDate')) {
-    this.daysRequested = computeCalendarDaysInclusive(this.startDate, this.endDate);
+    // ✅ Naturales informativos
+    this.calendarDays = computeCalendarDaysInclusive(this.startDate, this.endDate);
+
+    // ❌ NO tocar daysRequested aquí (eso es hábil y viene del controller)
+    // this.daysRequested = ...
   }
   next();
 });
@@ -175,7 +200,6 @@ vacationRequestSchema.pre('save', async function (next) {
           user: this.user,
           status: 'approved',
           _id: { $ne: this._id },
-          // A solapa B si A.start <= B.end && A.end >= B.start
           startDate: { $lte: this.endDate },
           endDate: { $gte: this.startDate },
         })
@@ -191,7 +215,7 @@ vacationRequestSchema.pre('save', async function (next) {
   }
 });
 
-// En updates: normalizar fechas, recalcular daysRequested y fijar processedAt/snapshot si cambia status
+// En updates: normalizar fechas, recalcular SOLO calendarDays y fijar processedAt/snapshot si cambia status
 vacationRequestSchema.pre(['findOneAndUpdate', 'updateOne'], async function (next) {
   try {
     const update = this.getUpdate() || {};
@@ -201,16 +225,20 @@ vacationRequestSchema.pre(['findOneAndUpdate', 'updateOne'], async function (nex
     if ($set.startDate) $set.startDate = toUTC00($set.startDate);
     if ($set.endDate) $set.endDate = toUTC00($set.endDate);
 
-    // Recalcula daysRequested si cambian fechas
+    // Recalcula calendarDays (naturales) si cambian fechas
     if ($set.startDate || $set.endDate) {
-      // Necesitamos los valores finales: los del set o los actuales del doc
       const current = await this.model.findOne(this.getQuery()).select('startDate endDate').lean();
       const start = $set.startDate ?? current?.startDate;
       const end = $set.endDate ?? current?.endDate;
+
       if (start && end) {
-        const days = computeCalendarDaysInclusive(start, end);
-        if (update.$set) update.$set.daysRequested = days;
-        else $set.daysRequested = days;
+        const cal = computeCalendarDaysInclusive(start, end);
+
+        if (update.$set) update.$set.calendarDays = cal;
+        else $set.calendarDays = cal;
+
+        // ❌ NO recalcular daysRequested aquí
+        // (debe venir desde controller/service donde tienes festivos + fines)
       }
     }
 
@@ -223,12 +251,14 @@ vacationRequestSchema.pre(['findOneAndUpdate', 'updateOne'], async function (nex
 
         // Si pasa a approved, guarda snapshot de usuario
         if (newSt === 'approved') {
-          // cargar usuario para snapshot
           const doc = await this.model.findOne(this.getQuery()).populate('user', 'name email').lean();
           const name = doc?.user?.name ?? null;
           const email = doc?.user?.email ?? null;
-          if (update.$set) update.$set['userSnapshot.name'] = name, update.$set['userSnapshot.email'] = email;
-          else {
+
+          if (update.$set) {
+            update.$set['userSnapshot.name'] = name;
+            update.$set['userSnapshot.email'] = email;
+          } else {
             $set.userSnapshot = $set.userSnapshot || {};
             $set.userSnapshot.name = name;
             $set.userSnapshot.email = email;
@@ -252,7 +282,6 @@ vacationRequestSchema.pre(['findOneAndUpdate', 'updateOne'], async function (nex
 });
 
 /* ===================== Índices ===================== */
-// índices individuales ya definidos arriba; añade compuestos útiles:
 vacationRequestSchema.index({ user: 1, status: 1, startDate: 1 });
 vacationRequestSchema.index({ status: 1, startDate: 1 });
 

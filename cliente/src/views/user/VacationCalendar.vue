@@ -196,7 +196,7 @@
             <div v-for="req in pendingRequests" :key="req._id" class="request-row">
               <div>
                 {{ formatDate(req.startDate) }} - {{ formatDate(req.endDate) }}<br />
-                <small class="muted">{{ pluralizeDays(req.daysRequested || countBusinessDays(req.startDate, req.endDate)) }}</small>
+                <small class="muted">{{ formatDaysLabel(req) }}</small>
                 <template v-if="req.reason">
                   <br /><small class="muted">Motivo: {{ req.reason }}</small>
                 </template>
@@ -220,7 +220,7 @@
             >
               <div>
                 {{ formatDate(req.startDate) }} - {{ formatDate(req.endDate) }}<br />
-                <small class="muted">{{ pluralizeDays(req.daysRequested || countBusinessDays(req.startDate, req.endDate)) }}</small>
+                <small class="muted">{{ formatDaysLabel(req) }}</small>
                 <template v-if="req.reason">
                   <br /><small class="muted">Motivo: {{ req.reason }}</small>
                 </template>
@@ -246,7 +246,7 @@
             <div v-for="req in latestRejected" :key="req._id" class="request-row">
               <div>
                 {{ formatDate(req.startDate) }} - {{ formatDate(req.endDate) }}<br />
-                <small class="muted">{{ pluralizeDays(req.daysRequested || countBusinessDays(req.startDate, req.endDate)) }}</small>
+                <small class="muted">{{ formatDaysLabel(req) }}</small>
                 <template v-if="req.rejectReason || req.reason">
                   <br />
                   <small class="muted">
@@ -269,6 +269,7 @@
       :start-date="selectedStart"
       :end-date="selectedEnd"
       :business-days="selectedBusinessDays"
+      :calendar-days="selectedCalendarDays"
       :remaining-days="Math.max(0, availableDays - selectedBusinessDays)"
       @confirm="submitVacationRequest"
       @cancel="handleDialogCancel"
@@ -304,7 +305,8 @@ type VacationRequest = {
   status: 'pending' | 'approved' | 'rejected' | 'cancelled'
   reason?: string
   rejectReason?: string
-  daysRequested?: number
+  daysRequested?: number     // hábiles
+  calendarDays?: number      // naturales ✅ NUEVO
   createdAt?: string
   updatedAt?: string
 }
@@ -433,7 +435,7 @@ function isWeekendYMD(ymd: string): boolean {
 const isHoliday = (dateStr: string) => holidaysSet.value.has(dateStr)
 const isFull = (dateStr: string) => (teamCountByDate.value[dateStr] ?? 0) >= MAX_PER_DAY
 const isUnavailable = (dateStr: string) => unavailable.value.includes(dateStr)
-const pluralizeDays = (n: number) => `${n} ${n === 1 ? 'día' : 'días'}`
+//const pluralizeDays = (n: number) => `${n} ${n === 1 ? 'día' : 'días'}`
 const formatDate = (iso: string) => dayjs(iso).format('DD/MM/YYYY')
 
 const today = computed(() => dayjs().startOf('day'))
@@ -449,6 +451,28 @@ function countBusinessDays(startISO: string, endISO: string): number {
     d = d.add(1, 'day')
   }
   return count
+}
+
+/** ✅ NUEVO: días naturales (incluye fines y festivos) */
+function countCalendarDays(startISO: string, endISO: string): number {
+  const s = dayjs(startISO).startOf('day')
+  const e = dayjs(endISO).startOf('day')
+  return e.diff(s, 'day') + 1
+}
+
+/** ✅ NUEVO: etiqueta UX: "2 días hábiles (4 naturales)" */
+function formatDaysLabel(req: VacationRequest): string {
+  const business = Number.isFinite(req.daysRequested) && (req.daysRequested as number) > 0
+    ? (req.daysRequested as number)
+    : countBusinessDays(req.startDate, req.endDate)
+
+  const calendar = Number.isFinite(req.calendarDays) && (req.calendarDays as number) > 0
+    ? (req.calendarDays as number)
+    : countCalendarDays(req.startDate, req.endDate)
+
+  const bLabel = `${business} ${business === 1 ? 'día' : 'días'} hábil${business === 1 ? '' : 'es'}`
+  const cLabel = `${calendar} ${calendar === 1 ? 'día' : 'días'} natural${calendar === 1 ? '' : 'es'}`
+  return `${bLabel} (${cLabel})`
 }
 
 function abbrevName(full: string): string {
@@ -516,6 +540,13 @@ const selectedBusinessDays = computed(() => {
   const start = selectedStart.value
   const end = selectedEnd.value ?? previewEnd.value
   return start && end ? countBusinessDays(start, end) : 0
+})
+
+/** ✅ NUEVO: naturales en selección (para diálogo) */
+const selectedCalendarDays = computed(() => {
+  const start = selectedStart.value
+  const end = selectedEnd.value ?? previewEnd.value
+  return start && end ? countCalendarDays(start, end) : 0
 })
 
 type CalendarDay = {

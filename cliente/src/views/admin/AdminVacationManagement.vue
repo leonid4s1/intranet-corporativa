@@ -48,9 +48,12 @@
                 </td>
                 <td>{{ formatDate(r.startDate) }} - {{ formatDate(r.endDate) }}</td>
                 <td class="wrap">{{ r.reason?.trim() || '—' }}</td>
+
+                <!-- ✅ CAMBIO: mostrar hábiles (naturales) -->
                 <td class="center">
-                  {{ r.daysRequested ?? spanDays(r.startDate, r.endDate) }}
+                  {{ formatDaysLabel(r) }}
                 </td>
+
                 <td>
                   <span class="badge warn">Pendiente</span>
                 </td>
@@ -325,7 +328,8 @@ interface VacationRequest {
   endDate: string; // YYYY-MM-DD
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   reason?: string;
-  daysRequested?: number;
+  daysRequested?: number;   // hábiles (normalmente viene del backend)
+  calendarDays?: number;    // ✅ naturales (opcional si backend lo manda)
 }
 
 /** Holiday del servicio */
@@ -351,7 +355,7 @@ const holidayModal = ref<{
   mode: 'create' | 'edit';
   loading: boolean;
   editId?: string | null;
-}>({
+} >({
   open: false,
   mode: 'create',
   loading: false,
@@ -416,6 +420,24 @@ function formatDate(ymd: string): string {
 function spanDays(start: string, end: string): number {
   return dayjs(end).diff(dayjs(start), 'day') + 1;
 }
+
+/** ✅ NUEVO: formatea: "X días hábiles (Y naturales)" */
+function formatDaysLabel(r: VacationRequest): string {
+  const business =
+    Number.isFinite(r.daysRequested) && (r.daysRequested as number) > 0
+      ? (r.daysRequested as number)
+      : spanDays(r.startDate, r.endDate); // fallback por si no viene (no ideal, pero evita vacío)
+
+  const calendar =
+    Number.isFinite(r.calendarDays) && (r.calendarDays as number) > 0
+      ? (r.calendarDays as number)
+      : spanDays(r.startDate, r.endDate);
+
+  const bLabel = `${business} ${business === 1 ? 'día' : 'días'} hábil${business === 1 ? '' : 'es'}`;
+  const cLabel = `${calendar} ${calendar === 1 ? 'día' : 'días'} natural${calendar === 1 ? '' : 'es'}`;
+  return `${bLabel} (${cLabel})`;
+}
+
 function getErrMsg(err: unknown): string {
   if (err instanceof Error) return err.message;
   try {

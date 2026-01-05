@@ -77,6 +77,11 @@ const calculateBusinessDaysUTC = (startUTC, endUTC, holidayList) => {
   return count;
 };
 
+// ✅ Ruta 2: días naturales (informativo)
+const calculateCalendarDaysUTC = (startUTC, endUTC) => {
+  return dayjs(endUTC).diff(dayjs(startUTC), 'day') + 1;
+};
+
 // ===========================
 //   Validación de rango
 // ===========================
@@ -302,19 +307,24 @@ export const getUserVacations = async (req, res, next) => {
         .lean(),
     ]);
 
-    const map = (v) => ({
-      _id: String(v._id),
-      id: String(v._id),
-      user: { id: String(v.user?._id || req.user.id), name: v.user?.name || '', email: v.user?.email || '' },
-      startDate: toYMDUTC(v.startDate),
-      endDate: toYMDUTC(v.endDate),
-      daysRequested: v.daysRequested,
-      status: v.status,
-      reason: v.reason || '',
-      rejectReason: v.rejectReason || '',
-      createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
-      updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
-    });
+    const map = (v) => {
+      const s = toDateUTC(v.startDate);
+      const e = toDateUTC(v.endDate);
+      return {
+        _id: String(v._id),
+        id: String(v._id),
+        user: { id: String(v.user?._id || req.user.id), name: v.user?.name || '', email: v.user?.email || '' },
+        startDate: toYMDUTC(v.startDate),
+        endDate: toYMDUTC(v.endDate),
+        daysRequested: v.daysRequested, // hábiles
+        calendarDays: v.calendarDays ?? calculateCalendarDaysUTC(s, e), // naturales
+        status: v.status,
+        reason: v.reason || '',
+        rejectReason: v.rejectReason || '',
+        createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
+        updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
+      };
+    };
 
     return res.json({
       success: true,
@@ -337,22 +347,27 @@ export const getPendingVacationRequests = async (_req, res, next) => {
       .sort({ startDate: 1 })
       .lean();
 
-    const data = pending.map(v => ({
-      id: String(v._id),
-      user: {
-        id: String(v.user?._id || v.user),
-        name: v.user?.name || '',
-        email: v.user?.email || '',
-      },
-      startDate: toYMDUTC(v.startDate),
-      endDate: toYMDUTC(v.endDate),
-      daysRequested: v.daysRequested,
-      status: v.status,
-      reason: v.reason || '',
-      rejectReason: v.rejectReason || '',
-      createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
-      updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
-    }));
+    const data = pending.map(v => {
+      const s = toDateUTC(v.startDate);
+      const e = toDateUTC(v.endDate);
+      return {
+        id: String(v._id),
+        user: {
+          id: String(v.user?._id || v.user),
+          name: v.user?.name || '',
+          email: v.user?.email || '',
+        },
+        startDate: toYMDUTC(v.startDate),
+        endDate: toYMDUTC(v.endDate),
+        daysRequested: v.daysRequested, // hábiles
+        calendarDays: v.calendarDays ?? calculateCalendarDaysUTC(s, e), // naturales
+        status: v.status,
+        reason: v.reason || '',
+        rejectReason: v.rejectReason || '',
+        createdAt: v.createdAt?.toISOString?.() || new Date().toISOString(),
+        updatedAt: v.updatedAt?.toISOString?.() || new Date().toISOString(),
+      };
+    });
 
     return res.json({ success: true, data });
   } catch (e) { next(e); }
@@ -514,6 +529,9 @@ export const requestVacation = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'El rango no contiene días hábiles' });
     }
 
+    // ✅ Ruta 2: naturales informativos
+    const calendarDays = calculateCalendarDaysUTC(startUTC, endUTC);
+
     // === LFT: pre-validación al crear ===
     const user = await User.findById(req.user.id).lean();
     if (!user) {
@@ -555,7 +573,8 @@ export const requestVacation = async (req, res, next) => {
       user: req.user.id,
       startDate: startUTC,
       endDate: endUTC,
-      daysRequested: business,
+      daysRequested: business,     // hábiles
+      calendarDays,                // naturales
       reason: reason || ''
     }], { session });
 
@@ -585,7 +604,8 @@ export const requestVacation = async (req, res, next) => {
         user: { id: String(req.user.id), name: req.user.name || '', email: req.user.email || '' },
         startDate: toYMDUTC(v.startDate),
         endDate: toYMDUTC(v.endDate),
-        daysRequested: v.daysRequested,
+        daysRequested: v.daysRequested,                 // hábiles
+        calendarDays: v.calendarDays ?? calendarDays,   // naturales
         status: v.status,
         reason: v.reason || '',
         rejectReason: v.rejectReason || '',
@@ -620,6 +640,10 @@ export const updateVacationRequestStatus = async (req, res, next) => {
 
     const uid = String(existing.user?._id || existing.user);
 
+    // ✅ Ruta 2: validar saldo en aprobación con DÍAS HÁBILES SIEMPRE
+    let computedBusinessDays = null;
+    let computedCalendarDays = null;
+
     if (status === 'approved') {
       if (!existing.user?.hireDate) {
         return res.status(400).json({
@@ -650,15 +674,23 @@ export const updateVacationRequestStatus = async (req, res, next) => {
 
       const startN = toDateUTC(existing.startDate);
       const endN = toDateUTC(existing.endDate);
-      const natural = dayjs(endN).diff(dayjs(startN), 'day') + 1;
-      const requestDays = Number.isFinite(existing.daysRequested) && existing.daysRequested > 0
-        ? existing.daysRequested
-        : Math.max(natural, 1);
 
-      if (used + requestDays > total) {
+      const hol = await getHolidayDatesInRange(startN, endN);
+      computedBusinessDays = calculateBusinessDaysUTC(startN, endN, hol);
+      computedCalendarDays = calculateCalendarDaysUTC(startN, endN);
+
+      if (computedBusinessDays < 1) {
         return res.status(422).json({
           success: false,
-          error: `No hay saldo suficiente en el ciclo vigente. Derecho: ${right} (+${adminExtra} extra), Usados: ${used}, Solicitud: ${requestDays}.`,
+          error: 'El rango no contiene días hábiles.',
+          code: 'NO_BUSINESS_DAYS',
+        });
+      }
+
+      if (used + computedBusinessDays > total) {
+        return res.status(422).json({
+          success: false,
+          error: `No hay saldo suficiente en el ciclo vigente. Derecho: ${right} (+${adminExtra} extra), Usados: ${used}, Solicitud: ${computedBusinessDays}.`,
           code: 'INSUFFICIENT_BALANCE',
         });
       }
@@ -670,6 +702,20 @@ export const updateVacationRequestStatus = async (req, res, next) => {
       processedAt: new Date(),
       rejectReason: status === 'approved' ? '' : undefined,
     };
+
+    // ✅ Ruta 2: al aprobar, normaliza daysRequested (hábiles) y calendarDays (naturales)
+    if (status === 'approved') {
+      // si por algún motivo no se calculó arriba (no debería), calcúlalo aquí
+      if (!Number.isFinite(computedBusinessDays) || computedBusinessDays <= 0) {
+        const startN = toDateUTC(existing.startDate);
+        const endN = toDateUTC(existing.endDate);
+        const hol = await getHolidayDatesInRange(startN, endN);
+        computedBusinessDays = calculateBusinessDaysUTC(startN, endN, hol);
+        computedCalendarDays = calculateCalendarDaysUTC(startN, endN);
+      }
+      update.daysRequested = computedBusinessDays;
+      update.calendarDays = computedCalendarDays;
+    }
 
     if (status === 'rejected') {
       const reason = (rejectReason || '').trim();
@@ -691,6 +737,8 @@ export const updateVacationRequestStatus = async (req, res, next) => {
     }
 
     const uidFinal = String(doc.user?._id || doc.user);
+    const sDoc = toDateUTC(doc.startDate);
+    const eDoc = toDateUTC(doc.endDate);
 
     res.json({
       success: true,
@@ -699,7 +747,8 @@ export const updateVacationRequestStatus = async (req, res, next) => {
         user: { id: uidFinal, name: doc.user?.name || '', email: doc.user?.email || '' },
         startDate: toYMDUTC(doc.startDate),
         endDate: toYMDUTC(doc.endDate),
-        daysRequested: doc.daysRequested,
+        daysRequested: doc.daysRequested, // hábiles
+        calendarDays: doc.calendarDays ?? calculateCalendarDaysUTC(sDoc, eDoc), // naturales
         status: doc.status,
         reason: doc.reason || '',
         rejectReason: doc.rejectReason || '',
@@ -739,12 +788,40 @@ export const updateVacationRequestStatus = async (req, res, next) => {
         const name = doc.user?.name || doc.userSnapshot?.name || '';
         const approverName = req.user?.name || req.user?.email || 'Recursos Humanos';
 
+        // ✅ Ruta 2: manda hábiles + naturales al servicio de correo
+        const startN = toDateUTC(doc.startDate);
+        const endN = toDateUTC(doc.endDate);
+        const calendarDays = doc.calendarDays ?? calculateCalendarDaysUTC(startN, endN);
+
+        let businessDays = Number(doc.daysRequested);
+        if (!Number.isFinite(businessDays) || businessDays <= 0) {
+          const hol = await getHolidayDatesInRange(startN, endN);
+          businessDays = calculateBusinessDaysUTC(startN, endN, hol);
+        }
+
         if (to) {
           if (status === 'approved') {
-            await sendVacationApprovedEmail({ to, name, startDate: doc.startDate, endDate: doc.endDate, approverName });
+            await sendVacationApprovedEmail({
+              to,
+              name,
+              startDate: doc.startDate,
+              endDate: doc.endDate,
+              approverName,
+              businessDays,
+              calendarDays,
+            });
             console.log('[vacations] Email de aprobación enviado a', to);
           } else if (status === 'rejected') {
-            await sendVacationRejectedEmail({ to, name, startDate: doc.startDate, endDate: doc.endDate, reason: doc.rejectReason || '', approverName });
+            await sendVacationRejectedEmail({
+              to,
+              name,
+              startDate: doc.startDate,
+              endDate: doc.endDate,
+              reason: doc.rejectReason || '',
+              approverName,
+              businessDays,
+              calendarDays,
+            });
             console.log('[vacations] Email de rechazo enviado a', to);
           }
         } else {
@@ -968,11 +1045,15 @@ export const getApprovedVacationsAdmin = async (req, res) => {
         ? (v.user.email ?? v.userSnapshot?.email ?? null)
         : (v.userSnapshot?.email ?? null);
 
+      const s = toDateUTC(v.startDate);
+      const e = toDateUTC(v.endDate);
+
       return {
         id: String(v._id),
         startDate: toYMDUTC(v.startDate),
         endDate: toYMDUTC(v.endDate),
-        totalDays: v.daysRequested,
+        totalDays: v.daysRequested, // hábiles (compat)
+        calendarDays: v.calendarDays ?? calculateCalendarDaysUTC(s, e), // naturales
         displayName,
         displayEmail,
         userStatus: status,

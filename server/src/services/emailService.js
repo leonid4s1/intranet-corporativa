@@ -13,14 +13,17 @@ const {
 
 /* ───────────────────────────────────────────────────────────── */
 
+let cachedTransport = null;
+
 function createTransport() {
   const port = Number(SMTP_PORT || 587);
+  const is465 = port === 465;
 
   return nodemailer.createTransport({
     host: SMTP_HOST,
     port,
-    secure: false, // 587 + STARTTLS
-    requireTLS: true,
+    secure: is465,      // 465 = TLS directo
+    requireTLS: !is465, // 587 = STARTTLS
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS,
@@ -29,6 +32,11 @@ function createTransport() {
     greetingTimeout: 30000,
     socketTimeout: 45000,
   });
+}
+
+function getTransport() {
+  if (!cachedTransport) cachedTransport = createTransport();
+  return cachedTransport;
 }
 
 async function sendWithTimeout(promise, ms) {
@@ -41,7 +49,7 @@ async function sendWithTimeout(promise, ms) {
 }
 
 /* ───────────────────────────────────────────────────────────── */
-/* Helpers anti-spam */
+/* Helpers anti-spam + seguridad */
 
 function normalizeFrom(from) {
   if (from && from.includes("<") && from.includes(">")) return from;
@@ -59,6 +67,16 @@ function htmlToText(html = "") {
     .trim();
 }
 
+/** Escapa texto para insertarlo en HTML sin romper el markup */
+function escapeHtml(input) {
+  return String(input ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 /* ───────────────────────────────────────────────────────────── */
 
 export async function verifyEmailTransport() {
@@ -67,12 +85,13 @@ export async function verifyEmailTransport() {
       console.error("[email] faltan SMTP_USER/SMTP_PASS");
       return false;
     }
-    const tx = createTransport();
+    const tx = getTransport();
     await tx.verify();
     console.log(`[email] SMTP listo (${SMTP_HOST}:${SMTP_PORT})`);
     return true;
   } catch (e) {
     console.error("[email] SMTP verify falló:", e?.message || e);
+    cachedTransport = null; // si quedó en mal estado
     return false;
   }
 }
@@ -87,7 +106,7 @@ export async function sendMailSafe(mail, timeoutMs = 45000) {
   }
 
   try {
-    const tx = createTransport();
+    const tx = getTransport();
 
     const from = normalizeFrom(mail.from);
     const text = mail.text || (mail.html ? htmlToText(mail.html) : undefined);
@@ -118,6 +137,7 @@ export async function sendMailSafe(mail, timeoutMs = 45000) {
     return { ok: true, messageId: info?.messageId || null };
   } catch (e) {
     console.error("[email] SMTP fallo:", e?.message || e);
+    cachedTransport = null; // si se rompió (red/timeout), regenerarlo después
     return { ok: false, error: e?.message || String(e) };
   }
 }
@@ -125,10 +145,13 @@ export async function sendMailSafe(mail, timeoutMs = 45000) {
 /* ───────────────────────────────────────────────────────────── */
 
 export async function sendVerificationEmail({ to, name, link }) {
+  const safeName = escapeHtml(name);
+  const safeLink = escapeHtml(link);
+
   const html = `
-    <p>Hola ${name ?? ""},</p>
+    <p>Hola ${safeName},</p>
     <p>Haz clic para verificar tu correo:</p>
-    <p><a href="${link}">${link}</a></p>
+    <p><a href="${safeLink}">${safeLink}</a></p>
     <p style="color:#718096;font-size:12px">
       Si no solicitaste este correo, puedes ignorarlo.
     </p>
@@ -147,23 +170,45 @@ const fmtMX = (date) =>
     timeZone: "America/Mexico_City",
   });
 
+const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+
 export async function sendVacationApprovedEmail({
   to,
   name,
   startDate,
   endDate,
   approverName,
+  businessDays, // opcional
+  calendarDays, // opcional
 }) {
   const subject = "✅ Vacaciones aprobadas";
+
+  const safeName = escapeHtml(name);
+  const safeApprover = escapeHtml(approverName || "Recursos Humanos");
+
+  const daysLine =
+    Number.isFinite(businessDays) && businessDays > 0
+      ? `<p><strong>Días:</strong> ${plural(
+          businessDays,
+          "día hábil",
+          "días hábiles"
+        )}${
+          Number.isFinite(calendarDays) && calendarDays > 0
+            ? ` (${plural(calendarDays, "día natural", "días naturales")})`
+            : ""
+        }</p>`
+      : "";
+
   const html = `
     <div style="font-family:system-ui,Segoe UI,Arial">
       <h2>Vacaciones aprobadas</h2>
-      <p>Hola <strong>${name ?? ""}</strong>,</p>
+      <p>Hola <strong>${safeName}</strong>,</p>
       <p>Tu solicitud fue <strong>APROBADA</strong>.</p>
       <p><strong>Fechas:</strong><br>
         ${fmtMX(startDate)} — ${fmtMX(endDate)}
       </p>
-      <p>Aprobado por: ${approverName || "Recursos Humanos"}</p>
+      ${daysLine}
+      <p>Aprobado por: ${safeApprover}</p>
     </div>
   `;
   return sendMailSafe({ to, subject, html });
@@ -176,18 +221,39 @@ export async function sendVacationRejectedEmail({
   endDate,
   reason,
   approverName,
+  businessDays, // opcional
+  calendarDays, // opcional
 }) {
   const subject = "❌ Vacaciones rechazadas";
+
+  const safeName = escapeHtml(name);
+  const safeApprover = escapeHtml(approverName || "Recursos Humanos");
+  const safeReason = escapeHtml(reason || "No especificado");
+
+  const daysLine =
+    Number.isFinite(businessDays) && businessDays > 0
+      ? `<p><strong>Días:</strong> ${plural(
+          businessDays,
+          "día hábil",
+          "días hábiles"
+        )}${
+          Number.isFinite(calendarDays) && calendarDays > 0
+            ? ` (${plural(calendarDays, "día natural", "días naturales")})`
+            : ""
+        }</p>`
+      : "";
+
   const html = `
     <div style="font-family:system-ui,Segoe UI,Arial">
       <h2>Vacaciones rechazadas</h2>
-      <p>Hola <strong>${name ?? ""}</strong>,</p>
+      <p>Hola <strong>${safeName}</strong>,</p>
       <p>Tu solicitud fue <strong>RECHAZADA</strong>.</p>
       <p><strong>Fechas:</strong><br>
         ${fmtMX(startDate)} — ${fmtMX(endDate)}
       </p>
-      <p><strong>Motivo:</strong> ${reason || "No especificado"}</p>
-      <p>Revisado por: ${approverName || "Recursos Humanos"}</p>
+      ${daysLine}
+      <p><strong>Motivo:</strong> ${safeReason}</p>
+      <p>Revisado por: ${safeApprover}</p>
     </div>
   `;
   return sendMailSafe({ to, subject, html });
