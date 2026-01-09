@@ -49,10 +49,10 @@
           v-if="item.enabled"
           :to="item.to"
           class="side-link"
-          :class="{ active: route.path === item.to }"
+          :class="{ active: route.path.startsWith(item.to) }"
+          :aria-current="route.path.startsWith(item.to) ? 'page' : undefined"
           :title="collapsed ? item.label : ''"
           @click="onNavClick"
-          :aria-current="route.path === item.to ? 'page' : undefined"
         >
           <span class="ico" aria-hidden="true">{{ item.emoji }}</span>
           <span class="lbl" v-if="!collapsed">{{ item.label }}</span>
@@ -131,12 +131,18 @@ const brandTitle = 'Ir a inicio';
  * Solo habilitados: /home, /vacaciones, /account/password
  */
 const items = computed(() => {
-  const enabledSet = new Set(['/home', '/vacaciones', '/account/password', '/documentacion']);
+  const enabledSet = new Set([
+    '/home',
+    '/vacaciones',
+    '/account/password',
+    '/documentacion',
+    '/roles-funciones',
+  ])
 
   const base = [
     { to: '/home',              label: 'Inicio',             emoji: '🏠' },
     { to: '/dashboard',         label: 'Dashboard',          emoji: '📊' },
-    { to: '/roles',             label: 'Roles y Funciones',  emoji: '👥' },
+    { to: '/roles-funciones',   label: 'Roles y Funciones',  emoji: '👥' },
     { to: '/documentacion',     label: 'Documentación',      emoji: '📄' },
     { to: '/formatos',          label: 'Formatos',           emoji: '🗂️' },
     { to: '/vacaciones',        label: 'Vacaciones',         emoji: '📅' },

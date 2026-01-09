@@ -67,6 +67,17 @@ const UserSchema = new mongoose.Schema({
     default: null
   }, // puesto
 
+  // ===============================
+  // 👇 NUEVO: Rol/Perfil (Roles y Funciones)
+  // ===============================
+  roleKey: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    match: [/^[a-z0-9_]+$/, 'roleKey inválido (solo a-z 0-9 y _)'],
+    default: null
+  },
+
   refreshToken: {
     type: String,
     select: false
@@ -125,7 +136,7 @@ const UserSchema = new mongoose.Schema({
       },
       set: clampInt
     },
-    // 👇 NUEVO: Bono administrado por el admin (no negativo)
+    // 👇 Bono administrado por el admin (no negativo)
     adminExtra: {
       type: Number,
       default: 0,
@@ -165,6 +176,7 @@ UserSchema.index({ isVerified: 1 });
 // (opcionales, útiles para reportes/listados)
 UserSchema.index({ hireDate: 1 });
 UserSchema.index({ position: 1 });
+UserSchema.index({ roleKey: 1 });
 
 /* ================================
  *  Virtuales
@@ -192,14 +204,18 @@ UserSchema.virtual('profile').get(function () {
     birthDate: this.birthDate,
     hireDate: this.hireDate,
     position: this.position,
+    roleKey: this.roleKey,
     createdAt: this.createdAt
   };
 });
 
-// Virtual: dias de vacaciones restantes
+// Virtual: dias de vacaciones restantes (incluye adminExtra)
 UserSchema.virtual('vacationDays.remaining').get(function () {
   if (!this.vacationDays) return 0;
-  return Math.max(0, (this.vacationDays.total ?? 0) - (this.vacationDays.used ?? 0));
+  return Math.max(
+    0,
+    (this.vacationDays.total ?? 0) + (this.vacationDays.adminExtra ?? 0) - (this.vacationDays.used ?? 0)
+  );
 });
 
 /* ================================
@@ -276,12 +292,21 @@ UserSchema.methods.resetLoginAttempts = async function () {
   await this.save();
 };
 
-UserSchema.methods = {
-  ...UserSchema.methods,
+// helper para asegurar estructura vacationDays
+function ensureVacationDays(doc) {
+  doc.vacationDays ??= {};
+  doc.vacationDays.total = clampInt(doc.vacationDays.total ?? 0);
+  doc.vacationDays.used = clampInt(doc.vacationDays.used ?? 0);
+  doc.vacationDays.adminExtra = clampInt(doc.vacationDays.adminExtra ?? 0);
+  doc.vacationDays.lastUpdate ??= new Date();
+}
+
+Object.assign(UserSchema.methods, {
 
   // Metodo para añadir dias de vacaciones
   async addVacationDays(days) {
     if (days <= 0) throw new Error('Debe añadir al menos 1 dia');
+    ensureVacationDays(this);
 
     this.vacationDays.total = clampInt((this.vacationDays.total ?? 0) + days);
     this.vacationDays.lastUpdate = new Date();
@@ -290,10 +315,16 @@ UserSchema.methods = {
     return this;
   },
 
-  // Metodo para usar dias de vacaciones
+  // Metodo para usar dias de vacaciones (incluye adminExtra)
   async useVacationDays(days) {
     if (days <= 0) throw new Error('Debe usar al menos 1 dia');
-    const remaining = Math.max(0, (this.vacationDays.total ?? 0) - (this.vacationDays.used ?? 0));
+    ensureVacationDays(this);
+
+    const remaining = Math.max(
+      0,
+      (this.vacationDays.total ?? 0) + (this.vacationDays.adminExtra ?? 0) - (this.vacationDays.used ?? 0)
+    );
+
     if (remaining < days) {
       throw new Error('No tiene suficientes dias disponibles');
     }
@@ -307,6 +338,8 @@ UserSchema.methods = {
 
   // Metodo para resetear dias de vacaciones
   async resetVacationDays() {
+    ensureVacationDays(this);
+
     this.vacationDays.total = 0;
     this.vacationDays.used = 0;
     this.vacationDays.adminExtra = 0;
@@ -319,6 +352,8 @@ UserSchema.methods = {
   // Metodo para establecer dias totales
   async setVacationDays(totalDays) {
     if (totalDays < 0) throw new Error('Los dias no pueden ser negativos');
+    ensureVacationDays(this);
+
     if (totalDays < (this.vacationDays.used ?? 0)) {
       throw new Error('Los dias totales no pueden ser menores a los dias usados');
     }
@@ -329,7 +364,7 @@ UserSchema.methods = {
 
     return this;
   }
-};
+});
 
 // Métodos estáticos
 UserSchema.statics.findByRefreshToken = async function (refreshToken) {

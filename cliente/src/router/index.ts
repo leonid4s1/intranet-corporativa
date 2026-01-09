@@ -27,6 +27,8 @@ const ForbiddenView           = () => import('@/views/errors/ForbiddenView.vue')
 const NotFoundView            = () => import('@/views/errors/NotFoundView.vue')
 
 const DocumentationView       = () => import('@/views/user/DocumentationView.vue')
+const RolesFuncionesView      = () => import('@/views/user/RolesFuncionesView.vue')
+
 
 const routes: Array<RouteRecordRaw> = [
   // Públicas (solo invitados)
@@ -96,6 +98,13 @@ const routes: Array<RouteRecordRaw> = [
         name: 'documentation',
         component: DocumentationView,
         meta: { title: 'Documentación' },
+      },
+
+      {
+      path: 'roles-funciones',
+        name: 'roles-funciones',
+        component: RolesFuncionesView,
+        meta: { title: 'Roles y funciones' },
       },
       // { path: 'formatos', name: 'formatos', component: () => import('@/views/Formats.vue'), meta: { title: 'Formatos' } },
     ],

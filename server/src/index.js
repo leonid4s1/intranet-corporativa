@@ -19,17 +19,15 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { verifyEmailTransport } from './services/emailService.js'
 import cron from 'node-cron'
-
 // ⬇️ IMPORTS ACTUALIZADOS (correos de cumpleaños y festivos)
 import {
   sendBirthdayEmailsIfDue,
   sendBirthdayDigestToAllIfDue,
   checkAllUpcomingHolidays,
 } from './services/notificationService.js'
-
 import schedule from 'node-schedule' // job de festivos
-
 import docsRoutes from './routes/docs.js' // Import documentos
+import rolesProfileRoutes from './routes/rolesProfile.js';
 
 dotenv.config()
 
@@ -239,6 +237,7 @@ app.use('/api/tasks', tasksRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/vacations', vacationRoutes)
 app.use('/api/docs', docsRoutes)
+app.use('/api/roles-profile', rolesProfileRoutes);
 
 /** 404 para endpoints API no existentes (antes del error handler) */
 app.use('/api/*', (_req, res) => {
