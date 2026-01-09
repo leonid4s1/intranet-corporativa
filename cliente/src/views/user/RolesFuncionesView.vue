@@ -118,6 +118,7 @@ function clampPct(n: unknown) {
 async function load() {
   loading.value = true
   error.value = null
+  role.value = null
 
   try {
     role.value = await getMyRoleProfile()
@@ -127,21 +128,37 @@ async function load() {
     if (typeof e === 'object' && e !== null) {
       const err = e as {
         response?: {
+          status?: number
           data?: {
             message?: string
-          error?: string
+            error?: string
+          }
         }
+      }
+
+      const serverMsg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        ''
+
+      // ✅ Caso esperado: aún no asignado
+      if (err.response?.status === 404 && serverMsg.includes('no tiene un rol asignado')) {
+        msg = 'Aún no tienes un rol asignado. Solicita al administrador que te lo asigne.'
+      }
+      // (opcional) existe roleKey pero no hay RoleProfile
+      else if (err.response?.status === 404 && serverMsg.includes('No existe perfil de rol')) {
+        msg = 'Tu rol está asignado, pero aún no hay información cargada para mostrar.'
+      }
+      // otros errores
+      else if (serverMsg) {
+        msg = serverMsg
       }
     }
 
-    msg =
-      err.response?.data?.message ||
-      err.response?.data?.error ||
-      msg
+    error.value = msg
+  } finally {
+    loading.value = false
   }
-
-  error.value = msg
-}
 }
 
 onMounted(load)
